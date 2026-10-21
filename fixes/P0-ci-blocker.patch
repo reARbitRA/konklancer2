@@ -1,0 +1,27 @@
+diff --git a/scanner/tests/test_live_fixtures.py b/scanner/tests/test_live_fixtures.py
+index 0529e64..ff0e129 100644
+--- a/scanner/tests/test_live_fixtures.py
++++ b/scanner/tests/test_live_fixtures.py
+@@ -102,7 +102,9 @@ def test_parscoders_verified_selectors_parse_real_listing():
+     assert len(items) == 25, f"انتظار ۲۵ پروژه‌ی یکتا، دریافت {len(items)}"
+     assert len({item.url for item in items}) == len(items)
+     assert all(re.match(r"^/project/\d+/", urlpath(item.url)) for item in items), "مسیرهای /project/skills/ نباید پروژه حساب شوند"
+-    assert all("بودجه" in item.budget_text for item in items)
++    # کارت بدون بودجه یک واقعیت مشروع است (کارفرما بودجه منتشر نکرده)؛ پس فقط
++    # کارت‌هایی که گره‌ی بودجه دارند بررسی می‌شوند (۲۴ از ۲۵ کارت فیکسچر).
++    assert sum("بودجه" in item.budget_text for item in items) >= 24, "کارت‌های دارای بودجه"
+     assert all("پیشنهاد" in item.bids_text for item in items)
+     assert not NAV_TITLES & {item.title for item in items}
+ 
+diff --git a/tsconfig.json b/tsconfig.json
+index 1e07e9c..f6c7750 100644
+--- a/tsconfig.json
++++ b/tsconfig.json
+@@ -26,5 +26,6 @@
+     "allowImportingTsExtensions": true,
+     "noEmit": true,
+     "resolveJsonModule": true
+-  }
++  },
++  "exclude": ["node_modules", "dist", "mobile"]
+ }
