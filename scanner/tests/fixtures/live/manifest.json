@@ -1,0 +1,68 @@
+{
+  "parscoders": {
+    "url": "https://parscoders.com/project/only-available",
+    "ok": true,
+    "raw_chars": 677060,
+    "kept_chars": 624903,
+    "gz_bytes": 57132,
+    "sha256_kept": "d5a0930938a2bbcd",
+    "captured_at": "2026-10-13T14:26:02+00:00"
+  },
+  "ponisha": {
+    "url": "https://ponisha.ir/projects",
+    "ok": false,
+    "error": "خطای HTTP: Client error '404 Not Found' for url 'https://ponisha.ir/projects'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+    "captured_at": "2026-10-13T14:26:03+00:00"
+  },
+  "karlancer": {
+    "url": "https://www.karlancer.com/projects",
+    "ok": false,
+    "error": "خطای HTTP: Client error '404 Not Found' for url 'https://www.karlancer.com/projects'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+    "captured_at": "2026-10-13T14:26:05+00:00"
+  },
+  "telegram-workarc": {
+    "url": "https://t.me/s/workarc",
+    "ok": true,
+    "raw_chars": 137221,
+    "kept_chars": 128903,
+    "gz_bytes": 19264,
+    "sha256_kept": "73314a61b4076550",
+    "captured_at": "2026-10-13T14:26:11+00:00"
+  },
+  "telegram-freelancer_projects": {
+    "url": "https://t.me/s/freelancer_projects",
+    "ok": true,
+    "raw_chars": 110857,
+    "kept_chars": 102539,
+    "gz_bytes": 10524,
+    "sha256_kept": "236b3c6354321e38",
+    "captured_at": "2026-10-13T14:26:19+00:00"
+  },
+  "telegram-freelancer_sent": {
+    "url": "https://t.me/s/freelancer_sent",
+    "ok": true,
+    "raw_chars": 134066,
+    "kept_chars": 125748,
+    "gz_bytes": 17793,
+    "sha256_kept": "f36fdd7eec07d19a",
+    "captured_at": "2026-10-13T14:26:27+00:00"
+  },
+  "telegram-iranfiverr": {
+    "url": "https://t.me/s/iranfiverr",
+    "ok": true,
+    "raw_chars": 142972,
+    "kept_chars": 134654,
+    "gz_bytes": 25718,
+    "sha256_kept": "cc7d917ecb9d3428",
+    "captured_at": "2026-10-13T14:26:36+00:00"
+  },
+  "project-only-available": {
+    "url": "https://parscoders.com/project/only-available",
+    "ok": true,
+    "raw_chars": 677080,
+    "kept_chars": 624903,
+    "gz_bytes": 57144,
+    "sha256_kept": "9e1da96bfdb3053c",
+    "captured_at": "2026-10-13T14:26:10+00:00"
+  }
+}

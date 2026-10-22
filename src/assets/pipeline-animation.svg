@@ -1,0 +1,20 @@
+<svg width="600" height="150" viewBox="0 0 600 150" xmlns="http://www.w3.org/2000/svg">
+  <!-- Nodes -->
+  <circle cx="50" cy="75" r="20" fill="#3B82F6" />
+  <text x="50" y="120" text-anchor="middle" font-family="Arial" font-size="12" fill="#9CA3AF">Status Change</text>
+  
+  <rect x="225" y="65" width="150" height="20" rx="5" fill="#1F2937" stroke="#4B5563" />
+  <text x="300" y="55" text-anchor="middle" font-family="Arial" font-size="12" fill="#9CA3AF">GitHub Init</text>
+
+  <circle cx="550" cy="75" r="20" fill="#10B981" />
+  <text x="550" y="120" text-anchor="middle" font-family="Arial" font-size="12" fill="#9CA3AF">Repo Ready</text>
+
+  <!-- Animated Pipeline -->
+  <path d="M70 75 L225 75 M375 75 L530 75" stroke="#4B5563" stroke-width="4" stroke-dasharray="8 4" />
+  
+  <!-- Data Packet -->
+  <rect x="50" y="65" width="20" height="20" fill="#F3F4F6" rx="2">
+    <animateMotion path="M0 0 L500 0" dur="3s" repeatCount="indefinite" />
+    <animate attributeName="fill" values="#F3F4F6;#10B981;#F3F4F6" dur="3s" repeatCount="indefinite" />
+  </rect>
+</svg>

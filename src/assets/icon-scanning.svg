@@ -1,0 +1,9 @@
+<!-- AI Scanning Icon -->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <path d="M10 20 L54 20 M10 32 L54 32 M10 44 L54 44" stroke="#9333EA" stroke-width="4" stroke-linecap="round">
+    <animate attributeName="stroke-dasharray" values="0,64;64,0" dur="2s" repeatCount="indefinite" />
+  </path>
+  <circle cx="32" cy="32" r="12" stroke="#9333EA" stroke-width="4" fill="none">
+    <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="4s" repeatCount="indefinite" />
+  </circle>
+</svg>
