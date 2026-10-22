@@ -1,7 +1,8 @@
 import bundledCloudFeedRaw from '../../scanner/cloud-feed.jsonl?raw';
 import { FreelanceJob } from '../types';
 import { categoryAiFit, categoryLabel, CATEGORY_KEYS, detectCategory } from '../../shared/taxonomy';
-import { isNativeAndroidApp } from './browserLLM';
+import { isNativeAndroidApp, isStandaloneClientMode } from './browserLLM';
+import { fetchPageViaCloudRelay, readCloudSyncedRows, upsertCloudSyncedRows } from './cloudRelay';
 
 export interface RawScannedRow {
   id: string;
@@ -230,11 +231,17 @@ function readLocalSavedRows(): RawScannedRow[] {
   }
 }
 
-function saveLocalRows(newRows: RawScannedRow[]): RawScannedRow[] {
+function isStaleHistoricalRow(r: RawScannedRow): boolean {
+  const ageTxt = `${r.bids_text || ''} ${r.posted_text || ''}`;
+  if (ageTxt.includes('سال پیش') || ageTxt.includes('ماه پیش')) return true;
+  if (/^202[0-5]-/.test(String(r.posted_text || '').trim())) return true;
+  return false;
+}
+
+function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = []): RawScannedRow[] {
   const mergedMap = new Map<string, RawScannedRow>();
-  for (const r of [...parseJsonlRows(bundledCloudFeedRaw), ...readLocalSavedRows(), ...newRows]) {
-    const ageTxt = `${r.bids_text || ''} ${r.posted_text || ''}`;
-    if (ageTxt.includes('سال پیش') || ageTxt.includes('ماه پیش')) continue;
+  for (const r of [...parseJsonlRows(bundledCloudFeedRaw), ...readLocalSavedRows(), ...cloudRows, ...newRows]) {
+    if (!r || !r.id || isStaleHistoricalRow(r)) continue;
     mergedMap.set(r.id, r);
   }
   const all = [...mergedMap.values()].slice(-500);
@@ -333,33 +340,56 @@ export function parsePlatformHtmlClient(html: string, source: string, baseUrl: s
   return out;
 }
 
-/** بارگذاری اولیه فید: ابتدا سرور محلی اگر فعال باشد، و در APK اندروید یا حالت استاتیک از فید تعبیه‌شده + اسکن محلی */
+/** واکشی هوشمند HTML: در اندروید ابتدا مستقیم (مناسب پونیشا/کارلنسر/پارس‌کدرز با اینترنت ایران) و در صورت خطا یا حالت مرورگر از رله کلاد آمریکا بدون CORS */
+export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
+  if (isNativeAndroidApp() && !targetUrl.includes('t.me/') && !targetUrl.includes('telegram.me/')) {
+    try {
+      const res = await fetch(targetUrl, {
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      });
+      if (res.ok) {
+        const txt = await res.text();
+        if (txt && txt.length > 500) return txt;
+      }
+    } catch {
+      // fall back to cloud relay
+    }
+  }
+  const cloud = await fetchPageViaCloudRelay(targetUrl);
+  return cloud.html || '';
+}
+
+/** بارگذاری اولیه فید: ترکیب فوری فید تعبیه‌شده + مخزن ابری زنده Supabase (بدون نیاز به سرور یا توکن) */
 export async function loadInitialFeedUnified(): Promise<{
   jobs: FreelanceJob[];
   source: 'scanner';
   scannedAt: string | null;
   scannedProjects: number;
 }> {
-  if (!isNativeAndroidApp()) {
+  if (!isStandaloneClientMode()) {
     try {
       const res = await fetch('/api/jobs');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data?.jobs) && data.jobs.length > 0) {
-          return {
-            jobs: data.jobs,
-            source: 'scanner',
-            scannedAt: data.scannedAt ?? null,
-            scannedProjects: data.scannedProjects ?? data.jobs.length,
-          };
+          const freshOnly = data.jobs.filter((j: FreelanceJob) => !/^202[0-5]-/.test(String(j.postedTime || '')));
+          if (freshOnly.length > 0) {
+            return {
+              jobs: freshOnly,
+              source: 'scanner',
+              scannedAt: data.scannedAt ?? null,
+              scannedProjects: freshOnly.length,
+            };
+          }
         }
       }
     } catch {
-      // Static / APK standalone mode — fall through to embedded + local feed
+      // Fall through to standalone + cloud feed
     }
   }
 
-  const allRows = saveLocalRows([]);
+  const cloudRows = await readCloudSyncedRows<RawScannedRow>();
+  const allRows = saveLocalRows([], cloudRows);
   const { jobs, scannedAt } = buildJobsFromRows(allRows);
   return {
     jobs,
@@ -370,55 +400,59 @@ export async function loadInitialFeedUnified(): Promise<{
 }
 
 /**
- * اسکن مستقیم زنده روی خود تبلت اندروید (از طریق CapacitorHttp بدون هیچ سرور واسطه و بدون محدودیت CORS)
+ * اسکن زنده در همه محیط‌ها (مرورگر کروم، فایل HTML مستقل تبلت، پیش‌نمایش زنده، و APK اندروید)
  */
 export async function runDirectTabletLiveScan(
   onProgress?: (msg: string) => void,
 ): Promise<{ ok: boolean; added: number; total: number; jobs: FreelanceJob[]; scannedAt: string | null; summary: string }> {
   const targets = [
     { source: 'parscoders', label: 'پارس‌کدرز', url: 'https://parscoders.com/project/only-available' },
+    { source: 'telegram:workarc', label: 'تلگرام @workarc', url: 'https://telegram.me/s/workarc' },
     { source: 'ponisha', label: 'پونیشا', url: 'https://ponisha.ir/search/projects' },
     { source: 'karlancer', label: 'کارلانسر', url: 'https://www.karlancer.com/search' },
-    { source: 'telegram:workarc', label: 'تلگرام @workarc', url: 'https://t.me/s/workarc' },
-    { source: 'telegram:freelancer_projects', label: 'تلگرام @freelancer_projects', url: 'https://t.me/s/freelancer_projects' },
   ];
 
   const beforeIds = new Set(saveLocalRows([]).map((r) => r.id));
+  onProgress?.('در حال همگام‌سازی مخزن ابری و اسکن زنده پلتفرم‌ها...');
+
+  const [cloudRows, ...htmlPages] = await Promise.all([
+    readCloudSyncedRows<RawScannedRow>(),
+    ...targets.map((t) => fetchHtmlSmart(t.url)),
+  ]);
+
   const collected: RawScannedRow[] = [];
   const stats: string[] = [];
 
-  for (const t of targets) {
-    try {
-      onProgress?.(`در حال دریافت زنده از ${t.label}...`);
-      const res = await fetch(t.url, {
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      });
-      if (!res.ok) {
-        stats.push(`${t.label}: HTTP ${res.status}`);
-        continue;
+  targets.forEach((t, idx) => {
+    const html = htmlPages[idx] || '';
+    if (!html) {
+      if (t.source === 'ponisha' || t.source === 'karlancer') {
+        stats.push(`${t.label}: همگام از کلاد`);
       }
-      const html = await res.text();
-      const parsed = parsePlatformHtmlClient(html, t.source, t.url);
-      collected.push(...parsed);
-      stats.push(`${t.label}: ${parsed.length} پروژه`);
-    } catch {
-      stats.push(`${t.label}: عدم دسترسی شبکه`);
+      return;
     }
+    const parsed = parsePlatformHtmlClient(html, t.source, t.url);
+    collected.push(...parsed);
+    if (parsed.length > 0) {
+      stats.push(`${t.label}: ${parsed.length} زنده`);
+    }
+  });
+
+  if (collected.length > 0) {
+    upsertCloudSyncedRows(collected);
   }
 
-  const merged = saveLocalRows(collected);
+  const merged = saveLocalRows(collected, cloudRows);
   const added = merged.filter((r) => !beforeIds.has(r.id)).length;
   const { jobs, scannedAt } = buildJobsFromRows(merged);
 
   return {
-    ok: collected.length > 0,
+    ok: merged.length > 0,
     added,
     total: merged.length,
     jobs,
-    scannedAt,
-    summary: stats.join(' · '),
+    scannedAt: new Date().toISOString(),
+    summary: stats.length ? stats.join(' · ') : `${merged.length} پروژه فعال`,
   };
 }
 

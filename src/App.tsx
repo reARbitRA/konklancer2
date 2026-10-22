@@ -22,7 +22,7 @@ import { FreelanceJob, AIAnalysis, ActivityLogItem, UserSettings, PriorityLevel 
 import { categorizeJobWithGemini } from './utils/geminiCategorizer';
 import { categoryLabel, detectCategory } from '../shared/taxonomy';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
-import { isNativeAndroidApp } from './services/browserLLM';
+import { isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
 import {
   loadInitialFeedUnified,
   runDirectTabletLiveScan,
@@ -206,7 +206,11 @@ export default function App() {
 
   // Sync state to localStorage (keeping githubToken exclusively in sessionStorage per SPEC-003 R2)
   useEffect(() => {
-    localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
+    try {
+      localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
+    } catch {
+      // ignore storage errors on restricted local protocols
+    }
   }, [jobs]);
 
   useEffect(() => {
@@ -397,9 +401,9 @@ export default function App() {
     }
   }, [refreshCloudStatus, handleSyncCloudFeed]);
 
-  // Robust Socket.io Client Setup (skipped cleanly in standalone Android APK mode so zero red disconnect banners show)
+  // Robust Socket.io Client Setup (skipped cleanly in standalone HTML / Android APK mode)
   useEffect(() => {
-    if (isNativeAndroidApp()) {
+    if (isStandaloneClientMode()) {
       setSocketConnected(true);
       setSocketError(null);
       return;
@@ -407,43 +411,33 @@ export default function App() {
     const socket: Socket = io({
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 30, // 30 automatic retries
-      reconnectionDelay: 1000,   // Initial 1s delay
-      reconnectionDelayMax: 5000,// Maximum 5s backoff cap
-      randomizationFactor: 0.5,  // Jitter factor to avoid thundering herds
-      timeout: 10000,            // 10s connection timeout
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1500,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
+      timeout: 8000,
     });
 
     socket.on('connect', () => {
       setSocketConnected(true);
-      setSocketError(null); // Clear persistent error banner on successful connection
+      setSocketError(null);
       setIsReconnecting(false);
-      addLog('اتصال زنده وب‌سوکت Socket.io با بریج دریافت پروژه‌ها با موفقیت برقرار شد.', 'scan');
+      addLog('اتصال زنده وب‌سوکت Socket.io برقرار شد.', 'scan');
     });
 
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', () => {
       setSocketConnected(false);
-      if (reason === 'io server disconnect') {
-        // The server forcefully disconnected; reconnect manually
-        socket.connect();
-      }
-      addLog(`ارتباط وب‌سوکت قطع شد (${reason})، در حال تلاش برای اتصال مجدد...`, 'scan');
     });
 
-    // Persistent Error & Connect Error Handlers
-    socket.on('connect_error', (err) => {
+    socket.on('connect_error', () => {
       setSocketConnected(false);
-      setIsReconnecting(true);
-      const errMsg = `خطای اتصال به بریج وب‌سوکت: ${err.message || 'شبکه در دسترس نیست'}.`;
-      setSocketError(errMsg);
-      addLog(errMsg, 'scan');
+      setIsReconnecting(false);
+      setSocketError(null);
     });
 
-    socket.on('error', (err: any) => {
+    socket.on('error', () => {
       setSocketConnected(false);
-      const errMsg = typeof err === 'string' ? err : err?.message || 'خطای سوکت رخ داده است.';
-      setSocketError(`خطای وب‌سوکت: ${errMsg}`);
-      addLog(`خطای سیستمی وب‌سوکت: ${errMsg}`, 'scan');
+      setSocketError(null);
     });
 
     socket.on('reconnect_attempt', (attemptNumber) => {
@@ -552,76 +546,23 @@ export default function App() {
     }
   };
 
-  // Real-time scan trigger (uses native direct scraper on Android tablet APK, or Socket/HTTP bridge on web)
+  // Unified live scan across Cloud Relay + Native Android HTTP in every mode
   const handleQuickScan = async () => {
-    if (isNativeAndroidApp()) {
-      setIsScanning(true);
-      try {
-        const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
-        setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
-        setFeed({
-          source: 'scanner',
-          scannedAt: out.scannedAt ?? new Date().toISOString(),
-          scannedProjects: out.total,
-        });
-        addLog(`اسکن زنده تبلت تکمیل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
-      } catch (err: any) {
-        addLog(`خطا در اسکن زنده تبلت: ${err?.message || err}`, 'scan');
-      } finally {
-        setIsScanning(false);
-      }
-      return;
-    }
-
     setIsScanning(true);
-    addLog('ارسال سیگنال اسکن زنده به بریج وب‌سوکت Socket.io...');
-
-    if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit('scan:trigger');
-    } else {
-      // Fallback HTTP endpoint if socket is reconnecting
-      fetch('/api/bridge/trigger-scan', { method: 'POST' })
-        .then((res) => res.json())
-        .then(async (data) => {
-          setIsScanning(false);
-          if (data?.message) addLog(String(data.message), 'scan');
-          if (typeof data?.added === 'number') {
-            setFeed((prev) => ({
-              ...prev,
-              source: (data?.total ?? 0) > 0 ? 'scanner' : prev.source,
-              scannedAt: data?.scannedAt ?? prev.scannedAt,
-              scannedProjects: data?.total ?? prev.scannedProjects,
-            }));
-            refreshFeed();
-          }
-          if (data.job && isValidFreelanceJob(data.job)) {
-            let job = data.job;
-            if (!job.categorizedTag) {
-              const catTag = await categorizeJobWithGemini(job.title, job.description);
-              job = {
-                ...job,
-                categoryKey: job.categoryKey || catTag,
-                category: job.category || categoryLabel(job.categoryKey || catTag),
-                categorizedTag: categoryLabel(catTag),
-                tags: job.tags.includes(catTag) ? job.tags : [...job.tags, catTag]
-              };
-            }
-            if (!job.priority) {
-              job.priority = job.budget >= 6000000 ? 'High' : job.budget >= 4000000 ? 'Medium' : 'Low';
-            }
-            setJobs((prev) => {
-              if (prev.some((j) => j.id === job.id)) return prev;
-              playChime();
-              return [job, ...prev];
-            });
-          }
-        })
-        .catch(console.error);
-    }
-
-    setTimeout(() => {
+    try {
+      const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
+      setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
+      setFeed({
+        source: 'scanner',
+        scannedAt: out.scannedAt ?? new Date().toISOString(),
+        scannedProjects: out.total,
+      });
+      addLog(`اسکن زنده تکمیل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
+    } catch (err: any) {
+      addLog(`خطا در اسکن زنده: ${err?.message || err}`, 'scan');
+    } finally {
       setIsScanning(false);
-    }, 1000);
+    }
   };
 
   // Updaters

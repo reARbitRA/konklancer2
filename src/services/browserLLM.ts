@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
 import { readStoredCustomLLM, ActiveCustomLLM } from '../utils/customLLMClient';
 import { categoryPromptList } from '../../shared/taxonomy';
+import { relayLLMRequestViaUS } from './cloudRelay';
 
 export interface DiscoveredClientModel {
   id: string;
@@ -39,6 +40,50 @@ export function isNativeAndroidApp(): boolean {
     return Capacitor.isNativePlatform();
   } catch {
     return false;
+  }
+}
+
+export function isStandaloneClientMode(): boolean {
+  if (isNativeAndroidApp()) return true;
+  if (typeof window === 'undefined') return false;
+  const proto = window.location.protocol;
+  if (proto === 'file:' || proto === 'content:' || !window.location.host) return true;
+  const host = window.location.hostname || '';
+  if (host.endsWith('.github.io') || host.endsWith('.pages.dev') || host.endsWith('.netlify.app')) {
+    return true;
+  }
+  return Boolean((window as any).__KONKLANCER_STANDALONE__);
+}
+
+/**
+ * Tries fast direct browser/native fetch first; if blocked by Iran ISP / CORS / Geo-IP
+ * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
+ * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
+ */
+async function smartFetchLLM(
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string },
+): Promise<Response> {
+  const method = init.method || 'GET';
+  const headers = init.headers || {};
+  try {
+    const directRes = await fetch(url, {
+      method,
+      headers,
+      body: init.body,
+    });
+    if (directRes.status === 403 || directRes.status === 400) {
+      const peek = await directRes.clone().text().catch(() => '');
+      const isGeoBlock =
+        directRes.status === 403 ||
+        /location is not supported|country|region|territory|cloudflare|access denied/i.test(peek);
+      if (isGeoBlock) {
+        return await relayLLMRequestViaUS(url, method, headers, init.body);
+      }
+    }
+    return directRes;
+  } catch {
+    return await relayLLMRequestViaUS(url, method, headers, init.body);
   }
 }
 
@@ -171,7 +216,7 @@ export async function callBrowserLLM(params: {
       },
     };
 
-    const res = await fetch(url, {
+    const res = await smartFetchLLM(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -243,7 +288,7 @@ export async function callBrowserLLM(params: {
     };
 
     try {
-      const res = await fetch(url, {
+      const res = await smartFetchLLM(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -312,8 +357,9 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
 
   try {
     if (cfg.provider === 'gemini') {
-      const res = await fetch(
+      const res = await smartFetchLLM(
         `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cfg.apiKey)}`,
+        { method: 'GET' },
       );
       if (!res.ok) {
         const detail = await safeReadError(res);
@@ -350,7 +396,8 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
       };
     }
 
-    const res = await fetch(`${normalizeEndpointBaseClient(cfg.endpoint)}/models`, {
+    const res = await smartFetchLLM(`${normalizeEndpointBaseClient(cfg.endpoint)}/models`, {
+      method: 'GET',
       headers: { Authorization: `Bearer ${cfg.apiKey}` },
     });
     if (!res.ok) {

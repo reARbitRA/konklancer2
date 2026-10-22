@@ -25,7 +25,7 @@ import {
 import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, categoryAiFit, detectCategory } from '../../shared/taxonomy';
 import { isNativeAndroidApp } from '../services/browserLLM';
-import { buildJobsFromRows, parsePlatformHtmlClient } from '../services/standaloneFeed';
+import { buildJobsFromRows, fetchHtmlSmart, parsePlatformHtmlClient } from '../services/standaloneFeed';
 
 interface JobHunterProps {
   jobs: FreelanceJob[];
@@ -133,22 +133,14 @@ export const JobHunter: React.FC<JobHunterProps> = ({
 
     try {
       const targetUrl = urlInput.trim();
-      if (isNativeAndroidApp()) {
-        const res = await fetch(targetUrl);
-        if (!res.ok) {
-          setUrlScrapeResult({
-            success: false,
-            message: `خطای HTTP ${res.status} هنگام خواندن نشانی.`,
-          });
-          return;
-        }
-        const html = await res.text();
+      const html = await fetchHtmlSmart(targetUrl);
+      if (html) {
         const host = targetUrl.toLowerCase();
         const src = host.includes('ponisha')
           ? 'ponisha'
           : host.includes('karlancer')
             ? 'karlancer'
-            : host.includes('t.me/')
+            : host.includes('t.me/') || host.includes('telegram.me/')
               ? `telegram:${targetUrl.split('/').filter(Boolean).pop()}`
               : 'parscoders';
         const rows = parsePlatformHtmlClient(html, src, targetUrl);
@@ -159,8 +151,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           count: built.length,
           message:
             built.length > 0
-              ? `${built.length} پروژه مستقیماً روی تبلت استخراج و به رادار اضافه شد!`
-              : 'پروژه‌ای در این نشانی تشخیص داده نشد؛ می‌توانید متن صفحه را دستی وارد کنید.',
+              ? `${built.length} پروژه مستقیماً استخراج و به رادار اضافه شد!`
+              : 'صفحه خوانده شد اما کارت پروژه‌ای تشخیص داده نشد؛ می‌توانید متن آگهی را دستی ثبت کنید.',
           extractedTitles: built.map((p) => p.title),
         });
         return;

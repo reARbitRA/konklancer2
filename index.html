@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FreelanceFlow AI — سامانه هوشمند فریلنسری و تحویل خودکار</title>
+    <title>KonkLancer | استودیوی هوشمند فریلنسینگ</title>
     <meta name="description" content="پلتفرم هوشمند اتوماسیون فریلنسری با هوش مصنوعی و اتصال به گیت‌هاب جهت شکار پروژه، قیمت‌گذاری و تحویل خودکار." />
-    <meta property="og:title" content="FreelanceFlow AI — سامانه هوشمند فریلنسری و تحویل خودکار" />
+    <meta property="og:title" content="KonkLancer | استودیوی هوشمند فریلنسینگ" />
     <meta property="og:description" content="پلتفرم هوشمند اتوماسیون فریلنسری با هوش مصنوعی و اتصال به گیت‌هاب جهت شکار پروژه، قیمت‌گذاری و تحویل خودکار." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -13,13 +13,69 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
+      // Safe storage shim for Android Chrome / Samsung Internet local file:// & content:// HTML mode
+      (function () {
+        function ensureStorage(kind) {
+          try {
+            var s = window[kind];
+            s.setItem('__kl_probe__', '1');
+            s.removeItem('__kl_probe__');
+            return;
+          } catch (e) {}
+          var store = {};
+          try {
+            if (window.name && window.name.indexOf('__KL_STORE__:') === 0) {
+              store = JSON.parse(window.name.slice(13)) || {};
+            }
+          } catch (e) {}
+          function persist() {
+            try {
+              var compact = {};
+              Object.keys(store).forEach(function (key) {
+                var val = String(store[key] || '');
+                if (val.length < 120000) compact[key] = val;
+              });
+              window.name = '__KL_STORE__:' + JSON.stringify(compact);
+            } catch (e) {}
+          }
+          var mem = {
+            getItem: function (key) {
+              return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null;
+            },
+            setItem: function (key, val) {
+              store[key] = String(val);
+              persist();
+            },
+            removeItem: function (key) {
+              delete store[key];
+              persist();
+            },
+            clear: function () {
+              store = {};
+              persist();
+            },
+            key: function (i) {
+              return Object.keys(store)[i] || null;
+            },
+            get length() {
+              return Object.keys(store).length;
+            },
+          };
+          try {
+            Object.defineProperty(window, kind, { value: mem, configurable: true });
+          } catch (e) {}
+        }
+        ensureStorage('localStorage');
+        ensureStorage('sessionStorage');
+      })();
+
       // Ignore WebSocket and HMR errors per AI Studio environment constraints
       window.addEventListener('error', function(e) {
         if (e && (e.message?.includes('WebSocket') || e.message?.includes('moduleRunner') || e.filename?.includes('@vite/client'))) {
