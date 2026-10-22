@@ -10,3 +10,8 @@ scanner/out/
 __pycache__/
 .pytest_cache/
 /data/
+release/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties

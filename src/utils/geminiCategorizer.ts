@@ -1,30 +1,14 @@
-import { getCustomLLMHeaders, getCustomLLMPayload } from './customLLMClient';
+import { categorizeJobDirect } from '../services/browserLLM';
 
-// AI categoriser: calls the backend, which calls the configured LLM / Konkred gateway (SPEC-006).
 export async function categorizeJobWithGemini(
   title: string,
   description: string,
   tags: string[] = [],
 ): Promise<string> {
   try {
-    const res = await fetch('/api/ai/categorize', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getCustomLLMHeaders(),
-      },
-      body: JSON.stringify({
-        title,
-        description,
-        tags,
-        ...getCustomLLMPayload(),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success || !data.category) return tags[0] || 'other';
-    return data.category;
+    return await categorizeJobDirect(title, description, tags);
   } catch (err) {
-    console.warn('AI Categorization failed:', err);
+    console.warn('AI Categorization fallback:', err);
     return tags[0] || 'other';
   }
 }

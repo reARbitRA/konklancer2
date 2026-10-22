@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { FreelanceJob } from '../types';
 import { GitHubWorkflowManager } from './GitHubWorkflowManager';
-import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
+import { generateSolutionDirect } from '../services/browserLLM';
 
 interface CodeWorkspaceProps {
   job: FreelanceJob | null;
@@ -59,23 +59,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     setTestOutput(null);
 
     try {
-      const response = await fetch('/api/generate-solution', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getCustomLLMHeaders(),
-        },
-        body: JSON.stringify({
-          title: job.title,
-          description: job.description,
-          tags: job.tags,
-          ...getCustomLLMPayload(),
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'خطا در تولید سورس کد پروژه');
-
+      const data = await generateSolutionDirect(job);
       setFiles(data.files);
       const firstFile = Object.keys(data.files)[0] || 'main.py';
       setActiveFile(firstFile);

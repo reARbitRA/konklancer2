@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, categoryAiFit, detectCategory } from '../../shared/taxonomy';
+import { isNativeAndroidApp } from '../services/browserLLM';
+import { buildJobsFromRows, parsePlatformHtmlClient } from '../services/standaloneFeed';
 
 interface JobHunterProps {
   jobs: FreelanceJob[];
@@ -130,6 +132,40 @@ export const JobHunter: React.FC<JobHunterProps> = ({
     setUrlScrapeResult(null);
 
     try {
+      const targetUrl = urlInput.trim();
+      if (isNativeAndroidApp()) {
+        const res = await fetch(targetUrl);
+        if (!res.ok) {
+          setUrlScrapeResult({
+            success: false,
+            message: `خطای HTTP ${res.status} هنگام خواندن نشانی.`,
+          });
+          return;
+        }
+        const html = await res.text();
+        const host = targetUrl.toLowerCase();
+        const src = host.includes('ponisha')
+          ? 'ponisha'
+          : host.includes('karlancer')
+            ? 'karlancer'
+            : host.includes('t.me/')
+              ? `telegram:${targetUrl.split('/').filter(Boolean).pop()}`
+              : 'parscoders';
+        const rows = parsePlatformHtmlClient(html, src, targetUrl);
+        const { jobs: built } = buildJobsFromRows(rows);
+        built.forEach((j) => onAddNewManualJob(j));
+        setUrlScrapeResult({
+          success: built.length > 0,
+          count: built.length,
+          message:
+            built.length > 0
+              ? `${built.length} پروژه مستقیماً روی تبلت استخراج و به رادار اضافه شد!`
+              : 'پروژه‌ای در این نشانی تشخیص داده نشد؛ می‌توانید متن صفحه را دستی وارد کنید.',
+          extractedTitles: built.map((p) => p.title),
+        });
+        return;
+      }
+
       const res = await fetch('/api/scraper/fetch-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -194,6 +230,28 @@ export const JobHunter: React.FC<JobHunterProps> = ({
     setHtmlScrapeResult(null);
 
     try {
+      if (isNativeAndroidApp()) {
+        const base =
+          htmlPlatform === 'ponisha'
+            ? 'https://ponisha.ir'
+            : htmlPlatform === 'karlancer'
+              ? 'https://www.karlancer.com'
+              : 'https://parscoders.com';
+        const rows = parsePlatformHtmlClient(htmlInput.trim(), htmlPlatform, base);
+        const { jobs: built } = buildJobsFromRows(rows);
+        built.forEach((j) => onAddNewManualJob(j));
+        setHtmlScrapeResult({
+          success: built.length > 0,
+          count: built.length,
+          message:
+            built.length > 0
+              ? `${built.length} پروژه از سورس HTML استخراج شد!`
+              : 'کارت پروژه‌ای در این HTML یافت نشد.',
+          extractedTitles: built.map((p) => p.title),
+        });
+        return;
+      }
+
       const res = await fetch('/api/scraper/parse-html', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

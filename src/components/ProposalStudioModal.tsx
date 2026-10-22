@@ -11,8 +11,8 @@ import {
   Code2,
   ThumbsUp
 } from 'lucide-react';
-import { FreelanceJob, ProposalResult } from '../types';
-import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
+import { FreelanceJob } from '../types';
+import { generateProposalDirect } from '../services/browserLLM';
 
 interface ProposalStudioModalProps {
   job: FreelanceJob | null;
@@ -53,24 +53,7 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/generate-proposal', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getCustomLLMHeaders(),
-        },
-        body: JSON.stringify({
-          title: job.title,
-          description: job.description,
-          budget: price,
-          ...getCustomLLMPayload(),
-          tone: selectedTone,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'خطا در تولید پروپوزال');
-
+      const data = await generateProposalDirect(job, selectedTone, price);
       setProposalText(data.proposal);
       setDeliveryTime(data.deliveryTime || '۴ ساعت');
       onSaveProposalToJob(job.id, data.proposal, price);

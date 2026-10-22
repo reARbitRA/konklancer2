@@ -48,6 +48,17 @@ const io = new SocketIOServer(httpServer, {
 
 app.use(express.json({ limit: '10mb' }));
 
+// Direct one-tap download route for the compiled Android Tablet APK
+app.get('/download/KonkLancer-Studio.apk', (_req: Request, res: Response) => {
+  const apkPath = path.resolve(__dirname, 'release', 'KonkLancer-Studio.apk');
+  if (!fs.existsSync(apkPath)) {
+    return res.status(404).send('فایل APK هنوز در پوشه release قرار نگرفته است.');
+  }
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', 'attachment; filename="KonkLancer-Studio.apk"');
+  return res.sendFile(apkPath);
+});
+
 // AI access: see server/llm.ts (SPEC-006). No provider SDK is used here.
 
 // Initial jobs catalog

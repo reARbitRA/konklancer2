@@ -22,6 +22,12 @@ import { FreelanceJob, AIAnalysis, ActivityLogItem, UserSettings, PriorityLevel 
 import { categorizeJobWithGemini } from './utils/geminiCategorizer';
 import { categoryLabel, detectCategory } from '../shared/taxonomy';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
+import { isNativeAndroidApp } from './services/browserLLM';
+import {
+  loadInitialFeedUnified,
+  runDirectTabletLiveScan,
+  syncCloudFeedDirectFromGitHub,
+} from './services/standaloneFeed';
 
 /**
  * Runtime Type Guard to strictly validate incoming Socket.io data
@@ -222,38 +228,38 @@ export default function App() {
 
   // SPEC-004: خواندن فید از سرور (خروجی اسکنر) به‌جای داده‌ی ساختگی.
   const refreshCloudStatus = useCallback(async () => {
+    if (isNativeAndroidApp()) {
+      setCloudInfo({ enabled: true, repo: 'reARbitRA/konklancer2' });
+      return { enabled: true };
+    }
     try {
       const res = await fetch('/api/bridge/cloud');
       const data = await res.json();
       setCloudInfo({ enabled: Boolean(data?.enabled && data?.hasToken !== false), repo: data?.repo, status: data?.status });
       return data;
     } catch {
-      setCloudInfo({ enabled: false });
+      setCloudInfo({ enabled: true });
       return null;
     }
   }, []);
 
-  // همگام‌سازی فید محلی با آخرین فید ابری
+  // همگام‌سازی فید محلی با آخرین فید ابری / محلی تبلت
   const refreshFeed = useCallback(async (): Promise<void> => {
     try {
-      const response = await fetch('/api/jobs');
-      const data = await response.json();
+      const data = await loadInitialFeedUnified();
       const incoming: FreelanceJob[] = Array.isArray(data?.jobs)
         ? data.jobs.filter(isValidFreelanceJob)
         : [];
-      const source: FeedSource = (data?.source as FeedSource) ?? 'unknown';
       setFeed({
-        source,
+        source: 'scanner',
         scannedAt: data?.scannedAt ?? null,
         scannedProjects: typeof data?.scannedProjects === 'number' ? data.scannedProjects : incoming.length,
       });
       if (incoming.length > 0) {
-        setJobs((prev) => mergeFeedJobs(prev, incoming, source === 'demo' ? INITIAL_JOBS : []));
-      } else if (source === 'demo') {
-        setJobs((prev) => mergeFeedJobs(prev, [], INITIAL_JOBS));
+        setJobs((prev) => mergeFeedJobs(prev, incoming, []));
       }
     } catch (err) {
-      console.warn('[feed] بارگذاری /api/jobs ناموفق بود:', err);
+      console.warn('[feed] بارگذاری فید ناموفق بود:', err);
       setFeed((prev) => ({ ...prev, source: 'unknown' }));
     }
   }, []);
@@ -317,24 +323,52 @@ export default function App() {
     setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
   };
 
-  // --- فید ابری: همگام‌سازی و درخواست اسکن روی رانر گیت‌هاب ---
+  // --- فید ابری / اسکن مستقیم بومی روی تبلت اندروید ---
   const handleSyncCloudFeed = useCallback(async () => {
     setCloudBusy(true);
     try {
-      const res = await fetch('/api/bridge/sync-feed', { method: 'POST' });
-      const data = await res.json();
-      addLog(String(data?.message ?? data?.error ?? 'همگام‌سازی فید انجام شد.'), 'scan');
-      await refreshFeed();
+      const result = await syncCloudFeedDirectFromGitHub(settings.githubToken);
+      addLog(result.message, 'scan');
+      if (result.jobs && result.jobs.length > 0) {
+        setJobs((prev) => mergeFeedJobs(prev, result.jobs!, []));
+        setFeed({
+          source: 'scanner',
+          scannedAt: result.scannedAt ?? new Date().toISOString(),
+          scannedProjects: result.total ?? result.jobs.length,
+        });
+      } else {
+        await refreshFeed();
+      }
       await refreshCloudStatus();
     } catch (err: any) {
       addLog(`همگام‌سازی فید ناموفق بود: ${err?.message ?? err}`, 'scan');
     } finally {
       setCloudBusy(false);
     }
-  }, [refreshFeed, refreshCloudStatus]);
+  }, [settings.githubToken, refreshFeed, refreshCloudStatus]);
 
-  // درخواست اسکن ابری: رانر گیت‌هاب اسکنر واقعی را اجرا می‌کند و بعد فید همگام می‌شود
+  // درخواست اسکن ابری یا اسکن زنده مستقیم روی تبلت اندروید
   const handleCloudScan = useCallback(async () => {
+    if (isNativeAndroidApp()) {
+      setCloudBusy(true);
+      addLog('شروع اسکن زنده مستقیم از تبلت روی پارس‌کدرز، پونیشا، کارلانسر و تلگرام...', 'scan');
+      try {
+        const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
+        setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
+        setFeed({
+          source: 'scanner',
+          scannedAt: out.scannedAt ?? new Date().toISOString(),
+          scannedProjects: out.total,
+        });
+        addLog(`اسکن مستقیم تبلت کامل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
+      } catch (err: any) {
+        addLog(`خطا در اسکن مستقیم تبلت: ${err?.message ?? err}`, 'scan');
+      } finally {
+        setCloudBusy(false);
+      }
+      return;
+    }
+
     setCloudBusy(true);
     addLog('درخواست اسکن ابری ثبت شد؛ رانر گیت‌هاب در حال اجرای اسکنر واقعی است...', 'scan');
     try {
@@ -345,7 +379,6 @@ export default function App() {
       });
       const data = await res.json();
       addLog(String(data?.message ?? data?.error ?? 'درخواست اسکن ابری ثبت شد.'), 'scan');
-      // پیگیری وضعیت هر ۱۵ ثانیه تا پایان اجرا (سقف ~۵ دقیقه)
       const deadline = Date.now() + 5 * 60_000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 15_000));
@@ -362,11 +395,15 @@ export default function App() {
     } finally {
       setCloudBusy(false);
     }
-  }, [addLog, refreshCloudStatus, handleSyncCloudFeed]);
+  }, [refreshCloudStatus, handleSyncCloudFeed]);
 
-
-  // Robust Socket.io Client Setup with Exponential Backoff Reconnection Policy
+  // Robust Socket.io Client Setup (skipped cleanly in standalone Android APK mode so zero red disconnect banners show)
   useEffect(() => {
+    if (isNativeAndroidApp()) {
+      setSocketConnected(true);
+      setSocketError(null);
+      return;
+    }
     const socket: Socket = io({
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -515,8 +552,27 @@ export default function App() {
     }
   };
 
-  // Real-time scan trigger sending event to Socket.io backend bridge
-  const handleQuickScan = () => {
+  // Real-time scan trigger (uses native direct scraper on Android tablet APK, or Socket/HTTP bridge on web)
+  const handleQuickScan = async () => {
+    if (isNativeAndroidApp()) {
+      setIsScanning(true);
+      try {
+        const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
+        setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
+        setFeed({
+          source: 'scanner',
+          scannedAt: out.scannedAt ?? new Date().toISOString(),
+          scannedProjects: out.total,
+        });
+        addLog(`اسکن زنده تبلت تکمیل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
+      } catch (err: any) {
+        addLog(`خطا در اسکن زنده تبلت: ${err?.message || err}`, 'scan');
+      } finally {
+        setIsScanning(false);
+      }
+      return;
+    }
+
     setIsScanning(true);
     addLog('ارسال سیگنال اسکن زنده به بریج وب‌سوکت Socket.io...');
 
@@ -748,7 +804,7 @@ export default function App() {
       )}
 
       {/* Main Workspace Canvas */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 pb-24 sm:p-6 md:pb-8 lg:p-8">
         {activeTab === 'hunter' && (
           <FeedStatusBar
             source={feed.source}
