@@ -18,6 +18,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import { UserSettings, CustomLLMConfig, ScannedModelItem } from '../types';
+import { scanModelsDirect, testConnectionDirect } from '../services/browserLLM';
 
 interface SettingsModalProps {
   settings: UserSettings;
@@ -168,18 +169,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/llm/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: llm.endpoint,
-          apiKey: llm.apiKey,
-          provider: llm.provider,
-        }),
+      const data = await scanModelsDirect({
+        endpoint: llm.endpoint,
+        apiKey: llm.apiKey,
+        provider: llm.provider,
+        model: llm.selectedModel,
       });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
+      if (!data.success) {
         throw new Error(data.error || 'خطا در اسکن اندپوینت و استخراج مدل‌ها');
       }
 
@@ -231,21 +227,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/llm/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: llm.endpoint,
-          apiKey: llm.apiKey,
-          model: llm.selectedModel,
-          provider: llm.provider,
-        }),
+      const data = await testConnectionDirect({
+        endpoint: llm.endpoint,
+        apiKey: llm.apiKey,
+        model: llm.selectedModel,
+        provider: llm.provider,
       });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'خطا در تست اتصال');
-      }
 
       setTestResult({
         success: true,

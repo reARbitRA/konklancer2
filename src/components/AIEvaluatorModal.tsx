@@ -13,7 +13,7 @@ import {
   Code2
 } from 'lucide-react';
 import { FreelanceJob, AIAnalysis } from '../types';
-import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
+import { analyzeJobDirect } from '../services/browserLLM';
 
 interface AIEvaluatorModalProps {
   job: FreelanceJob | null;
@@ -40,24 +40,7 @@ export const AIEvaluatorModal: React.FC<AIEvaluatorModalProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/analyze-job', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getCustomLLMHeaders(),
-        },
-        body: JSON.stringify({
-          title: job.title,
-          ...getCustomLLMPayload(),
-          description: job.description,
-          budget: job.budget,
-          platform: job.platform,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'خطا در تحلیل پروژه');
-
+      const data = await analyzeJobDirect(job);
       setAnalysis(data);
       onUpdateAnalysis(job.id, data);
     } catch (err: any) {
