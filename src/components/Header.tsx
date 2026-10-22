@@ -34,6 +34,32 @@ export const Header: React.FC<HeaderProps> = ({
   socketConnected = false,
 }) => {
   const nativeApp = isNativeAndroidApp();
+  const [deferredPwaPrompt, setDeferredPwaPrompt] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPwaPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstantWebAppInstall = async () => {
+    if (deferredPwaPrompt) {
+      deferredPwaPrompt.prompt();
+      try {
+        await deferredPwaPrompt.userChoice;
+      } catch {
+        // user dismissed
+      }
+      setDeferredPwaPrompt(null);
+      return;
+    }
+    alert(
+      'برای نصب فوری ۱ ثانیه‌ای روی صفحه اصلی تبلت سامسونگ (بدون هیچ خطای امنیتی اندروید یا چرخش Play Protect):\n\n۱. در همین مرورگر روی سه نقطه بالا (⋮) یا سه‌خط پایین Samsung Internet بزنید.\n۲. گزینه «Add to Home screen» یا «Install app / افزودن به صفحه اصلی» را بزنید.',
+    );
+  };
 
   return (
     <>
@@ -131,16 +157,26 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {!nativeApp ? (
-              <a
-                href="/download/KonkLancer-Studio.apk"
-                download="KonkLancer-Studio.apk"
-                title="دانلود مستقیم فایل نصبی اندروید (APK مستقل برای تبلت سامسونگ)"
-                className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-bold text-emerald-300 bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/40 rounded-lg transition-all whitespace-nowrap"
-              >
-                <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
-                <span>دانلود APK تبلت</span>
-                <Download className="h-3 w-3 opacity-80" />
-              </a>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleInstantWebAppInstall}
+                  title="نصب فوری ۱ ثانیه‌ای روی صفحه اصلی تبلت بدون نیاز به فایل APK و بدون چرخش Play Protect"
+                  className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-bold text-sky-300 bg-sky-950/70 hover:bg-sky-900/80 border border-sky-500/40 rounded-lg transition-all whitespace-nowrap"
+                >
+                  <Zap className="h-3.5 w-3.5 text-sky-400" />
+                  <span>نصب فوری وب‌اپ</span>
+                </button>
+                <a
+                  href="/download/KonkLancer-Studio.apk"
+                  download="KonkLancer-Studio.apk"
+                  title="دانلود مستقیم نسخه Release امضاشده (APK کم‌حجم برای تبلت سامسونگ)"
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 text-xs font-bold text-emerald-300 bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/40 rounded-lg transition-all whitespace-nowrap"
+                >
+                  <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>APK امضاشده</span>
+                  <Download className="h-3 w-3 opacity-80" />
+                </a>
+              </div>
             ) : (
               <span className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 rounded-lg">
                 <Smartphone className="h-3.5 w-3.5 text-emerald-400" />

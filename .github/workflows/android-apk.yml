@@ -57,14 +57,25 @@ jobs:
           npm run build
           npx cap sync android
 
-      - name: Compile signed installable Android APK
+      - name: Compile signed production Release APK (v1 + v2/v3 signed, shrunk, non-debuggable)
         id: gradle_build
         working-directory: android
         run: |
           chmod +x gradlew
+          if [ ! -f app/konklancer-release.jks ]; then
+            keytool -genkeypair -v \
+              -keystore app/konklancer-release.jks \
+              -storepass konklancer2026 \
+              -keypass konklancer2026 \
+              -alias konklancer \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=KonkLancer Studio, OU=Mobile, O=Konkred, L=London, ST=England, C=GB"
+          fi
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
-          cp app/build/outputs/apk/debug/app-debug.apk ../KonkLancer-Studio.apk
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
+          cp app/build/outputs/apk/release/app-release.apk ../KonkLancer-Studio.apk
           ls -lh ../KonkLancer-Studio.apk
 
       - name: Report Gradle diagnostic tail on failure
