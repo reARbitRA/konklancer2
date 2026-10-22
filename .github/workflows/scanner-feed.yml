@@ -115,7 +115,6 @@ jobs:
               --pages "${{ steps.params.outputs.pages }}" \
               --delay "${{ steps.params.outputs.delay }}" \
               --min-count 3 \
-              --save \
               --out scanner/out/projects.jsonl 2>&1 | tee -a scanner/out/diagnostics.txt
           }
           scan_platforms
@@ -143,15 +142,15 @@ jobs:
             --delay "${{ steps.params.outputs.delay }}" \
             --out scanner/out/projects.jsonl 2>&1 | tee -a scanner/out/diagnostics.txt
 
-      - name: ذخیره‌ی نمونه‌ی HTML واقعی برای کالیبراسیون آفلاین
+      - name: ذخیره‌ی نمونه‌ی HTML واقعی در پوشه‌ی موقت artifact
         continue-on-error: true
         run: |
           python -m scanner.konklancer_scan capture \
             --target parscoders,ponisha,karlancer,https://parscoders.com/project/only-available \
             --telegram \
             --delay "${{ steps.params.outputs.delay }}" \
-            --out-dir scanner/tests/fixtures/live 2>&1 | tee -a scanner/out/diagnostics.txt
-          ls -la scanner/tests/fixtures/live || true
+            --out-dir scanner/out/live-captures 2>&1 | tee -a scanner/out/diagnostics.txt
+          ls -la scanner/out/live-captures || true
 
       - name: انتشار فید و گزارش وضعیت روی برنچ
         if: always()
@@ -221,7 +220,6 @@ jobs:
           git config user.name "konklancer-scan-bot"
           git config user.email "actions@users.noreply.github.com"
           git add scanner/cloud-feed.jsonl scanner/cloud-status.json
-          git add -f scanner/tests/fixtures/live 2>/dev/null || true
           git commit -q -m "data(scan): فید و وضعیت اسکن زنده [skip ci]" || echo "چیزی برای کامیت نبود"
           git push || (git pull --rebase --autostash && git push) || echo "PUSH_FAILED_END"
 

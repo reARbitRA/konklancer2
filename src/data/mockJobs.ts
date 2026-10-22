@@ -1,0 +1,46 @@
+import { FreelanceJob } from '../types';
+
+export const INITIAL_JOBS: FreelanceJob[] = [
+  {
+    id: 'kar-8812',
+    platform: 'کارلانسر',
+    platformKey: 'karlancer',
+    title: 'ربات تلگرام پیشرفته فوروارد خودکار و حذف تبلیغات بین چند کانال VIP',
+    clientName: 'مهرداد رضایی',
+    clientRating: 4.7,
+    clientReviews: 28,
+    budget: 5000000,
+    budgetFormatted: '۵,۰۰۰,۰۰۰ تومان',
+    deadline: '۲ روز',
+    postedTime: '۲۷ دقیقه پیش',
+    category: 'ربات تلگرام / پایتون',
+    categoryKey: 'automation',
+    tags: ['Telegram Bot', 'python-telegram-bot', 'Asyncio', 'Regex'],
+    description:
+      'رباتی نیاز دارم که به عنوان ادمین در ۲ کانال مبدا عضو باشد و به محض ارسال پست، متن آن را بررسی کند، لینک‌های آیدی و تبلیغات متنی را فیلتر کند و در کانال مقصد قرار دهد. سورس مرتب و کامنت‌گذاری شده همراه با داک اجرای لوکال نیاز دارم.',
+    proposalsCount: 9,
+    avgBid: 4400000,
+    status: 'new',
+  },
+  {
+    id: 'pon-9430',
+    platform: 'پونیشا',
+    platformKey: 'ponisha',
+    title: 'اتصال وب‌هوک پرداخت زرین‌پال و پیامک کاوه‌نگار به اسکریپت فست‌اِی‌پی‌آی (FastAPI)',
+    clientName: 'علیرضا ر.',
+    clientRating: 4.8,
+    clientReviews: 11,
+    budget: 4200000,
+    budgetFormatted: '۴,۲۰۰,۰۰۰ تومان',
+    deadline: '۱ روز',
+    postedTime: '۱ ساعت پیش',
+    category: 'توسعه API / بک‌اند',
+    categoryKey: 'dev',
+    tags: ['FastAPI', 'Zarinpal', 'Kavenegar SMS', 'Webhook'],
+    description:
+      'یک مینی‌سرویس پایتون با فست‌ای‌پی‌آی داریم که می‌خواهیم بعد از کال‌بک موفقیت‌آمیز زرین‌پال، پترن پیامکی کاوه‌نگار را برای خریدار شلیک کند و کد سفارش را در دیتابیس لاگ بیندازد.',
+    proposalsCount: 7,
+    avgBid: 3900000,
+    status: 'new',
+  },
+];

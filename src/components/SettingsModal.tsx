@@ -119,7 +119,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
 
   const [savedNotice, setSavedNotice] = useState(false);
 
-  // انتخاب سریع ارائه‌دهنده
+  const defaultModelForProvider = (providerId?: string): string => {
+    switch (providerId) {
+      case 'gemini':
+        return 'gemini-2.5-flash';
+      case 'groq':
+        return 'llama-3.3-70b-versatile';
+      case 'openai':
+        return 'gpt-4o-mini';
+      case 'ollama':
+        return 'llama3.2';
+      case 'custom':
+        return 'deepseek-chat';
+      case 'openrouter':
+      default:
+        return 'meta-llama/llama-3.3-70b-instruct:free';
+    }
+  };
+
+  // انتخاب سریع ارائه‌دهنده (با بازنشانی مدل قبلی تا مدل ناسازگار قبلی ۴۰۴ ندهد)
   const handleSelectProvider = (providerId: CustomLLMConfig['provider']) => {
     const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
     if (!preset) return;
@@ -129,6 +147,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
         ...(prev.customLLM || defaultCustomLLM),
         provider: providerId,
         endpoint: preset.defaultEndpoint,
+        selectedModel: defaultModelForProvider(providerId),
+        availableModels: [],
       },
     }));
     setScanMessage(null);
@@ -166,15 +186,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
       const models: ScannedModelItem[] = data.models || [];
       const freeCount = models.filter((m) => m.isFree).length;
 
-      setForm((prev) => ({
-        ...prev,
-        customLLM: {
-          ...(prev.customLLM || defaultCustomLLM),
-          availableModels: models,
-          selectedModel: prev.customLLM?.selectedModel || data.defaultModel || models[0]?.id || '',
-          lastPingMs: data.latencyMs,
-        },
-      }));
+      setForm((prev) => {
+        const currentSelected = prev.customLLM?.selectedModel || '';
+        const stillValid = models.some((m) => m.id === currentSelected);
+        const resolvedModel = stillValid
+          ? currentSelected
+          : data.defaultModel || models[0]?.id || defaultModelForProvider(data.detectedProvider || prev.customLLM?.provider);
+        return {
+          ...prev,
+          customLLM: {
+            ...(prev.customLLM || defaultCustomLLM),
+            provider: (data.detectedProvider as CustomLLMConfig['provider']) || prev.customLLM?.provider || 'openrouter',
+            endpoint: data.endpoint || prev.customLLM?.endpoint || '',
+            availableModels: models,
+            selectedModel: resolvedModel,
+            lastPingMs: data.latencyMs,
+          },
+        };
+      });
 
       setScanMessage({
         text: `اسکن موفقیت‌آمیز بود! ${models.length} مدل استخراج شد (${freeCount} مدل کاملاً رایگان) · تأخیر: ${data.latencyMs}ms`,
@@ -235,16 +264,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(form);
-    // ذخیره کلید هوش مصنوعی در localStorage برای استفاده فوری در فرانت‌اند
+    const { githubToken, ...persistedSettings } = form;
+    if (githubToken) {
+      sessionStorage.setItem('freelanceflow_github_token', githubToken);
+    } else {
+      sessionStorage.removeItem('freelanceflow_github_token');
+    }
+    const serialized = JSON.stringify(persistedSettings);
+    localStorage.setItem('konklancer_settings', serialized);
+    localStorage.setItem('freelanceflow_settings', serialized);
     if (form.customLLM) {
       localStorage.setItem('freelanceflow_custom_llm', JSON.stringify(form.customLLM));
     }
+    onSave(form);
     setSavedNotice(true);
     setTimeout(() => {
       setSavedNotice(false);
       onClose();
-    }, 1000);
+    }, 800);
   };
 
   const currentPreset = PROVIDER_PRESETS.find((p) => p.id === form.customLLM?.provider) || PROVIDER_PRESETS[0];
@@ -396,15 +433,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose,
                 <input
                   type={showApiKey ? 'text' : 'password'}
                   value={form.customLLM?.apiKey || ''}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextKey = e.target.value;
+                    const trimmed = nextKey.trim();
+                    let autoProvider = form.customLLM?.provider || 'openrouter';
+                    if (trimmed.startsWith('AIza')) autoProvider = 'gemini';
+                    else if (trimmed.startsWith('gsk_')) autoProvider = 'groq';
+                    else if (trimmed.startsWith('sk-or-')) autoProvider = 'openrouter';
+
+                    const providerChanged = autoProvider !== form.customLLM?.provider;
+                    const preset = PROVIDER_PRESETS.find((p) => p.id === autoProvider);
+
                     setForm({
                       ...form,
                       customLLM: {
                         ...(form.customLLM || defaultCustomLLM),
-                        apiKey: e.target.value,
+                        apiKey: nextKey,
+                        provider: autoProvider,
+                        endpoint: providerChanged && preset ? preset.defaultEndpoint : form.customLLM?.endpoint || '',
+                        selectedModel: providerChanged
+                          ? defaultModelForProvider(autoProvider)
+                          : form.customLLM?.selectedModel || defaultModelForProvider(autoProvider),
                       },
-                    })
-                  }
+                    });
+                  }}
                   placeholder={
                     form.customLLM?.provider === 'openrouter'
                       ? 'sk-or-v1-xxxxxxxxxxxxxxxxxxxx'

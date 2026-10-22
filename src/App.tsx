@@ -108,19 +108,30 @@ export default function App() {
       preferredTone: 'friendly_expert',
       dailyEarningsGoal: 5000000,
     };
-    // SPEC-003 R2: the GitHub token lives only in sessionStorage; any copy left
-    // in localStorage by older builds is removed here.
+    // SPEC-003 R2: the GitHub token lives only in sessionStorage; customLLM & strategy settings persist cleanly.
     let parsed: Partial<UserSettings> = {};
+    let standaloneCustomLLM: UserSettings['customLLM'] | undefined;
     try {
-      const saved = localStorage.getItem('freelanceflow_settings');
+      const saved =
+        localStorage.getItem('konklancer_settings') ||
+        localStorage.getItem('freelanceflow_settings');
       if (saved) parsed = JSON.parse(saved);
+      const savedCustom = localStorage.getItem('freelanceflow_custom_llm');
+      if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
     } catch (e) {
       console.error('Failed to parse settings from localStorage:', e);
     }
     const { githubToken: legacyToken, ...rest } = parsed as any;
-    if (legacyToken !== undefined) localStorage.removeItem('freelanceflow_settings');
     const sessionToken = sessionStorage.getItem('freelanceflow_github_token') || '';
-    return { ...defaults, ...rest, githubToken: sessionToken || legacyToken || '' };
+    if (legacyToken && !sessionToken) {
+      sessionStorage.setItem('freelanceflow_github_token', legacyToken);
+    }
+    return {
+      ...defaults,
+      ...rest,
+      ...(rest.customLLM || standaloneCustomLLM ? { customLLM: rest.customLLM || standaloneCustomLLM } : {}),
+      githubToken: sessionToken || legacyToken || '',
+    };
   });
 
   const [logs, setLogs] = useState<ActivityLogItem[]>([
@@ -154,10 +165,27 @@ export default function App() {
   const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: false });
   const [cloudBusy, setCloudBusy] = useState(false);
 
-  // Sync state to localStorage
+  // Sync state to localStorage (keeping githubToken exclusively in sessionStorage per SPEC-003 R2)
   useEffect(() => {
     localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
   }, [jobs]);
+
+  useEffect(() => {
+    try {
+      const { githubToken, ...persisted } = settings;
+      if (githubToken) {
+        sessionStorage.setItem('freelanceflow_github_token', githubToken);
+      }
+      const serialized = JSON.stringify(persisted);
+      localStorage.setItem('konklancer_settings', serialized);
+      localStorage.setItem('freelanceflow_settings', serialized);
+      if (settings.customLLM) {
+        localStorage.setItem('freelanceflow_custom_llm', JSON.stringify(settings.customLLM));
+      }
+    } catch (err) {
+      console.warn('[settings] ذخیره تنظیمات ناموفق بود:', err);
+    }
+  }, [settings]);
 
   // SPEC-004: خواندن فید از سرور (خروجی اسکنر) به‌جای داده‌ی ساختگی.
   const refreshCloudStatus = useCallback(async () => {
@@ -200,7 +228,7 @@ export default function App() {
   useEffect(() => {
     refreshCloudStatus();
     refreshFeed();
-  }, [refreshFeed]);
+  }, [refreshCloudStatus, refreshFeed]);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -225,17 +253,6 @@ export default function App() {
       Notification.requestPermission();
     }
   }, []);
-
-  useEffect(() => {
-    // SPEC-003 R2: persist everything except the token in localStorage.
-    const { githubToken, ...persistable } = settings;
-    localStorage.setItem('freelanceflow_settings', JSON.stringify(persistable));
-    if (githubToken) {
-      sessionStorage.setItem('freelanceflow_github_token', githubToken);
-    } else {
-      sessionStorage.removeItem('freelanceflow_github_token');
-    }
-  }, [settings]);
 
   // Sound feedback using Web Audio API
   const playChime = () => {

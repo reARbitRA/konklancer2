@@ -12,7 +12,7 @@ import {
   ThumbsUp
 } from 'lucide-react';
 import { FreelanceJob, ProposalResult } from '../types';
-import { getCustomLLMHeaders } from '../utils/customLLMClient';
+import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
 
 interface ProposalStudioModalProps {
   job: FreelanceJob | null;
@@ -63,6 +63,7 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
           title: job.title,
           description: job.description,
           budget: price,
+          ...getCustomLLMPayload(),
           tone: selectedTone,
         }),
       });

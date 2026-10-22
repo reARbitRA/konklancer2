@@ -226,8 +226,46 @@ let feedIndex = 0;
 // SPEC-004 — فید واقعی از اسکنر فقط‌خواندنی (scanner/out/projects.jsonl)
 // ---------------------------------------------------------------------------
 const SCAN_CONFIG = readScanConfig();
-/** فید ابری (اسکن روی رانرهای گیت‌هاب) — وقتی KONKLANCER_CLOUD_FEED_REPO تنظیم شده باشد فعال است. */
-const CLOUD_CONFIG = readCloudFeedConfig(process.env, process.cwd(), SCAN_CONFIG.outFile);
+
+/** اگر scanner/out/projects.jsonl هنوز ساخته نشده ولی scanner/cloud-feed.jsonl در مخزن هست، همان فید واقعی را بارگذاری اولیه می‌کند. */
+function ensureSeedFeedFromCloudFile(outFile: string, cwd: string): void {
+  try {
+    if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0) return;
+    const bundledCloudFeed = path.resolve(cwd, 'scanner', 'cloud-feed.jsonl');
+    if (!fs.existsSync(bundledCloudFeed)) return;
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    fs.copyFileSync(bundledCloudFeed, outFile);
+  } catch {
+    // non-fatal
+  }
+}
+
+function detectGitHubRepoSlug(cwd: string): string | null {
+  try {
+    const gitCfgPath = path.resolve(cwd, '.git', 'config');
+    if (!fs.existsSync(gitCfgPath)) return null;
+    const raw = fs.readFileSync(gitCfgPath, 'utf8');
+    const m = raw.match(/github\.com[:/]([^/\s]+\/[^/\s.]+?)(?:\.git)?\s*$/m);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+ensureSeedFeedFromCloudFile(SCAN_CONFIG.outFile, SCAN_CONFIG.cwd);
+
+const effectiveCloudEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  ...(process.env.KONKLANCER_CLOUD_FEED_REPO
+    ? {}
+    : (() => {
+        const slug = detectGitHubRepoSlug(process.cwd());
+        return slug ? { KONKLANCER_CLOUD_FEED_REPO: slug } : {};
+      })()),
+};
+
+/** فید ابری (اسکن روی رانرهای گیت‌هاب) — از env یا از remote مخزن گیت‌هاب تشخیص داده می‌شود. */
+const CLOUD_CONFIG = readCloudFeedConfig(effectiveCloudEnv, process.cwd(), SCAN_CONFIG.outFile);
 /** شناسه پروژه‌هایی که یک‌بار به UI پوش شده‌اند؛ برای جلوگیری از پوش تکراری. */
 const emittedJobIds = new Set<string>();
 
@@ -278,7 +316,22 @@ function appendProjectsToFeed(outFile: string, projects: ScannedProject[]): numb
  * استخراج پیکربندی اختصاصی مدل هوش مصنوعی از هدر یا بدنه درخواست
  */
 function extractCustomLLM(req: Request): CustomLLMCallConfig | null {
-  const custom = req.body?.customLLM || (req.headers['x-custom-llm'] ? JSON.parse(String(req.headers['x-custom-llm'])) : null);
+  let custom: any = req.body?.customLLM ?? null;
+  if (!custom && req.headers['x-custom-llm-b64']) {
+    try {
+      const decoded = Buffer.from(String(req.headers['x-custom-llm-b64']), 'base64').toString('utf8');
+      custom = JSON.parse(decoded);
+    } catch {
+      custom = null;
+    }
+  }
+  if (!custom && req.headers['x-custom-llm']) {
+    try {
+      custom = JSON.parse(String(req.headers['x-custom-llm']));
+    } catch {
+      custom = null;
+    }
+  }
   if (custom && typeof custom === 'object' && custom.apiKey) {
     return {
       endpoint: String(custom.endpoint || ''),
@@ -854,7 +907,7 @@ app.post('/api/generate-solution', async (req: Request, res: Response) => {
 }`;
 
     const llm = await callLLM(
-      { taskType: 'code-generation', prompt, json: true, maxTokens: 8000 },
+      { taskType: 'coding', prompt, json: true, maxTokens: 8000 },
       serverCfg,
       fetch,
       customLLM,
@@ -898,8 +951,8 @@ app.post('/api/llm/test', async (req: Request, res: Response) => {
     const result = await callLLM(
       {
         taskType: 'general',
-        prompt: 'پاسخ کوتاه تک‌کلمه‌ای بدهید: «اتصال زنده با موفقیت برقرار شد.»',
-        maxTokens: 60,
+        prompt: 'فقط بنویس: اتصال برقرار شد',
+        maxTokens: 256,
         temperature: 0.1,
       },
       null,

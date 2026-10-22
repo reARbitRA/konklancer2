@@ -40,7 +40,7 @@
       "public_stats": "ارزش پروژه‌های ثبت‌شده در ۱۴۰۲: حدود ۵۱۰ میلیارد تومان؛ ۸۴۵ هزار پیشنهاد؛ ۸۹٪ پروژه‌ها حداقل یک پیشنهاد",
       "listing_url": "https://ponisha.ir/projects",
       "robots": "ponisha.ir/robots.txt پاسخ ۴۰۴ داد؛ قبل از فعال‌سازی دوباره بررسی شود",
-      "scan_enabled": true,
+      "scan_enabled": false,
       "sources": [
         "https://ponisha.ir/pricing/freelancers",
         "https://www.zoomit.ir/tech-iran/426541-ponisha-annual-report/"
