@@ -1,11 +1,13 @@
 {
-  "phase": "finished",
-  "job_status": "failure",
-  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/39707555512",
-  "finished_at": "2026-10-22T01:46:10+00:00",
-  "projects_this_run": 0,
-  "by_category": {},
-  "by_source": {},
-  "diagnostics": "",
-  "note": "فید واقعی از اجرای اسکنر روی رانر گیت‌هاب؛ هیچ داده‌ی ساختگی در آن نیست."
+  "phase": "started",
+  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/39750277562",
+  "started_at": "2026-10-22T08:46:44+00:00",
+  "request": {
+    "platforms": "parscoders,ponisha,karlancer",
+    "pages": 1,
+    "delay": 8,
+    "telegram": 1
+  },
+  "projects_in_feed": 0,
+  "note": "اسکن واقعی روی رانر گیت‌هاب؛ این فایل خودش نشان می‌دهد اجرا شروع شده است."
 }
