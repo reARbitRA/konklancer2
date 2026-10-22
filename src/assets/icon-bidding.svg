@@ -1,0 +1,9 @@
+<!-- Auto-Bidding Icon -->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <path d="M20 50 L44 50 L32 20 Z" fill="#F59E0B">
+    <animate attributeName="transform" values="scale(1);scale(1.2);scale(1)" dur="1s" repeatCount="indefinite" />
+  </path>
+  <circle cx="32" cy="32" r="28" stroke="#F59E0B" stroke-width="4" fill="none" stroke-dasharray="8 4">
+    <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="10s" repeatCount="indefinite" />
+  </circle>
+</svg>

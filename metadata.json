@@ -1,0 +1,8 @@
+{
+  "name": "FreelanceFlow AI",
+  "description": "سامانه هوشمند اتوماسیون فریلنسری با هوش مصنوعی و اتصال به گیت‌هاب جهت دریافت پروژه، قیمت‌گذاری و تحویل خودکار",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

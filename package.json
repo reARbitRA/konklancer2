@@ -1,0 +1,48 @@
+{
+  "name": "konklancer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "tsx server.ts",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit",
+    "test:scanner": "python3 -m pytest -q scanner/tests",
+    "scan": "python3 -m scanner.konklancer_scan scan",
+    "scan:telegram": "python3 -m scanner.konklancer_scan scan --telegram",
+    "test": "tsx --test server/*.test.ts"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/d3": "^7.4.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "cheerio": "^1.2.0",
+    "d3": "^7.9.0",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "octokit": "^5.0.5",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-is": "^19.3.0",
+    "recharts": "^3.10.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
+    "vite": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^7.0.2",
+    "@types/express": "^4.17.21"
+  }
+}

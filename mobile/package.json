@@ -1,0 +1,19 @@
+{
+  "name": "konklancer-android-wrapper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Android WebView wrapper for the personal Konklancer preview",
+  "scripts": {
+    "android:add": "cap add android",
+    "android:sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "typescript": "^7.0.2"
+  }
+}
