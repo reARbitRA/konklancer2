@@ -202,7 +202,26 @@ jobs:
                   seen[row.get("id")] = row
           for row in rows:
               seen[row.get("id")] = row
-          merged = sorted(seen.values(), key=lambda r: r.get("scraped_at") or "")
+
+          now_utc = datetime.datetime.now(datetime.timezone.utc)
+          fresh_rows = []
+          for r in seen.values():
+              bids_txt = str(r.get("bids_text") or "")
+              posted_txt = str(r.get("posted_text") or "")
+              # حذف آگهی‌های سنجاق‌شده‌ی چندماهه/یکساله پارس‌کدرز
+              if any(tag in (bids_txt + " " + posted_txt) for tag in ("سال پیش", "ماه پیش")):
+                  continue
+              scraped_str = str(r.get("scraped_at") or "")
+              if scraped_str:
+                  try:
+                      dt = datetime.datetime.fromisoformat(scraped_str.replace("Z", "+00:00"))
+                      if (now_utc - dt).total_seconds() > 7 * 86400:
+                          continue
+                  except ValueError:
+                      pass
+              fresh_rows.append(r)
+
+          merged = sorted(fresh_rows, key=lambda r: r.get("scraped_at") or "")
           # سقف نگه‌داری: آخرین ۱۵۰۰ رکورد تا فایل از سقف خواندن contents API (۱ مگابایت) رد نشود
           merged = merged[-1500:]
           cloud.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in merged), encoding='utf-8')

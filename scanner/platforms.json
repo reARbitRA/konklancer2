@@ -38,7 +38,7 @@
       "status": "active",
       "commission_freelancer": "۱۰٪ (برنزی)، ۸٪ (نقره‌ای)، ۷٪ (طلایی) — تعرفه رسمی",
       "public_stats": "ارزش پروژه‌های ثبت‌شده در ۱۴۰۲: حدود ۵۱۰ میلیارد تومان؛ ۸۴۵ هزار پیشنهاد؛ ۸۹٪ پروژه‌ها حداقل یک پیشنهاد",
-      "listing_url": "https://ponisha.ir/projects",
+      "listing_url": "https://ponisha.ir/search/projects",
       "robots": "ponisha.ir/robots.txt پاسخ ۴۰۴ داد؛ قبل از فعال‌سازی دوباره بررسی شود",
       "scan_enabled": false,
       "sources": [
@@ -46,8 +46,8 @@
         "https://www.zoomit.ir/tech-iran/426541-ponisha-annual-report/"
       ],
       "listing_url_candidates": [
-        "https://ponisha.ir/projects",
-        "https://ponisha.ir/search/projects"
+        "https://ponisha.ir/search/projects",
+        "https://ponisha.ir/projects"
       ],
       "scan_selectors_candidates": [
         {
@@ -253,7 +253,7 @@
       "status": "active",
       "commission_freelancer": "حداکثر ۱۰٪ بسته به طرح عضویت — پاسخ پشتیبانی رسمی",
       "public_stats": "آمار رسمی جدیدی منتشر نشده؛ صفحه اصلی ادعای ۲٪ پاداش برای کارفرما دارد",
-      "listing_url": "https://www.karlancer.com/projects",
+      "listing_url": "https://www.karlancer.com/search",
       "robots": "/search?q=* و /api* ممنوع‌اند؛ /search بدون پارامتر در robots ممنوع نشده",
       "scan_enabled": false,
       "sources": [
@@ -261,8 +261,9 @@
         "https://www.karlancer.com/robots.txt"
       ],
       "listing_url_candidates": [
-        "https://www.karlancer.com/projects",
-        "https://www.karlancer.com/search"
+        "https://www.karlancer.com/search",
+        "https://www.karlancer.com/freelance-jobs",
+        "https://www.karlancer.com/projects"
       ],
       "scan_selectors_candidates": [
         {

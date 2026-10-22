@@ -230,9 +230,13 @@ const SCAN_CONFIG = readScanConfig();
 /** اگر scanner/out/projects.jsonl هنوز ساخته نشده ولی scanner/cloud-feed.jsonl در مخزن هست، همان فید واقعی را بارگذاری اولیه می‌کند. */
 function ensureSeedFeedFromCloudFile(outFile: string, cwd: string): void {
   try {
-    if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0) return;
     const bundledCloudFeed = path.resolve(cwd, 'scanner', 'cloud-feed.jsonl');
     if (!fs.existsSync(bundledCloudFeed)) return;
+    const needSync =
+      !fs.existsSync(outFile) ||
+      fs.statSync(outFile).size === 0 ||
+      fs.statSync(bundledCloudFeed).mtimeMs > fs.statSync(outFile).mtimeMs;
+    if (!needSync) return;
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.copyFileSync(bundledCloudFeed, outFile);
   } catch {
@@ -252,6 +256,18 @@ function detectGitHubRepoSlug(cwd: string): string | null {
   }
 }
 
+function detectCurrentGitBranch(cwd: string): string | null {
+  try {
+    const headPath = path.resolve(cwd, '.git', 'HEAD');
+    if (!fs.existsSync(headPath)) return null;
+    const raw = fs.readFileSync(headPath, 'utf8').trim();
+    const m = raw.match(/^ref:\s*refs\/heads\/(.+)$/);
+    return m ? m[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 ensureSeedFeedFromCloudFile(SCAN_CONFIG.outFile, SCAN_CONFIG.cwd);
 
 const effectiveCloudEnv: NodeJS.ProcessEnv = {
@@ -261,6 +277,12 @@ const effectiveCloudEnv: NodeJS.ProcessEnv = {
     : (() => {
         const slug = detectGitHubRepoSlug(process.cwd());
         return slug ? { KONKLANCER_CLOUD_FEED_REPO: slug } : {};
+      })()),
+  ...(process.env.KONKLANCER_CLOUD_FEED_REF
+    ? {}
+    : (() => {
+        const branch = detectCurrentGitBranch(process.cwd());
+        return branch ? { KONKLANCER_CLOUD_FEED_REF: branch } : {};
       })()),
 };
 
