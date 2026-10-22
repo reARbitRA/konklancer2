@@ -1,36 +1,30 @@
-import { JobCategoryTag } from '../types';
-import { ALL_CATEGORIES, detectCategory, type CategoryMeta } from '../../shared/taxonomy';
+import { getCustomLLMHeaders, getCustomLLMPayload } from './customLLMClient';
 
-/**
- * دسته‌بندی زنده‌ی پروژه با دو مسیر: سرور (AI/قاعده‌محور مشترک) و fallback محلی با همان تاکسونومی.
- * خروجی، کلید دسته از shared/taxonomy.json است (translation, graphic, video, audio, docs, writing,
- * marketing, data, image, uiux, automation, dev, other) — نه فقط چهار تگ کدنویسی.
- */
+// AI categoriser: calls the backend, which calls the configured LLM / Konkred gateway (SPEC-006).
 export async function categorizeJobWithGemini(
   title: string,
-  description: string
-): Promise<JobCategoryTag> {
-  const cleanTitle = (title || '').trim();
-  const cleanDesc = (description || '').trim();
-  const keys = ALL_CATEGORIES.map((category: CategoryMeta) => category.key);
-  const local = detectCategory(cleanTitle, cleanDesc).key;
-
-  // ۱) مسیر سرور (که خودش هم تاکسونومی مشترک را برمی‌گرداند)
+  description: string,
+  tags: string[] = [],
+): Promise<string> {
   try {
-    const response = await fetch('/api/categorize-job', {
+    const res = await fetch('/api/ai/categorize', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: cleanTitle, description: cleanDesc }),
+      headers: {
+        'Content-Type': 'application/json',
+        ...getCustomLLMHeaders(),
+      },
+      body: JSON.stringify({
+        title,
+        description,
+        tags,
+        ...getCustomLLMPayload(),
+      }),
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data?.tag && keys.includes(data.tag)) return data.tag as JobCategoryTag;
-    }
-  } catch (error) {
-    console.warn('[Categorizer] Server API request failed, using local taxonomy:', error);
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.category) return tags[0] || 'other';
+    return data.category;
+  } catch (err) {
+    console.warn('AI Categorization failed:', err);
+    return tags[0] || 'other';
   }
-
-  // ۲) fallback محلی با همان کلیدواژه‌های تاکسونومی (بدون هم‌پوشانی با سرور)
-  return local;
 }

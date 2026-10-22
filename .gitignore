@@ -9,4 +9,4 @@ coverage/
 scanner/out/
 __pycache__/
 .pytest_cache/
-data/
+/data/

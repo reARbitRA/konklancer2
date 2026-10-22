@@ -185,3 +185,55 @@ test('callLLM: routes to customLLM endpoint when custom configuration is provide
   }
 });
 
+test('Gemini 2.5 thinking parts: ignores thought=true parts and guards against stale OpenRouter model ID', async () => {
+  const { readLLMConfig } = await import('./llm');
+  let capturedBody: any = null;
+  let capturedUrl = '';
+  const fakeGeminiFetch: any = async (url: string, init: any) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                { thought: true, text: 'internal chain of thought tokens...' },
+                { text: 'اتصال برقرار شد' },
+              ],
+            },
+          },
+        ],
+      }),
+    };
+  };
+
+  // Even if UI left provider='openrouter' and model='meta-llama/llama-3.3-70b-instruct:free', AIza key auto-routes cleanly to gemini-2.5-flash!
+  const res = await callLLM(
+    { taskType: 'general', prompt: 'سلام', maxTokens: 60 },
+    null,
+    fakeGeminiFetch,
+    {
+      provider: 'openrouter',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey: 'AIzaSyDummyGeminiKey123456',
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
+    },
+  );
+  assert.equal(res.text, 'اتصال برقرار شد');
+  assert.equal(res.model, 'gemini-2.5-flash');
+  assert.equal(res.provider, 'gemini');
+  assert.match(capturedUrl, /models\/gemini-2\.5-flash:generateContent/);
+  assert.deepEqual(capturedBody.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.ok(capturedBody.generationConfig.maxOutputTokens >= 512);
+
+  // Also verify readLLMConfig picks up AI Studio GEMINI_API_KEY automatically
+  const envCfg = readLLMConfig({ GEMINI_API_KEY: 'AIzaSyEnvKey' });
+  assert.ok(envCfg?.directCustom);
+  assert.equal(envCfg?.directCustom?.provider, 'gemini');
+});
+
+

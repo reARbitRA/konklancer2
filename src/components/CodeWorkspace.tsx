@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { FreelanceJob } from '../types';
 import { GitHubWorkflowManager } from './GitHubWorkflowManager';
-import { getCustomLLMHeaders } from '../utils/customLLMClient';
+import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
 
 interface CodeWorkspaceProps {
   job: FreelanceJob | null;
@@ -52,17 +52,6 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     }
   }, [job?.id]);
 
-  // ... in return statement
-  
-          {/* GitHub Workflow Manager Card */}
-          {job && job.status === 'in_progress' && !job.repoUrl && (
-             <GitHubWorkflowManager
-               job={job}
-               githubToken={githubToken}
-               onRepoCreated={(url) => onUpdateJobRepoUrl(job.id, url)}
-             />
-          )}
-
   const generateSolution = async () => {
     if (!job) return;
     setLoading(true);
@@ -79,6 +68,8 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
         body: JSON.stringify({
           title: job.title,
           description: job.description,
+          tags: job.tags,
+          ...getCustomLLMPayload(),
         }),
       });
 

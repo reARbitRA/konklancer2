@@ -832,13 +832,22 @@ def _scan_platform(
         return collected, "listing_url ندارد"
     selectors = plat.get("scan_selectors")
     discovered_note = ""
+    working_template = urls[0]
     for n in range(1, pages + 1):
-        template = urls[0]
-        url = page_url(template, n)
-        try:
-            html = fetch_html(client, robots, limiter, url, plat["domain"])
-        except (PermissionError, RuntimeError, httpx.HTTPError) as e:
-            return collected, f"صفحه {n}: {e}"
+        html = None
+        last_err = ""
+        url = page_url(working_template, n)
+        candidates = [working_template] if n > 1 else urls
+        for candidate_tpl in candidates:
+            url = page_url(candidate_tpl, n)
+            try:
+                html = fetch_html(client, robots, limiter, url, plat["domain"])
+                working_template = candidate_tpl
+                break
+            except (PermissionError, RuntimeError, httpx.HTTPError) as e:
+                last_err = str(e)
+        if html is None:
+            return collected, f"صفحه {n}: {last_err}"
         if not selectors and auto:
             best = autoparse.best_profile(html, min_count=3)
             if best is None:
@@ -1100,12 +1109,20 @@ def cmd_autoscan(args) -> int:
                 continue
             selectors = plat.get("scan_selectors")
             local_html = Path(args.html).read_text(encoding="utf-8") if args.html else None
+            working_template = urls[0]
             for n in range(1, args.pages + 1):
-                url = page_url(urls[0], n)
+                html, error = None, ""
+                url = page_url(working_template, n)
                 if local_html is not None:
                     html, error = local_html, ""
                 else:
-                    html, error = _fetch_once(client, robots, limiter, url, plat["domain"])
+                    candidates = [working_template] if n > 1 else urls
+                    for candidate_tpl in candidates:
+                        url = page_url(candidate_tpl, n)
+                        html, error = _fetch_once(client, robots, limiter, url, plat["domain"])
+                        if html is not None:
+                            working_template = candidate_tpl
+                            break
                 if html is None:
                     print(f"[{plat['id']}] صفحه {n} خوانده نشد — {error}", file=sys.stderr)
                     break

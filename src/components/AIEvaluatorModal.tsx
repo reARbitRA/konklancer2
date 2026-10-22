@@ -13,7 +13,7 @@ import {
   Code2
 } from 'lucide-react';
 import { FreelanceJob, AIAnalysis } from '../types';
-import { getCustomLLMHeaders } from '../utils/customLLMClient';
+import { getCustomLLMHeaders, getCustomLLMPayload } from '../utils/customLLMClient';
 
 interface AIEvaluatorModalProps {
   job: FreelanceJob | null;
@@ -48,6 +48,7 @@ export const AIEvaluatorModal: React.FC<AIEvaluatorModalProps> = ({
         },
         body: JSON.stringify({
           title: job.title,
+          ...getCustomLLMPayload(),
           description: job.description,
           budget: job.budget,
           platform: job.platform,

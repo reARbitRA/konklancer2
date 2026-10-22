@@ -64,13 +64,46 @@ function mergeFeedJobs(
   incoming: FreelanceJob[],
   seed: FreelanceJob[] = [],
 ): FreelanceJob[] {
-  const known = new Set(current.map((job) => job.id));
-  const fresh = incoming.filter((job) => !known.has(job.id)).map(enrichJob);
-  const freshIds = new Set(fresh.map((job) => job.id));
-  const seeded = seed
-    .filter((job) => !known.has(job.id) && !freshIds.has(job.id))
-    .map(enrichJob);
-  return [...fresh, ...current, ...seeded];
+  const userTouchedMap = new Map<string, FreelanceJob>();
+  const customOnly: FreelanceJob[] = [];
+
+  for (const job of current) {
+    const isTouched =
+      job.status !== 'new' ||
+      Boolean(job.aiAnalysis) ||
+      Boolean(job.proposal) ||
+      Boolean(job.generatedFiles) ||
+      job.id.startsWith('custom-');
+    if (isTouched) {
+      userTouchedMap.set(job.id, job);
+      if (job.id.startsWith('custom-')) customOnly.push(job);
+    }
+  }
+
+  const incomingIds = new Set(incoming.map((j) => j.id));
+  const mergedIncoming = incoming.map((job) => {
+    const prev = userTouchedMap.get(job.id);
+    if (!prev) return enrichJob(job);
+    return enrichJob({
+      ...job,
+      status: prev.status,
+      aiAnalysis: prev.aiAnalysis,
+      proposal: prev.proposal,
+      proposedPrice: prev.proposedPrice,
+      generatedFiles: prev.generatedFiles,
+      repoUrl: prev.repoUrl,
+      completedAt: prev.completedAt,
+      priority: prev.priority ?? job.priority,
+    });
+  });
+
+  const preservedOffFeed = [...userTouchedMap.values()].filter(
+    (j) => !incomingIds.has(j.id) && !j.id.startsWith('custom-'),
+  );
+  const usedIds = new Set([...incomingIds, ...userTouchedMap.keys()]);
+  const seeded = seed.filter((j) => !usedIds.has(j.id)).map(enrichJob);
+
+  return [...customOnly, ...mergedIncoming, ...preservedOffFeed, ...seeded];
 }
 
 export default function App() {
@@ -108,19 +141,30 @@ export default function App() {
       preferredTone: 'friendly_expert',
       dailyEarningsGoal: 5000000,
     };
-    // SPEC-003 R2: the GitHub token lives only in sessionStorage; any copy left
-    // in localStorage by older builds is removed here.
+    // SPEC-003 R2: the GitHub token lives only in sessionStorage; customLLM & strategy settings persist cleanly.
     let parsed: Partial<UserSettings> = {};
+    let standaloneCustomLLM: UserSettings['customLLM'] | undefined;
     try {
-      const saved = localStorage.getItem('freelanceflow_settings');
+      const saved =
+        localStorage.getItem('konklancer_settings') ||
+        localStorage.getItem('freelanceflow_settings');
       if (saved) parsed = JSON.parse(saved);
+      const savedCustom = localStorage.getItem('freelanceflow_custom_llm');
+      if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
     } catch (e) {
       console.error('Failed to parse settings from localStorage:', e);
     }
     const { githubToken: legacyToken, ...rest } = parsed as any;
-    if (legacyToken !== undefined) localStorage.removeItem('freelanceflow_settings');
     const sessionToken = sessionStorage.getItem('freelanceflow_github_token') || '';
-    return { ...defaults, ...rest, githubToken: sessionToken || legacyToken || '' };
+    if (legacyToken && !sessionToken) {
+      sessionStorage.setItem('freelanceflow_github_token', legacyToken);
+    }
+    return {
+      ...defaults,
+      ...rest,
+      ...(rest.customLLM || standaloneCustomLLM ? { customLLM: rest.customLLM || standaloneCustomLLM } : {}),
+      githubToken: sessionToken || legacyToken || '',
+    };
   });
 
   const [logs, setLogs] = useState<ActivityLogItem[]>([
@@ -154,10 +198,27 @@ export default function App() {
   const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: false });
   const [cloudBusy, setCloudBusy] = useState(false);
 
-  // Sync state to localStorage
+  // Sync state to localStorage (keeping githubToken exclusively in sessionStorage per SPEC-003 R2)
   useEffect(() => {
     localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
   }, [jobs]);
+
+  useEffect(() => {
+    try {
+      const { githubToken, ...persisted } = settings;
+      if (githubToken) {
+        sessionStorage.setItem('freelanceflow_github_token', githubToken);
+      }
+      const serialized = JSON.stringify(persisted);
+      localStorage.setItem('konklancer_settings', serialized);
+      localStorage.setItem('freelanceflow_settings', serialized);
+      if (settings.customLLM) {
+        localStorage.setItem('freelanceflow_custom_llm', JSON.stringify(settings.customLLM));
+      }
+    } catch (err) {
+      console.warn('[settings] ذخیره تنظیمات ناموفق بود:', err);
+    }
+  }, [settings]);
 
   // SPEC-004: خواندن فید از سرور (خروجی اسکنر) به‌جای داده‌ی ساختگی.
   const refreshCloudStatus = useCallback(async () => {
@@ -200,7 +261,7 @@ export default function App() {
   useEffect(() => {
     refreshCloudStatus();
     refreshFeed();
-  }, [refreshFeed]);
+  }, [refreshCloudStatus, refreshFeed]);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -225,17 +286,6 @@ export default function App() {
       Notification.requestPermission();
     }
   }, []);
-
-  useEffect(() => {
-    // SPEC-003 R2: persist everything except the token in localStorage.
-    const { githubToken, ...persistable } = settings;
-    localStorage.setItem('freelanceflow_settings', JSON.stringify(persistable));
-    if (githubToken) {
-      sessionStorage.setItem('freelanceflow_github_token', githubToken);
-    } else {
-      sessionStorage.removeItem('freelanceflow_github_token');
-    }
-  }, [settings]);
 
   // Sound feedback using Web Audio API
   const playChime = () => {

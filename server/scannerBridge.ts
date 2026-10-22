@@ -130,8 +130,17 @@ export function extractBudgetToman(text?: string | null): number {
 /** تعداد پیشنهادهای ثبت‌شده را از متن می‌خواند؛ «۳ پیشنهاد» → 3 ، «بدون پیشنهاد» → 0. */
 export function extractProposalsCount(text?: string | null): number {
   if (!text) return 0;
-  const found = toLatinDigits(text).match(/\d+/);
-  return found ? Number(found[0]) : 0;
+  const normalized = toLatinDigits(text).trim();
+  if (!normalized || /بدون\s*پیشنهاد|اولین\s*پیشنهاد/.test(normalized)) return 0;
+  // ابتدا الگوی صریح «X پیشنهاد» (مثلاً در پارس‌کدرز: «دو ساعت پیش با 4 پیشنهاد رسیده»)
+  const explicit = normalized.match(/(\d+)\s*پیشنهاد/);
+  if (explicit) return Number(explicit[1]);
+  // اگر کل رشته فقط عدد خالص باشد (الگوی پونیشا: label:پیشنهادها -> "12")
+  if (/^\d+$/.test(normalized)) return Number(normalized);
+  // اگر رشته زمان انتشار است («۷ دقیقه پیش») نباید به اشتباه تعداد پیشنهاد تلقی شود
+  if (/(دقیقه|ساعت|روز|هفته|ماه|سال)\s*پیش/.test(normalized)) return 0;
+  const fallback = normalized.match(/\d+/);
+  return fallback ? Number(fallback[0]) : 0;
 }
 
 export function formatToman(amount: number): string {
@@ -183,21 +192,91 @@ export interface ScoreOptions {
   now?: number;
 }
 
-function postedAgeHours(posted?: string, scrapedAt?: string, now = Date.now()): number | null {
-  if (!posted) return null;
-  const iso = posted.match(/\d{4}-\d{2}-\d{2}T[\d:.]+/);
+const PERSIAN_NUMBER_WORDS: Record<string, number> = {
+  یک: 1,
+  دو: 2,
+  سه: 3,
+  چهار: 4,
+  پنج: 5,
+  شش: 6,
+  هفت: 7,
+  هشت: 8,
+  نه: 9,
+  ده: 10,
+  یازده: 11,
+  دوازده: 12,
+  سیزده: 13,
+  چهارده: 14,
+  پانزده: 15,
+  شانزده: 16,
+  هفده: 17,
+  هجده: 18,
+  نوزده: 19,
+  بیست: 20,
+  سی: 30,
+  چهل: 40,
+  پنجاه: 50,
+};
+
+function parsePersianRelativeHours(raw?: string): { hours: number; label: string } | null {
+  if (!raw || !raw.trim()) return null;
+  const clean = toLatinDigits(raw).trim();
+  const iso = clean.match(/\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?/);
   if (iso) {
     const ts = Date.parse(iso[0]);
-    if (!Number.isNaN(ts)) return Math.max(0, (now - ts) / 3_600_000);
+    if (!Number.isNaN(ts)) {
+      const hrs = Math.max(0, (Date.now() - ts) / 3_600_000);
+      return { hours: hrs, label: formatHoursAgo(hrs) };
+    }
   }
-  const relative = toLatinDigits(posted).match(/(\d+)\s*(دقیقه|ساعت|روز|هفته)/);
-  if (relative) {
-    const amount = Number(relative[1]);
-    const unit = relative[2];
-    if (unit === 'دقیقه') return amount / 60;
-    if (unit === 'ساعت') return amount;
-    if (unit === 'روز') return amount * 24;
-    if (unit === 'هفته') return amount * 24 * 7;
+  const numMatch = clean.match(/(\d+)\s*(دقیقه|ساعت|روز|هفته|ماه|سال)\s*پیش/);
+  if (numMatch) {
+    const amount = Number(numMatch[1]);
+    const unit = numMatch[2];
+    return { hours: unitToHours(amount, unit), label: `${amount.toLocaleString('fa-IR')} ${unit} پیش` };
+  }
+  for (const [word, amount] of Object.entries(PERSIAN_NUMBER_WORDS)) {
+    const re = new RegExp(`(?:^|\\s)${word}(?:\\s+و\\s+\\S+)?\\s*(دقیقه|ساعت|روز|هفته|ماه|سال)\\s*پیش`);
+    const m = clean.match(re);
+    if (m) {
+      return { hours: unitToHours(amount, m[1]), label: m[0].trim() };
+    }
+  }
+  return null;
+}
+
+function unitToHours(amount: number, unit: string): number {
+  if (unit === 'دقیقه') return amount / 60;
+  if (unit === 'ساعت') return amount;
+  if (unit === 'روز') return amount * 24;
+  if (unit === 'هفته') return amount * 24 * 7;
+  if (unit === 'ماه') return amount * 24 * 30;
+  if (unit === 'سال') return amount * 24 * 365;
+  return amount;
+}
+
+function formatHoursAgo(hours: number): string {
+  if (hours < 1) {
+    const mins = Math.max(1, Math.round(hours * 60));
+    return `${mins.toLocaleString('fa-IR')} دقیقه پیش`;
+  }
+  if (hours < 24) {
+    return `${Math.round(hours).toLocaleString('fa-IR')} ساعت پیش`;
+  }
+  const days = Math.round(hours / 24);
+  return `${days.toLocaleString('fa-IR')} روز پیش`;
+}
+
+function postedAgeHours(posted?: string, scrapedAt?: string, now = Date.now(), bidsText?: string): number | null {
+  for (const candidate of [posted, bidsText]) {
+    if (!candidate) continue;
+    const iso = candidate.match(/\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?/);
+    if (iso) {
+      const ts = Date.parse(iso[0]);
+      if (!Number.isNaN(ts)) return Math.max(0, (now - ts) / 3_600_000);
+    }
+    const parsedRel = parsePersianRelativeHours(candidate);
+    if (parsedRel) return parsedRel.hours;
   }
   if (scrapedAt) {
     const ts = Date.parse(scrapedAt);
@@ -218,7 +297,7 @@ export function scoreProject(project: ScannedProject, options: ScoreOptions = {}
   const reasons: string[] = [];
   const budget = extractBudgetToman(project.budget_text);
   const proposals = extractProposalsCount(project.bids_text);
-  const ageHours = postedAgeHours(project.posted_text, project.scraped_at, now);
+  const ageHours = postedAgeHours(project.posted_text, project.scraped_at, now, project.bids_text);
 
   let score = 0;
 
@@ -361,6 +440,17 @@ export function mapProjectToJob(project: ScannedProject, scoreOptions: ScoreOpti
     .slice(0, 4);
   keywordTags.forEach((tag) => tags.add(tag));
 
+  const explicitRel =
+    parsePersianRelativeHours(project.posted_text) ||
+    parsePersianRelativeHours(project.bids_text);
+  let realPostedLabel = explicitRel?.label || project.posted_text?.trim() || '';
+  if (!realPostedLabel && project.scraped_at) {
+    const scrapedTs = Date.parse(project.scraped_at);
+    if (!Number.isNaN(scrapedTs)) {
+      realPostedLabel = `اسکن ${formatHoursAgo(Math.max(0, (Date.now() - scrapedTs) / 3_600_000))}`;
+    }
+  }
+
   return {
     id: project.id,
     platform,
@@ -372,7 +462,7 @@ export function mapProjectToJob(project: ScannedProject, scoreOptions: ScoreOpti
     budget,
     budgetFormatted: formatToman(budget),
     deadline: 'نامشخص',
-    postedTime: project.posted_text?.trim() || 'تازه اسکن‌شده',
+    postedTime: realPostedLabel || 'زمان نامشخص',
     category: categoryLabel(categoryKey),
     categoryKey,
     tags: [...tags],
