@@ -64,13 +64,46 @@ function mergeFeedJobs(
   incoming: FreelanceJob[],
   seed: FreelanceJob[] = [],
 ): FreelanceJob[] {
-  const known = new Set(current.map((job) => job.id));
-  const fresh = incoming.filter((job) => !known.has(job.id)).map(enrichJob);
-  const freshIds = new Set(fresh.map((job) => job.id));
-  const seeded = seed
-    .filter((job) => !known.has(job.id) && !freshIds.has(job.id))
-    .map(enrichJob);
-  return [...fresh, ...current, ...seeded];
+  const userTouchedMap = new Map<string, FreelanceJob>();
+  const customOnly: FreelanceJob[] = [];
+
+  for (const job of current) {
+    const isTouched =
+      job.status !== 'new' ||
+      Boolean(job.aiAnalysis) ||
+      Boolean(job.proposal) ||
+      Boolean(job.generatedFiles) ||
+      job.id.startsWith('custom-');
+    if (isTouched) {
+      userTouchedMap.set(job.id, job);
+      if (job.id.startsWith('custom-')) customOnly.push(job);
+    }
+  }
+
+  const incomingIds = new Set(incoming.map((j) => j.id));
+  const mergedIncoming = incoming.map((job) => {
+    const prev = userTouchedMap.get(job.id);
+    if (!prev) return enrichJob(job);
+    return enrichJob({
+      ...job,
+      status: prev.status,
+      aiAnalysis: prev.aiAnalysis,
+      proposal: prev.proposal,
+      proposedPrice: prev.proposedPrice,
+      generatedFiles: prev.generatedFiles,
+      repoUrl: prev.repoUrl,
+      completedAt: prev.completedAt,
+      priority: prev.priority ?? job.priority,
+    });
+  });
+
+  const preservedOffFeed = [...userTouchedMap.values()].filter(
+    (j) => !incomingIds.has(j.id) && !j.id.startsWith('custom-'),
+  );
+  const usedIds = new Set([...incomingIds, ...userTouchedMap.keys()]);
+  const seeded = seed.filter((j) => !usedIds.has(j.id)).map(enrichJob);
+
+  return [...customOnly, ...mergedIncoming, ...preservedOffFeed, ...seeded];
 }
 
 export default function App() {
