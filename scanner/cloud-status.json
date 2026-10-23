@@ -1,30 +1,32 @@
 {
   "phase": "finished",
   "job_status": "success",
-  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/39949122267",
-  "finished_at": "2026-10-23T11:53:23+00:00",
-  "projects_this_run": 104,
+  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/39927386336",
+  "finished_at": "2026-10-23T08:51:50+00:00",
+  "projects_this_run": 310,
   "by_category": {
-    "docs": 6,
-    "marketing": 5,
-    "automation": 12,
-    "other": 23,
-    "dev": 21,
-    "video": 9,
-    "translation": 5,
-    "writing": 7,
+    "marketing": 15,
+    "dev": 89,
+    "writing": 25,
+    "other": 51,
+    "automation": 14,
     "audio": 3,
     "image": 1,
-    "data": 4,
-    "graphic": 8
+    "video": 27,
+    "data": 14,
+    "docs": 27,
+    "translation": 7,
+    "uiux": 7,
+    "ai": 3,
+    "graphic": 27
   },
   "by_source": {
-    "parscoders": 22,
-    "ponisha": 20,
-    "karlancer": 24,
-    "telegram:workarc": 18,
-    "telegram:freelancer_projects": 20
+    "parscoders": 96,
+    "ponisha": 80,
+    "karlancer": 96,
+    "telegram:ponisha_ir": 20,
+    "telegram:workarc": 18
   },
-  "diagnostics": "=== parscoders.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (444190 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\nDisallow: /admin/\nDisallow: /login/\nDisallow: /logout/\nDisallow: /register/\nDisallow: /reset-password/\nDisallow: /cellphone/register\nDisallow: /connect-*\nDisallow: /dashboard/\nDisallow: /conversation/\nDisallow: /api/\nDisallow: /anonymous-project/\n\nSitemap: https://parscoders.com/sitema\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=UTF-8\nx-frame-options: SAMEORIGIN\nx-content-type-options: nosniff\nx-xss-protection: 1; mode=block\n\n=== ponisha.ir ===\nrobots.txt -> 404\nصفحه اصلی -> 200 (609864 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"minimum-scale=1, initial-scale=1, width=device-width, shrink-to-fit=no, user-scalable=no, viewport-fit=cover\" data-next-head=\"\"/><title data-next-head=\"\">صفحه مورد نظر ی\nسربرگ‌ها:\nHTTP/2 200 \nx-nextjs-cache: HIT\nx-powered-by: Next.js\ncontent-type: text/html; charset=utf-8\nx-envoy-upstream-service-time: 23\nserver: istio-envoy\n\n=== www.karlancer.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (502565 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\n\nDisallow: /panel/\nDisallow: /404\nDisallow: /500\nDisallow: /freelancer?q=*\nDisallow: /edu/search?q=*\nDisallow: /search?q=*\nDisallow: /services?q=*\nDisallow: /worksample?q=*\nDisallow: /api/file/workdiary/*\nDisallow: /external-payment/*\nDisallow: /external-charge/*\n\nAllow: /api/file*\n\n#S\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=utf-8\nx-frame-options: DENY\nx-l: front\n\n=== t.me ===\nrobots.txt -> 404\nصفحه اصلی -> 302 (0 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<html>\n<head><title>404 Not Found</title></head>\n<body>\n<center><h1>404 Not Found</h1></center>\n<hr><center>nginx/1.30.1</center>\n</body>\n</html>\n\nسربرگ‌ها:\nHTTP/2 302 \nserver: nginx/1.30.1\ncontent-type: text/html; charset=UTF-8\n\n[parscoders] صفحه 1: 22 پروژه\n[ponisha] صفحه 1: 20 پروژه\n[karlancer] صفحه 1: 24 پروژه\nدسته‌ها: سایر: 16 · وب و اپلیکیشن: 13 · ویدیو و انیمیشن: 9 · اتوماسیون، ربات و اسکریپت: 6 · گرافیک، لوگو و بروشور: 6 · مارکتینگ، سئو و شبکه‌های اجتماعی: 4 · تولید محتوا و نویسندگی: 4 · اسناد، پاورپوینت و پایان‌نامه: 2 · ترجمه و ویراستاری: 2 · صدا و گویندگی: 2 · ویرایش و روتوش تصویر: 1 · داده، اکسل و تحلیل: 1\n66 مورد خوانده شد؛ 66 پس از فیلتر؛ 66 مورد جدید در scanner/out/projects.jsonl\n=== جمع‌بندی صفحه‌ها ===\n66\nکانال‌های فعال برای اسکن: ['workarc', 'freelancer_projects']\n@workarc: 18 پیام\n@freelancer_projects: 20 پیام\n38 مورد خوانده شد؛ 38 پس از فیلتر؛ 38 مورد جدید در scanner/out/projects.jsonl\n[parscoders] ذخیره شد: parscoders.html.gz (610019 کاراکتر → 56628 بایت فشرده)\n[ponisha] ذخیره شد: ponisha.html.gz (201696 کاراکتر → 20820 بایت فشرده)\n[karlancer] ذخیره شد: karlancer.html.gz (510757 کاراکتر → 39184 بایت فشرده)\n[project-only-available] ذخیره شد: project-only-available.html.gz (610019 کاراکتر → 56639 بایت فشرده)\n[telegram-workarc] ذخیره شد: telegram-workarc.html.gz (128858 کاراکتر → 19249 بایت فشرده)\n[telegram-freelancer_projects] ذخیره شد: telegram-freelancer_projects.html.gz (102539 کاراکتر → 10520 بایت فشرده)\n[telegram-freelancer_sent] ذخیره شد: telegram-freelancer_sent.html.gz (125748 کاراکتر → 17795 بایت فشرده)\n[telegram-iranfiverr] ذخیره شد: telegram-iranfiverr.html.gz (134790 کاراکتر → 25723 بایت فشرده)\n8 نمونه ذخیره شد. فهرست: scanner/out/live-captures/manifest.json\n",
+  "diagnostics": "=== parscoders.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (443745 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\nDisallow: /admin/\nDisallow: /login/\nDisallow: /logout/\nDisallow: /register/\nDisallow: /reset-password/\nDisallow: /cellphone/register\nDisallow: /connect-*\nDisallow: /dashboard/\nDisallow: /conversation/\nDisallow: /api/\nDisallow: /anonymous-project/\n\nSitemap: https://parscoders.com/sitema\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=UTF-8\nx-frame-options: SAMEORIGIN\nx-content-type-options: nosniff\nx-xss-protection: 1; mode=block\n\n=== ponisha.ir ===\nrobots.txt -> 404\nصفحه اصلی -> 200 (615100 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"minimum-scale=1, initial-scale=1, width=device-width, shrink-to-fit=no, user-scalable=no, viewport-fit=cover\" data-next-head=\"\"/><title data-next-head=\"\">صفحه مورد نظر ی\nسربرگ‌ها:\nHTTP/2 200 \nx-nextjs-cache: HIT\nx-powered-by: Next.js\ncontent-type: text/html; charset=utf-8\nx-envoy-upstream-service-time: 248\nserver: istio-envoy\n\n=== www.karlancer.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (502565 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\n\nDisallow: /panel/\nDisallow: /404\nDisallow: /500\nDisallow: /freelancer?q=*\nDisallow: /edu/search?q=*\nDisallow: /search?q=*\nDisallow: /services?q=*\nDisallow: /worksample?q=*\nDisallow: /api/file/workdiary/*\nDisallow: /external-payment/*\nDisallow: /external-charge/*\n\nAllow: /api/file*\n\n#S\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=utf-8\nx-frame-options: DENY\nx-l: front\n\n=== t.me ===\nrobots.txt -> 404\nصفحه اصلی -> 302 (0 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<html>\n<head><title>404 Not Found</title></head>\n<body>\n<center><h1>404 Not Found</h1></center>\n<hr><center>nginx/1.30.1</center>\n</body>\n</html>\n\nسربرگ‌ها:\nHTTP/2 302 \nserver: nginx/1.30.1\ncontent-type: text/html; charset=UTF-8\n\n[parscoders] صفحه 1: 23 پروژه\n[parscoders] صفحه 2: 24 پروژه\n[parscoders] صفحه 3: 25 پروژه\n[parscoders] صفحه 4: 24 پروژه\n[ponisha] صفحه 1: 20 پروژه\n[ponisha] صفحه 2: 20 پروژه\n[ponisha] صفحه 3: 20 پروژه\n[ponisha] صفحه 4: 20 پروژه\n[karlancer] صفحه 1: 24 پروژه\n[karlancer] صفحه 2: 24 پروژه\n[karlancer] صفحه 3: 24 پروژه\n[karlancer] صفحه 4: 24 پروژه\nدسته‌ها: توسعه وب، پلتفرم و نرم‌افزار: 78 · سایر: 45 · مستندات فنی، طرح توجیهی و اسناد: 25 · ویدیو و انیمیشن: 24 · گرافیک، لوگو و بروشور: 24 · کپی‌رایتینگ، محتوا و مقاله‌نویسی: 22 · مارکتینگ، سئو و شبکه‌های اجتماعی: 11 · اتوماسیون، ربات و اسکرپینگ: 11 · داده، اکسل پیشرفته و تحلیل: 11 · ترجمه تخصصی و زیرنویس: 7 · رابط کاربری و طراحی سایت: 7 · صدا و گویندگی: 3 · هوش مصنوعی، پرامپت و ورک‌فلو: 3 · ویرایش و روتوش تصویر: 1\n272 مورد خوانده شد؛ 272 پس از فیلتر؛ 272 مورد جدید در scanner/out/projects.jsonl\n=== جمع‌بندی صفحه‌ها ===\n272\nکانال‌های فعال برای اسکن: ['ponisha_ir', 'workarc']\n@ponisha_ir: 20 پیام\n@workarc: 18 پیام\n38 مورد خوانده شد؛ 38 پس از فیلتر؛ 38 مورد جدید در scanner/out/projects.jsonl\n[parscoders] ذخیره شد: parscoders.html.gz (615887 کاراکتر → 57006 بایت فشرده)\n[ponisha] ذخیره شد: ponisha.html.gz (203232 کاراکتر → 21289 بایت فشرده)\n[karlancer] ذخیره شد: karlancer.html.gz (511611 کاراکتر → 38910 بایت فشرده)\n[project-only-available] ذخیره شد: project-only-available.html.gz (615887 کاراکتر → 57018 بایت فشرده)\n[telegram-ponisha_ir] ذخیره شد: telegram-ponisha_ir.html.gz (123444 کاراکتر → 18740 بایت فشرده)\n[telegram-workarc] ذخیره شد: telegram-workarc.html.gz (128859 کاراکتر → 19235 بایت فشرده)\n[telegram-freelancer_projects] ذخیره شد: telegram-freelancer_projects.html.gz (102539 کاراکتر → 10537 بایت فشرده)\n7 نمونه ذخیره شد. فهرست: scanner/out/live-captures/manifest.json\n[tg:ponisha_ir p1] +19 rows (before=26060)\n[tg:ponisha_ir p2] +20 rows (before=26040)\n[tg:ponisha_ir p3] +20 rows (before=26020)\n[tg:ponisha_ir p4] +20 rows (before=26000)\n[tg:ponisha_ir p5] +20 rows (before=25980)\n[tg:ponisha_ir p6] +20 rows (before=25960)\n[tg:workarc p1] +16 rows (before=308)\n[tg:workarc p2] +15 rows (before=281)\n[parscoders] https://parscoders.com/project/only-available -> +3 rows\n[parscoders] https://parscoders.com/project/only-available?page=2 -> +8 rows\n[parscoders] https://parscoders.com/project/only-available?page=3 -> +7 rows\n[parscoders] https://parscoders.com/project/only-available?page=4 -> +5 rows\n[parscoders] https://parscoders.com/project/service/programming -> +3 rows\n[parscoders] https://parscoders.com/project/service/artificial-intelligence -> +3 rows\n[parscoders] https://parscoders.com/project/service/content-creation -> +3 rows\n[karlancer] https://www.karlancer.com/search -> +24 rows\n[karlancer] https://www.karlancer.com/search?page=2 -> +23 rows\n[ponisha] https://ponisha.ir/search/projects -> +19 rows\nSaved 273 clean multi-page rows to scanner/cloud-feed.jsonl\nSupabase batch 1: HTTP 201 (100 rows)\nSupabase batch 2: HTTP 201 (100 rows)\nSupabase batch 3: HTTP 201 (73 rows)\n",
   "note": "فید واقعی از اجرای اسکنر روی رانر گیت‌هاب؛ هیچ داده‌ی ساختگی در آن نیست."
 }

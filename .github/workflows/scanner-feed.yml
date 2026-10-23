@@ -152,6 +152,10 @@ jobs:
             --out-dir scanner/out/live-captures 2>&1 | tee -a scanner/out/diagnostics.txt
           ls -la scanner/out/live-captures || true
 
+      - name: اسکن عمیق چندصفحه‌ای و همگام‌سازی ابری (پونیشا ۶ صفحه + پارس‌کدرز ۷ صفحه + کارلانسر)
+        continue-on-error: true
+        run: python -m scanner.deep_cloud_sync 2>&1 | tee -a scanner/out/diagnostics.txt
+
       - name: انتشار فید و گزارش وضعیت روی برنچ
         if: always()
         env:
@@ -231,9 +235,27 @@ jobs:
           # پاک‌سازی با همان قواعد خود اسکنر (ناوبری، الگوی مسیر پروژه، کانال غیرفعال، تکراری)
           python -m scanner.konklancer_scan prune --file scanner/cloud-feed.jsonl --apply | tee -a scanner/out/diagnostics.txt
           python - <<'PY'
-          import pathlib
+          import pathlib, json, datetime, httpx
           lines = [line for line in pathlib.Path('scanner/cloud-feed.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
           print(f"fid ebraei pas az pak-sazi: {len(lines)} record")
+          rows = []
+          for l in lines[-250:]:
+              try:
+                  obj = json.loads(l)
+                  if str(obj.get("posted_text", "")).startswith(("2020-", "2021-", "2022-", "2023-", "2024-", "2025-")):
+                      continue
+                  rows.append({"id": obj["id"], "payload": obj, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+              except Exception:
+                  pass
+          if rows:
+              jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs"
+              r = httpx.post(
+                  "https://rwuyuhjkitcnekpwmoml.supabase.co/rest/v1/konklancer_projects?on_conflict=id",
+                  headers={"apikey": jwt, "Authorization": f"Bearer {jwt}", "Prefer": "resolution=merge-duplicates"},
+                  json=rows,
+                  timeout=20.0,
+              )
+              print(f"Supabase live feed sync HTTP {r.status_code}: {len(rows)} rows")
           PY
 
           git config user.name "konklancer-scan-bot"

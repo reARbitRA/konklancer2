@@ -1,31 +1,31 @@
 import React, { useState } from 'react';
-import { 
-  Search, 
-  Filter, 
-  ExternalLink, 
-  Sparkles, 
-  FileText, 
-  Code2, 
-  Clock, 
-  UserCheck, 
-  Plus, 
-  ArrowUpRight,
-  ShieldCheck,
-  CheckCircle2,
-  DollarSign,
+import {
+  Search,
+  ExternalLink,
+  Sparkles,
+  FileText,
+  Clock,
+  UserCheck,
+  Plus,
   Globe,
   FileCode,
   RefreshCw,
   AlertCircle,
   Check,
   Link2,
-  HelpCircle,
-  Copy
+  Pin,
+  Trash2,
+  Gem,
+  Target,
+  Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, categoryAiFit, detectCategory } from '../../shared/taxonomy';
-import { isNativeAndroidApp } from '../services/browserLLM';
-import { buildJobsFromRows, parsePlatformHtmlClient } from '../services/standaloneFeed';
+import { evaluateProjectRelevance } from '../../shared/relevanceEngine';
+import { buildJobsFromRows, fetchHtmlSmart, parsePlatformHtmlClient } from '../services/standaloneFeed';
+
+type RelevanceFilterMode = 'relevant' | 'prime' | 'saved' | 'all';
 
 interface JobHunterProps {
   jobs: FreelanceJob[];
@@ -33,6 +33,8 @@ interface JobHunterProps {
   onSelectJobForProposal: (job: FreelanceJob) => void;
   onSelectJobForCoding: (job: FreelanceJob) => void;
   onAddNewManualJob: (job: Partial<FreelanceJob>) => void;
+  onTogglePinJob: (jobId: string) => void;
+  onDeleteManualJob: (jobId: string) => void;
 }
 
 export const JobHunter: React.FC<JobHunterProps> = ({
@@ -41,23 +43,24 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   onSelectJobForProposal,
   onSelectJobForCoding,
   onAddNewManualJob,
+  onTogglePinJob,
+  onDeleteManualJob,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformKey>('all');
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey>('all');
+  const [relevanceFilter, setRelevanceFilter] = useState<RelevanceFilterMode>('relevant');
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // Tab: 'url' | 'html' | 'manual'
   const [modalTab, setModalTab] = useState<'url' | 'html' | 'manual'>('url');
 
   // URL Scraper state
-  const [urlInput, setUrlInput] = useState('https://ponisha.ir/search/projects');
+  const [urlInput, setUrlInput] = useState('https://telegram.me/s/ponisha_ir');
   const [isUrlScraping, setIsUrlScraping] = useState(false);
   const [urlScrapeResult, setUrlScrapeResult] = useState<{
     success: boolean;
     message: string;
     count?: number;
-    cloudflareBlocked?: boolean;
     extractedTitles?: string[];
   } | null>(null);
 
@@ -75,20 +78,43 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   // Manual job form state
   const [manualTitle, setManualTitle] = useState('');
   const [manualDesc, setManualDesc] = useState('');
-  const [manualBudget, setManualBudget] = useState('3000000');
+  const [manualBudget, setManualBudget] = useState('5000000');
   const [manualPlatform, setManualPlatform] = useState('پونیشا');
 
-  const filteredJobs = jobs.filter((job) => {
+  // محاسبه لحظه‌ای تناسب اگر رکورد قدیمی فاقد فیلد باشد
+  const enrichedJobs = jobs.map((job) => {
+    if (job.relevanceTier) return job;
+    const rel = evaluateProjectRelevance(job.title, job.description, job.categoryKey, job.tags);
+    return {
+      ...job,
+      relevanceTier: rel.tier,
+      relevanceScore: rel.relevanceScore,
+      relevanceReason: rel.reason,
+    };
+  });
+
+  const hiddenJunkCount = enrichedJobs.filter((j) => !j.isManual && !j.pinned && j.relevanceTier === 'junk').length;
+  const primeCount = enrichedJobs.filter((j) => j.isManual || j.pinned || j.relevanceTier === 'prime').length;
+  const savedCount = enrichedJobs.filter((j) => j.isManual || j.pinned).length;
+  const relevantCount = enrichedJobs.filter((j) => j.isManual || j.pinned || j.relevanceTier !== 'junk').length;
+
+  const filteredJobs = enrichedJobs.filter((job) => {
+    const isSaved = Boolean(job.isManual || job.pinned);
+
+    if (relevanceFilter === 'saved' && !isSaved) return false;
+    if (relevanceFilter === 'prime' && !isSaved && job.relevanceTier !== 'prime') return false;
+    if (relevanceFilter === 'relevant' && !isSaved && job.relevanceTier === 'junk') return false;
+
+    const q = searchQuery.trim().toLowerCase();
     const matchesSearch =
-      job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      !q ||
+      job.title.toLowerCase().includes(q) ||
+      job.description.toLowerCase().includes(q) ||
+      job.tags.some((t) => t.toLowerCase().includes(q)) ||
+      job.category.toLowerCase().includes(q);
 
-    const matchesPlatform =
-      selectedPlatform === 'all' || job.platformKey === selectedPlatform;
-
-    const matchesCategory =
-      selectedCategory === 'all' || job.categoryKey === selectedCategory;
+    const matchesPlatform = selectedPlatform === 'all' || job.platformKey === selectedPlatform;
+    const matchesCategory = selectedCategory === 'all' || job.categoryKey === selectedCategory;
 
     return matchesSearch && matchesPlatform && matchesCategory;
   });
@@ -97,26 +123,33 @@ export const JobHunter: React.FC<JobHunterProps> = ({
     e.preventDefault();
     if (!manualTitle.trim() || !manualDesc.trim()) return;
 
-    const budgetNum = parseInt(manualBudget) || 3000000;
+    const budgetNum = parseInt(manualBudget, 10) || 5000000;
+    const detected = detectCategory(manualTitle, manualDesc);
     onAddNewManualJob({
-      id: `custom-${Date.now()}`,
-      title: manualTitle,
-      description: manualDesc,
+      id: `manual-${Date.now()}`,
+      title: manualTitle.trim(),
+      description: manualDesc.trim(),
       budget: budgetNum,
       budgetFormatted: `${budgetNum.toLocaleString('fa-IR')} تومان`,
       platform: manualPlatform,
-      platformKey: manualPlatform.includes('کارلانسر') ? 'karlancer' : manualPlatform.includes('پارسکدرز') ? 'parskoders' : 'ponisha',
+      platformKey: manualPlatform.includes('کارلانسر')
+        ? 'karlancer'
+        : manualPlatform.includes('پارس')
+          ? 'parskoders'
+          : 'ponisha',
       clientName: 'کارفرمای اختصاصی',
       clientRating: 5.0,
       clientReviews: 10,
       deadline: 'امروز',
       postedTime: 'هم‌اکنون',
-      category: categoryLabel(detectCategory(manualTitle, manualDesc).key),
-      categoryKey: detectCategory(manualTitle, manualDesc).key,
-      tags: ['Custom Job', 'Instant AI'],
-      proposalsCount: 1,
+      category: categoryLabel(detected.key),
+      categoryKey: detected.key,
+      tags: [detected.key, 'Manual Vault'],
+      proposalsCount: 0,
       avgBid: budgetNum,
       status: 'new',
+      isManual: true,
+      pinned: true,
     });
 
     setManualTitle('');
@@ -133,89 +166,47 @@ export const JobHunter: React.FC<JobHunterProps> = ({
 
     try {
       const targetUrl = urlInput.trim();
-      if (isNativeAndroidApp()) {
-        const res = await fetch(targetUrl);
-        if (!res.ok) {
-          setUrlScrapeResult({
-            success: false,
-            message: `خطای HTTP ${res.status} هنگام خواندن نشانی.`,
-          });
-          return;
-        }
-        const html = await res.text();
+      const html = await fetchHtmlSmart(targetUrl);
+      if (html) {
         const host = targetUrl.toLowerCase();
-        const src = host.includes('ponisha')
-          ? 'ponisha'
-          : host.includes('karlancer')
-            ? 'karlancer'
-            : host.includes('t.me/')
-              ? `telegram:${targetUrl.split('/').filter(Boolean).pop()}`
-              : 'parscoders';
+        const src = host.includes('ponisha_ir')
+          ? 'telegram:ponisha_ir'
+          : host.includes('ponisha')
+            ? 'ponisha'
+            : host.includes('karlancer')
+              ? 'karlancer'
+              : host.includes('t.me/') || host.includes('telegram.me/')
+                ? `telegram:${targetUrl.split('/').filter(Boolean).pop()?.split('?')[0]}`
+                : 'parscoders';
         const rows = parsePlatformHtmlClient(html, src, targetUrl);
         const { jobs: built } = buildJobsFromRows(rows);
-        built.forEach((j) => onAddNewManualJob(j));
+        built.forEach((j) =>
+          onAddNewManualJob({
+            ...j,
+            isManual: true,
+            pinned: true,
+          }),
+        );
         setUrlScrapeResult({
           success: built.length > 0,
           count: built.length,
           message:
             built.length > 0
-              ? `${built.length} پروژه مستقیماً روی تبلت استخراج و به رادار اضافه شد!`
-              : 'پروژه‌ای در این نشانی تشخیص داده نشد؛ می‌توانید متن صفحه را دستی وارد کنید.',
+              ? `${built.length.toLocaleString('fa-IR')} پروژه استخراج و به گاوصندوق دائمی اضافه شد (در اسکن‌های بعدی هرگز پاک نمی‌شوند)!`
+              : 'صفحه خوانده شد اما کارت پروژه‌ای تشخیص داده نشد؛ از تب «پیست سورس HTML» یا «ثبت دستی» استفاده کنید.',
           extractedTitles: built.map((p) => p.title),
         });
         return;
       }
 
-      const res = await fetch('/api/scraper/fetch-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlInput.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setUrlScrapeResult({
-          success: false,
-          message: data.error || 'خطا در واکشی نشانی اینترنتی.',
-          cloudflareBlocked: Boolean(data.cloudflareBlocked),
-        });
-        return;
-      }
-
-      const projects = data.projects || [];
-      projects.forEach((p: any) => {
-        onAddNewManualJob({
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          budget: p.budget,
-          budgetFormatted: p.budgetFormatted,
-          platform: p.platform,
-          platformKey: p.platformKey,
-          url: p.url,
-          category: p.category,
-          categoryKey: p.categoryKey,
-          tags: p.tags,
-          proposalsCount: p.bidsCount,
-          avgBid: p.budget,
-          status: 'new',
-          postedTime: 'هم‌اکنون',
-          clientName: 'کارفرمای فریلنسری',
-          clientRating: 4.9,
-          clientReviews: 8,
-          deadline: '۳ روز',
-        });
-      });
-
       setUrlScrapeResult({
-        success: true,
-        count: projects.length,
-        message: `${projects.length} پروژه با موفقیت از نشانی ${data.url} استخراج شد و به رادار افزوده شد!`,
-        extractedTitles: projects.map((p: any) => p.title),
+        success: false,
+        message: 'اتصال مستقیم برقرار نشد؛ سورس صفحه را در تب ۲ پیست کنید یا دستی ثبت نمایید.',
       });
     } catch (err: any) {
       setUrlScrapeResult({
         success: false,
-        message: err.message || 'خطا در برقراری ارتباط با سرور',
+        message: err.message || 'خطا در استخراج نشانی اینترنتی',
       });
     } finally {
       setIsUrlScraping(false);
@@ -230,81 +221,35 @@ export const JobHunter: React.FC<JobHunterProps> = ({
     setHtmlScrapeResult(null);
 
     try {
-      if (isNativeAndroidApp()) {
-        const base =
-          htmlPlatform === 'ponisha'
-            ? 'https://ponisha.ir'
-            : htmlPlatform === 'karlancer'
-              ? 'https://www.karlancer.com'
-              : 'https://parscoders.com';
-        const rows = parsePlatformHtmlClient(htmlInput.trim(), htmlPlatform, base);
-        const { jobs: built } = buildJobsFromRows(rows);
-        built.forEach((j) => onAddNewManualJob(j));
-        setHtmlScrapeResult({
-          success: built.length > 0,
-          count: built.length,
-          message:
-            built.length > 0
-              ? `${built.length} پروژه از سورس HTML استخراج شد!`
-              : 'کارت پروژه‌ای در این HTML یافت نشد.',
-          extractedTitles: built.map((p) => p.title),
-        });
-        return;
-      }
-
-      const res = await fetch('/api/scraper/parse-html', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          html: htmlInput.trim(),
-          platform: htmlPlatform,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setHtmlScrapeResult({
-          success: false,
-          message: data.error || 'خطا در تجزیه سورس صفحه.',
-        });
-        return;
-      }
-
-      const projects = data.projects || [];
-      projects.forEach((p: any) => {
+      const base =
+        htmlPlatform === 'ponisha'
+          ? 'https://ponisha.ir'
+          : htmlPlatform === 'karlancer'
+            ? 'https://www.karlancer.com'
+            : 'https://parscoders.com';
+      const rows = parsePlatformHtmlClient(htmlInput.trim(), htmlPlatform, base);
+      const { jobs: built } = buildJobsFromRows(rows);
+      built.forEach((j) =>
         onAddNewManualJob({
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          budget: p.budget,
-          budgetFormatted: p.budgetFormatted,
-          platform: p.platform,
-          platformKey: p.platformKey,
-          url: p.url,
-          category: p.category,
-          categoryKey: p.categoryKey,
-          tags: p.tags,
-          proposalsCount: p.bidsCount,
-          avgBid: p.budget,
-          status: 'new',
-          postedTime: 'هم‌اکنون',
-          clientName: 'کارفرمای فریلنسری',
-          clientRating: 4.9,
-          clientReviews: 8,
-          deadline: '۳ روز',
-        });
-      });
-
+          ...j,
+          isManual: true,
+          pinned: true,
+        }),
+      );
       setHtmlScrapeResult({
-        success: true,
-        count: projects.length,
-        message: `${projects.length} پروژه با موفقیت از سورس کپی‌شده استخراج شد و به رادار پیوست!`,
-        extractedTitles: projects.map((p: any) => p.title),
+        success: built.length > 0,
+        count: built.length,
+        message:
+          built.length > 0
+            ? `${built.length.toLocaleString('fa-IR')} پروژه از سورس HTML استخراج و به صورت دائمی ذخیره شد!`
+            : 'کارت پروژه‌ای در این HTML تشخیص داده نشد؛ اگر متن ساده یک آگهی است از تب «ثبت دستی» استفاده کنید.',
+        extractedTitles: built.map((p) => p.title),
       });
-      setHtmlInput('');
+      if (built.length > 0) setHtmlInput('');
     } catch (err: any) {
       setHtmlScrapeResult({
         success: false,
-        message: err.message || 'خطا در ارتباط با سرور',
+        message: err.message || 'خطا در پردازش سورس HTML',
       });
     } finally {
       setIsHtmlScraping(false);
@@ -312,49 +257,108 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Editorial headline & quick metrics bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+    <div className="space-y-5">
+      {/* Header Row */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">
-            شکار هوشمند پروژه‌های فریلنسری
+            رادار شکار عمیق و دسته‌بندی هوشمند پروژه‌ها
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            پایش لحظه‌ای پونیشا، کارلانسر و پارسکدرز · فیلتر پروژه‌های ۱۰۰٪ قابل انجام با هوش مصنوعی
+            اسکن چندصفحه‌ای پونیشا (با بودجه مخفی)، پارس‌کدرز و کارلانسر · حذف خودکار آگهی‌های نامربوط و حفاظت دائمی از پروژه‌های دستی
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setShowAddModal(true);
-              setModalTab('url');
-              setUrlScrapeResult(null);
-              setHtmlScrapeResult(null);
-            }}
-            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-emerald-600/90 to-teal-600/90 hover:from-emerald-500 hover:to-teal-500 text-white font-medium rounded-xl text-xs shadow-md shadow-emerald-950 transition-all active:scale-95 border border-emerald-400/30"
-          >
-            <Globe className="h-4 w-4" />
-            <span>استخراج و شکار پروژه (URL / سورس / دستی)</span>
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setShowAddModal(true);
+            setModalTab('url');
+            setUrlScrapeResult(null);
+            setHtmlScrapeResult(null);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-950 transition-all active:scale-95 border border-emerald-400/30 self-start"
+        >
+          <Plus className="h-4 w-4" />
+          <span>ثبت / استخراج دائمی پروژه جدید (URL · HTML · دستی)</span>
+        </button>
       </div>
 
-      {/* Search and Filters Bar */}
+      {/* Smart Relevance Filter Bar */}
+      <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setRelevanceFilter('relevant')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              relevanceFilter === 'relevant'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Target className="w-3.5 h-3.5" />
+            <span>فقط مرتبط با من ({relevantCount.toLocaleString('fa-IR')})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRelevanceFilter('prime')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              relevanceFilter === 'prime'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-800/80 text-amber-300 hover:bg-slate-800'
+            }`}
+          >
+            <Gem className="w-3.5 h-3.5" />
+            <span>شکار طلایی پرتناسب ({primeCount.toLocaleString('fa-IR')})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRelevanceFilter('saved')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              relevanceFilter === 'saved'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-800/80 text-indigo-300 hover:bg-slate-800'
+            }`}
+          >
+            <Pin className="w-3.5 h-3.5" />
+            <span>دستی و سنجاق‌شده دائمی ({savedCount.toLocaleString('fa-IR')})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRelevanceFilter('all')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              relevanceFilter === 'all'
+                ? 'bg-slate-700 text-white'
+                : 'bg-slate-950/60 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>نمایش خام همه ({enrichedJobs.length.toLocaleString('fa-IR')})</span>
+          </button>
+        </div>
+
+        {hiddenJunkCount > 0 && relevanceFilter !== 'all' && (
+          <span className="text-[11px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+            ✓ {hiddenJunkCount.toLocaleString('fa-IR')} آگهی نامربوط/حضوری/تبلیغاتی خودکار حذف شد
+          </span>
+        )}
+      </div>
+
+      {/* Search & Platform Filters */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        {/* Search */}
         <div className="md:col-span-5 relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="جستجو در عنوان، پایتون، وب اسکرپینگ، ربات تلگرام..."
+            placeholder="جستجو در عنوان، پایتون، اتوماسیون، هوش مصنوعی، ترجمه، اسکرپینگ..."
             className="w-full bg-slate-900 border border-slate-800 rounded-lg pr-9 pl-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
           />
         </div>
 
-        {/* Platform segmented buttons */}
         <div className="md:col-span-7 flex flex-wrap items-center gap-1.5 justify-start md:justify-end">
           <span className="text-[11px] text-slate-400 ml-1">پلتفرم:</span>
           {(
@@ -362,7 +366,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
               { key: 'all', label: 'همه پلتفرم‌ها' },
               { key: 'ponisha', label: 'پونیشا' },
               { key: 'karlancer', label: 'کارلانسر' },
-              { key: 'parskoders', label: 'پارسکدرز' },
+              { key: 'parskoders', label: 'پارس‌کدرز' },
+              { key: 'global', label: 'کانال‌ها / بین‌المللی' },
             ] as const
           ).map((item) => (
             <button
@@ -371,7 +376,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                 selectedPlatform === item.key
                   ? 'bg-slate-800 text-emerald-400 border border-slate-700'
-                  : 'text-slate-400 bg-slate-900/60 hover:text-slate-200 border border-slate-850'
+                  : 'text-slate-400 bg-slate-900/60 hover:text-slate-200 border border-slate-800/80'
               }`}
             >
               {item.label}
@@ -380,15 +385,14 @@ export const JobHunter: React.FC<JobHunterProps> = ({
         </div>
       </div>
 
-      {/* Category Filter Pills — از shared/taxonomy.json ساخته می‌شود: هر چیزی که AI می‌تواند تولید کند */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-        <span className="text-[11px] text-slate-400 ml-2">دسته‌بندی کارها:</span>
+      {/* Category Filter Pills */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-slate-400 ml-2">دسته‌بندی دقیق:</span>
         {[
-          { key: 'all' as CategoryKey, label: 'همه' },
-          ...ALL_CATEGORIES.filter((category) => category.key !== 'other').map((category) => ({
-            key: category.key as CategoryKey,
-            label: category.fa,
-            aiFit: category.aiFit,
+          { key: 'all' as CategoryKey, label: 'همه دسته‌ها' },
+          ...ALL_CATEGORIES.filter((c) => c.key !== 'other').map((c) => ({
+            key: c.key as CategoryKey,
+            label: c.fa,
           })),
         ].map((cat) => (
           <button
@@ -396,8 +400,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             onClick={() => setSelectedCategory(cat.key)}
             className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
               selectedCategory === cat.key
-                ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
-                : 'text-slate-400 bg-slate-900 hover:text-slate-300 border border-slate-800'
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 font-semibold'
+                : 'text-slate-400 bg-slate-900 hover:text-slate-200 border border-slate-800'
             }`}
           >
             {cat.label}
@@ -405,432 +409,331 @@ export const JobHunter: React.FC<JobHunterProps> = ({
         ))}
       </div>
 
-      {/* Jobs Grid */}
+      {/* Jobs List */}
       <div className="grid grid-cols-1 gap-4">
         {filteredJobs.length === 0 ? (
           <div className="py-16 text-center border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
-            <p className="text-sm text-slate-400">هیچ پروژه‌ای مطابق فیلترهای انتخاب شده یافت نشد.</p>
+            <p className="text-sm text-slate-400">هیچ پروژه‌ای مطابق این ترکیب فیلتر یافت نشد.</p>
             <button
               onClick={() => {
                 setSearchQuery('');
                 setSelectedPlatform('all');
                 setSelectedCategory('all');
+                setRelevanceFilter('relevant');
               }}
               className="mt-3 text-xs text-emerald-400 hover:underline"
             >
-              پاک‌سازی فیلترها
+              بازنشانی فیلترها
             </button>
           </div>
         ) : (
-          filteredJobs.map((job) => (
-            <div
-              key={job.id}
-              className="group border border-slate-800 bg-slate-900/70 hover:border-slate-700/80 rounded-xl p-5 transition-all space-y-4"
-            >
-              {/* Header row: Platform, timing, and budget */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="font-semibold text-slate-200">{job.platform}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
-                    <Clock className="h-3 w-3" />
-                    {job.postedTime}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                    <UserCheck className="h-3 w-3 text-slate-400" />
-                    {job.clientName} ({job.clientRating} ★)
-                  </span>
-                </div>
-
-                {/* Budget, Priority and Categorized Tag */}
-                <div className="flex items-center gap-2">
-                  {job.priority && (
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
-                        job.priority === 'High'
-                          ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                          : job.priority === 'Medium'
-                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                          : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                      }`}
-                    >
-                      {job.priority === 'High' ? 'بالا' : job.priority === 'Medium' ? 'متوسط' : 'پایین'}
+          filteredJobs.map((job) => {
+            const isProtected = Boolean(job.isManual || job.pinned);
+            return (
+              <div
+                key={job.id}
+                className={`group border rounded-xl p-5 transition-all space-y-3.5 ${
+                  isProtected
+                    ? 'border-indigo-500/45 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/25'
+                    : job.relevanceTier === 'prime'
+                      ? 'border-emerald-500/30 bg-slate-900/80 hover:border-emerald-500/55'
+                      : 'border-slate-800 bg-slate-900/70 hover:border-slate-700'
+                }`}
+              >
+                {/* Top metadata bar */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                    {isProtected && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold text-[11px]">
+                        <ShieldCheck className="w-3 h-3" />
+                        {job.isManual ? 'ثبت دستی دائمی' : 'سنجاق دائمی'}
+                      </span>
+                    )}
+                    {job.relevanceTier === 'prime' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/35 font-bold text-[11px]">
+                        <Gem className="w-3 h-3" /> شکار طلایی
+                      </span>
+                    )}
+                    <span className="font-semibold text-slate-200">{job.platform}</span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
+                      <Clock className="h-3 w-3" />
+                      {job.postedTime}
                     </span>
-                  )}
+                    <span className="hidden sm:inline">·</span>
+                    <span className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400">
+                      <UserCheck className="h-3 w-3" />
+                      {job.clientName}
+                    </span>
+                  </div>
 
-                  {(job.categoryKey || job.category) && (
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className="px-2 py-0.5 rounded text-[10px] border bg-indigo-500/10 text-indigo-200 border-indigo-500/30"
-                      title={`دسته‌ی کار · تناسب با AI: ${categoryAiFit(job.categoryKey)}/10`}
+                      className="px-2.5 py-0.5 rounded text-[11px] font-semibold border bg-indigo-500/10 text-indigo-200 border-indigo-500/30"
+                      title={`تناسب هوش مصنوعی: ${categoryAiFit(job.categoryKey)}/10`}
                     >
                       {categoryLabel(job.categoryKey) || job.category}
                     </span>
-                  )}
 
-                  {typeof job.score === 'number' && (
-                    <span
-                      title={job.scoreReasons?.join(' · ') ?? undefined}
-                      className="rounded border border-slate-700/80 bg-slate-800/70 px-2 py-0.5 font-mono text-[10px] text-slate-300"
+                    <span className="font-mono text-sm font-bold text-emerald-400 tabular-nums">
+                      {job.budgetFormatted}
+                    </span>
+
+                    {/* Pin / Unpin Button */}
+                    <button
+                      type="button"
+                      onClick={() => onTogglePinJob(job.id)}
+                      className={`p-1.5 rounded-lg border transition-colors ${
+                        isProtected
+                          ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                          : 'bg-slate-800/80 border-slate-700/70 text-slate-400 hover:text-white'
+                      }`}
+                      title={isProtected ? 'محافظت دائمی فعال است' : 'سنجاق دائمی پروژه (هرگز در اسکن‌ها پاک نشود)'}
                     >
-                      امتیاز فید: {job.score.toLocaleString('fa-IR')}
+                      <Pin className="w-3.5 h-3.5" />
+                    </button>
+
+                    {isProtected && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteManualJob(job.id)}
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-rose-400"
+                        title="حذف از لیست دائمی"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Title & Description */}
+                <div>
+                  <h3 className="text-base font-bold text-white group-hover:text-emerald-300 transition-colors">
+                    {job.title}
+                  </h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-300 line-clamp-3">
+                    {job.description}
+                  </p>
+                </div>
+
+                {/* Tags + Reason */}
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 pt-0.5">
+                  {job.relevanceReason && (
+                    <span className="text-emerald-400/90 font-medium">✦ {job.relevanceReason}</span>
+                  )}
+                  {job.tags.slice(0, 5).map((tag, idx) => (
+                    <span key={idx} className="font-mono text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded">
+                      {tag}
+                    </span>
+                  ))}
+                  {job.proposalsCount > 0 && (
+                    <span className="mr-auto font-mono text-[11px] text-slate-400">
+                      {job.proposalsCount.toLocaleString('fa-IR')} پیشنهاد ثبت‌شده
                     </span>
                   )}
-
-                  <span className="text-xs text-slate-400">بودجه کارفرما:</span>
-                  <span className="font-mono text-sm font-bold text-emerald-400 tabular-nums">
-                    {job.budgetFormatted}
-                  </span>
-                </div>
-              </div>
-
-              {/* Title & Description */}
-              <div>
-                <h3 className="text-base font-semibold text-white group-hover:text-emerald-300 transition-colors">
-                  {job.title}
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-slate-300 line-clamp-2">
-                  {job.description}
-                </p>
-              </div>
-
-              {/* Tags unboxed text metadata */}
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 pt-1">
-                <span className="text-slate-400">تکنولوژی‌های پروژه:</span>
-                {job.tags.map((tag, idx) => (
-                  <span key={idx} className="font-mono text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded">
-                    {tag}
-                  </span>
-                ))}
-                <span className="mr-auto font-mono text-[11px] text-slate-400">
-                  {job.proposalsCount} پیشنهاد ثبت‌شده · میانگین: {job.avgBid.toLocaleString('fa-IR')} تومان
-                </span>
-              </div>
-
-              {/* Action Buttons row */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
-                <div className="flex items-center gap-2">
-                  {/* Analysis Button */}
-                  <button
-                    onClick={() => onSelectJobForAnalysis(job)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-                    <span>تحلیل هوش مصنوعی</span>
-                  </button>
-
-                  {/* Proposal Button */}
-                  <button
-                    onClick={() => onSelectJobForProposal(job)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-amber-400" />
-                    <span>نگارش پروپوزال</span>
-                  </button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {/* Open the original listing (SPEC-004: پروژه‌ها از اسکنر عمومی می‌آیند) */}
-                  {job.url && (
-                    <a
-                      href={job.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                {/* Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-slate-800/80">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => onSelectJobForAnalysis(job)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
                     >
-                      <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-                      <span>صفحه‌ی پروژه</span>
-                    </a>
-                  )}
+                      <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+                      <span>تحلیل و استراتژی برد</span>
+                    </button>
 
-                  {/* Start Agent Code Solution */}
-                  <button
-                    onClick={() => onSelectJobForCoding(job)}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-lg text-xs shadow-sm transition-all active:scale-95"
-                  >
-                    <Code2 className="h-3.5 w-3.5" />
-                    <span>کدنویسی خودکار با ایجنت</span>
-                  </button>
+                    <button
+                      onClick={() => onSelectJobForProposal(job)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-amber-400" />
+                      <span>پروپوزال برنده</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {job.url && (
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+                        <span>آگهی اصلی</span>
+                      </a>
+                    )}
+
+                    <button
+                      onClick={() => onSelectJobForCoding(job)}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold rounded-lg text-xs shadow-md transition-all active:scale-95"
+                    >
+                      <span>🏛️ استودیو تحویل و مستندات فنی</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Modal: Comprehensive Project Extraction & Ingestion Studio */}
+      {/* Permanent Ingestion Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto">
           <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-6">
-            {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/95">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-emerald-500/20 to-sky-500/20 border border-emerald-500/30 text-emerald-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400">
                   <Globe className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <span>استخراج و شکار پروژه (پونیشا، کارلانسر، پارسکدرز)</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
-                      Live Ingest
-                    </span>
+                  <h3 className="text-sm font-bold text-white">
+                    گاوصندوق ثبت و استخراج دائمی پروژه (بدون حذف در اسکن خودکار)
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    استخراج خودکار از آدرس اینترنتی، پیست مستقیم سورس HTML یا ثبت دستی پروژه
+                    هر پروژه‌ای که از این بخش اضافه شود برای همیشه در حافظه اختصاصی سنجاق می‌ماند
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800"
               >
                 ✕
               </button>
             </div>
 
-            {/* Navigation Tabs */}
-            <div className="flex border-b border-slate-800 bg-slate-950/50 px-6 pt-2 gap-2 text-xs">
+            <div className="flex border-b border-slate-800 bg-slate-950/50 px-6 pt-2 gap-2 text-xs overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setModalTab('url')}
-                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg transition-colors border-b-2 -mb-[1px] ${
+                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'url'
                     ? 'border-emerald-500 text-emerald-400 bg-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    : 'border-transparent text-slate-400'
                 }`}
               >
-                <Link2 className="h-3.5 w-3.5" />
-                <span>۱. استخراج از آدرس صفحه (URL)</span>
+                <Link2 className="h-3.5 w-3.5" /> ۱. استخراج از URL
               </button>
-
               <button
                 type="button"
                 onClick={() => setModalTab('html')}
-                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg transition-colors border-b-2 -mb-[1px] ${
+                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'html'
                     ? 'border-emerald-500 text-emerald-400 bg-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    : 'border-transparent text-slate-400'
                 }`}
               >
-                <FileCode className="h-3.5 w-3.5" />
-                <span>۲. پیست سورس HTML (تضمینی پونیشا)</span>
+                <FileCode className="h-3.5 w-3.5" /> ۲. پیست سورس HTML
               </button>
-
               <button
                 type="button"
                 onClick={() => setModalTab('manual')}
-                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg transition-colors border-b-2 -mb-[1px] ${
+                className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'manual'
                     ? 'border-emerald-500 text-emerald-400 bg-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    : 'border-transparent text-slate-400'
                 }`}
               >
-                <Plus className="h-3.5 w-3.5" />
-                <span>۳. ثبت دستی تکی پروژه</span>
+                <Plus className="h-3.5 w-3.5" /> ۳. ثبت دستی تکی
               </button>
             </div>
 
             <div className="p-6">
-              {/* TAB 1: URL Scraper */}
               {modalTab === 'url' && (
                 <form onSubmit={handleScrapeUrl} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Link2 className="h-3.5 w-3.5 text-emerald-400" />
-                        <span>آدرس اینترنتی صفحه پروژه‌ها یا تک‌پروژه:</span>
-                      </span>
-                    </label>
-                    <input
-                      type="url"
-                      required
-                      value={urlInput}
-                      onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder="https://ponisha.ir/search/projects"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-emerald-400 dir-ltr text-left focus:outline-none focus:border-emerald-500 shadow-inner"
-                    />
+                  <input
+                    type="url"
+                    required
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://telegram.me/s/ponisha_ir"
+                    dir="ltr"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'فید زنده پونیشا (با بودجه)', url: 'https://telegram.me/s/ponisha_ir' },
+                      { label: 'پارس‌کدرز صفحه ۲', url: 'https://parscoders.com/project/only-available?page=2' },
+                      { label: 'کارلانسر صفحه ۱', url: 'https://www.karlancer.com/search' },
+                    ].map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => setUrlInput(item.url)}
+                        className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
-
-                  {/* Quick Preset Buttons */}
-                  <div className="space-y-1.5">
-                    <span className="text-[11px] text-slate-400 block">نمونه آدرس‌های آماده برای تست سریع:</span>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { label: 'پونیشا: پروژه‌ها', url: 'https://ponisha.ir/search/projects' },
-                        { label: 'کارلانسر: پروژه‌ها', url: 'https://karlancer.com/projects' },
-                        { label: 'پارسکدرز: پروژه‌ها', url: 'https://parscoders.com/project' },
-                      ].map((item) => (
-                        <button
-                          key={item.label}
-                          type="button"
-                          onClick={() => {
-                            setUrlInput(item.url);
-                            setUrlScrapeResult(null);
-                          }}
-                          className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800/80 hover:bg-slate-750 text-slate-300 border border-slate-700/80 transition-colors"
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Submit Button */}
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={isUrlScraping || !urlInput.trim()}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white disabled:opacity-50 transition-all shadow-md shadow-emerald-950"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isUrlScraping ? 'animate-spin' : ''}`} />
-                      <span>{isUrlScraping ? 'در حال اتصال به سایت و استخراج پروژه‌ها...' : 'شکار و استخراج هوشمند پروژه‌ها'}</span>
-                    </button>
-                  </div>
-
-                  {/* Scrape Result Alert */}
+                  <button
+                    type="submit"
+                    disabled={isUrlScraping || !urlInput.trim()}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isUrlScraping ? 'animate-spin' : ''}`} />
+                    <span>{isUrlScraping ? 'در حال استخراج و ذخیره دائمی...' : 'استخراج و افزودن دائمی'}</span>
+                  </button>
                   {urlScrapeResult && (
                     <div
-                      className={`p-4 rounded-xl text-xs space-y-2 ${
+                      className={`p-3.5 rounded-xl text-xs ${
                         urlScrapeResult.success
                           ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                          : urlScrapeResult.cloudflareBlocked
-                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200'
                           : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
                       }`}
                     >
-                      <div className="flex items-start gap-2">
-                        {urlScrapeResult.success ? (
-                          <Check className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                        )}
-                        <div className="space-y-1">
-                          <p className="font-semibold leading-relaxed">{urlScrapeResult.message}</p>
-                          {urlScrapeResult.cloudflareBlocked && (
-                            <div className="pt-2 text-slate-300 space-y-2">
-                              <p className="text-[11px] leading-relaxed text-amber-300">
-                                💡 سایت مقصد به دلیل تدابیر ضدبات/کلودفلر، دسترسی سرور را مسدود کرده است.
-                                <strong> بهترین و سریع‌ترین راهکار بدون مسدودی:</strong> به تب «۲. پیست سورس HTML» بروید؛ کافیست در مرورگر خود صفحه پونیشا را باز کرده، Ctrl+U را بزنید، سورس صفحه را کپی و پیست کنید تا پروژه‌ها در یک ثانیه روی رادار قرار گیرند!
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setModalTab('html');
-                                  setHtmlPlatform('ponisha');
-                                }}
-                                className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all"
-                              >
-                                انتقال به تب پیست سورس HTML ←
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {urlScrapeResult.extractedTitles && urlScrapeResult.extractedTitles.length > 0 && (
-                        <div className="pt-2 border-t border-emerald-500/20 space-y-1">
-                          <span className="text-[10px] text-emerald-400 block font-semibold">پروژه‌های اضافه‌شده به رادار:</span>
-                          <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-300 max-h-32 overflow-y-auto">
-                            {urlScrapeResult.extractedTitles.map((t, idx) => (
-                              <li key={idx} className="truncate">{t}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+                      {urlScrapeResult.message}
                     </div>
                   )}
                 </form>
               )}
 
-              {/* TAB 2: HTML Source Paste (Guaranteed for Ponisha) */}
               {modalTab === 'html' && (
                 <form onSubmit={handleScrapeHtml} className="space-y-4">
-                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-xs text-indigo-200 space-y-1">
-                    <p className="font-semibold flex items-center gap-1.5">
-                      <Sparkles className="h-4 w-4 text-indigo-400" />
-                      <span>راهکار ۱۰۰٪ تضمینی برای پونیشا، کارلانسر و پارسکدرز:</span>
-                    </p>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      ۱. در مرورگر خود صفحه پروژه‌های پونیشا (<a href="https://ponisha.ir/search/projects" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">ponisha.ir</a>) را باز کنید.
-                      <br />
-                      ۲. کلیدهای <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white font-mono">Ctrl+U</kbd> یا کلیک راست روی صفحه و گزینه <strong>View Page Source</strong> را بزنید.
-                      <br />
-                      ۳. کل متن را با <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white font-mono">Ctrl+A</kbd> و سپس <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white font-mono">Ctrl+C</kbd> کپی کرده و در کادر زیر پیست کنید:
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-300 mb-1">پلتفرم مبدأ:</label>
-                      <select
-                        value={htmlPlatform}
-                        onChange={(e) => setHtmlPlatform(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="ponisha">پونیشا (Ponisha)</option>
-                        <option value="karlancer">کارلانسر (Karlancer)</option>
-                        <option value="parscoders">پارسکدرز (Parscoders)</option>
-                        <option value="generic">سایر سایت‌های فریلنسری</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-200 block">سورس HTML یا متن کامل صفحه:</label>
-                    <textarea
-                      required
-                      rows={6}
-                      value={htmlInput}
-                      onChange={(e) => setHtmlInput(e.target.value)}
-                      placeholder="<!DOCTYPE html> ... سورس کامل صفحه را اینجا پیست کنید ..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 dir-ltr text-left focus:outline-none focus:border-emerald-500 shadow-inner"
-                    />
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={isHtmlScraping || !htmlInput.trim()}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white disabled:opacity-50 transition-all shadow-md shadow-indigo-950"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isHtmlScraping ? 'animate-spin' : ''}`} />
-                      <span>{isHtmlScraping ? 'در حال پردازش سورس و استخراج پروژه‌ها...' : 'تجزیه و استخراج پروژه‌ها'}</span>
-                    </button>
-                  </div>
-
+                  <select
+                    value={htmlPlatform}
+                    onChange={(e) => setHtmlPlatform(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
+                  >
+                    <option value="ponisha">پونیشا (Ponisha)</option>
+                    <option value="karlancer">کارلانسر (Karlancer)</option>
+                    <option value="parscoders">پارس‌کدرز (Parscoders)</option>
+                  </select>
+                  <textarea
+                    required
+                    rows={6}
+                    value={htmlInput}
+                    onChange={(e) => setHtmlInput(e.target.value)}
+                    placeholder="سورس HTML صفحه را اینجا پیست کنید..."
+                    dir="ltr"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isHtmlScraping || !htmlInput.trim()}
+                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                  >
+                    تجزیه آنی و ذخیره دائمی در گاوصندوق
+                  </button>
                   {htmlScrapeResult && (
                     <div
-                      className={`p-4 rounded-xl text-xs space-y-2 ${
+                      className={`p-3.5 rounded-xl text-xs flex items-center gap-2 ${
                         htmlScrapeResult.success
                           ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
                           : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        {htmlScrapeResult.success ? (
-                          <Check className="h-4 w-4 text-emerald-400" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 text-rose-400" />
-                        )}
-                        <span className="font-semibold">{htmlScrapeResult.message}</span>
-                      </div>
-
-                      {htmlScrapeResult.extractedTitles && htmlScrapeResult.extractedTitles.length > 0 && (
-                        <div className="pt-2 border-t border-emerald-500/20 space-y-1">
-                          <span className="text-[10px] text-emerald-400 block font-semibold">پروژه‌های کشف‌شده:</span>
-                          <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-300 max-h-32 overflow-y-auto">
-                            {htmlScrapeResult.extractedTitles.map((t, idx) => (
-                              <li key={idx} className="truncate">{t}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+                      {htmlScrapeResult.success ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                      <span>{htmlScrapeResult.message}</span>
                     </div>
                   )}
                 </form>
               )}
 
-              {/* TAB 3: Manual Single Project Entry */}
               {modalTab === 'manual' && (
                 <form onSubmit={handleCreateManualJob} className="space-y-4">
                   <div>
@@ -840,62 +743,58 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                       required
                       value={manualTitle}
                       onChange={(e) => setManualTitle(e.target.value)}
-                      placeholder="مثال: اسکریپت استخراج محصولات دیجی‌کالا با پایتون"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                      placeholder="مثال: طراحی سیستم اتوماسیون پردازش فاکتور با هوش مصنوعی"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
                     />
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-300 mb-1">پلتفرم مبدا:</label>
+                      <label className="block text-xs text-slate-300 mb-1">پلتفرم:</label>
                       <select
                         value={manualPlatform}
                         onChange={(e) => setManualPlatform(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
                       >
                         <option value="پونیشا">پونیشا</option>
                         <option value="کارلانسر">کارلانسر</option>
-                        <option value="پارسکدرز">پارسکدرز</option>
-                        <option value="آپ‌ورک / بین‌المللی">آپ‌ورک / بین‌المللی</option>
+                        <option value="پارس‌کدرز">پارس‌کدرز</option>
+                        <option value="بین‌المللی / مستقیم">بین‌المللی / مستقیم</option>
                       </select>
                     </div>
-
                     <div>
-                      <label className="block text-xs text-slate-300 mb-1">بودجه تقریبی (تومان):</label>
+                      <label className="block text-xs text-slate-300 mb-1">بودجه (تومان):</label>
                       <input
                         type="number"
                         value={manualBudget}
                         onChange={(e) => setManualBudget(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500 tabular-nums"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
                       />
                     </div>
                   </div>
-
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">توضیحات کامل کارفرما:</label>
+                    <label className="block text-xs text-slate-300 mb-1">شرح کامل پروژه کارفرما:</label>
                     <textarea
                       required
-                      rows={4}
+                      rows={5}
                       value={manualDesc}
                       onChange={(e) => setManualDesc(e.target.value)}
-                      placeholder="متن کامل پروژه را از سایت فریلنسری کپی و اینجا پیست کنید..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                      placeholder="شرح کامل نیازمندی‌های کارفرما را اینجا بنویسید یا پیست کنید تا موتور معماری و تحویل روی آن کار کند..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
                     />
                   </div>
-
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
                       onClick={() => setShowAddModal(false)}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs"
+                      className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs"
                     >
                       انصراف
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-xl text-xs shadow-md shadow-emerald-950 transition-all"
+                      className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs"
                     >
-                      افزودن و آنالیز فوری
+                      ذخیره دائمی و رفتن به تحلیل
                     </button>
                   </div>
                 </form>

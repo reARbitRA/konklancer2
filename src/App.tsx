@@ -1,12 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { 
-  AlertTriangle, 
-  RefreshCw, 
-  X, 
-  WifiOff, 
-  CheckCircle2 
-} from 'lucide-react';
+import { RefreshCw, X, WifiOff } from 'lucide-react';
 import { Header } from './components/Header';
 import { JobHunter } from './components/JobHunter';
 import { CodeWorkspace } from './components/CodeWorkspace';
@@ -17,22 +11,40 @@ import { ProposalStudioModal } from './components/ProposalStudioModal';
 import { GitHubDispatcher } from './components/GitHubDispatcher';
 import { GitHubWorkflowManager } from './components/GitHubWorkflowManager';
 import { SettingsModal } from './components/SettingsModal';
-import { INITIAL_JOBS } from './data/mockJobs';
 import { FreelanceJob, AIAnalysis, ActivityLogItem, UserSettings, PriorityLevel } from './types';
 import { categorizeJobWithGemini } from './utils/geminiCategorizer';
 import { categoryLabel, detectCategory } from '../shared/taxonomy';
+import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
-import { isNativeAndroidApp } from './services/browserLLM';
+import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
+import { subscribeVaultChanges } from './utils/customLLMClient';
 import {
   loadInitialFeedUnified,
   runDirectTabletLiveScan,
   syncCloudFeedDirectFromGitHub,
 } from './services/standaloneFeed';
 
-/**
- * Runtime Type Guard to strictly validate incoming Socket.io data
- * against the FreelanceJob interface before state mutation
- */
+const MANUAL_VAULT_STORAGE_KEY = 'konklancer_manual_jobs_v2';
+
+function readPermanentManualVault(): FreelanceJob[] {
+  try {
+    const raw = localStorage.getItem(MANUAL_VAULT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePermanentManualVault(list: FreelanceJob[]): void {
+  try {
+    localStorage.setItem(MANUAL_VAULT_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 function isValidFreelanceJob(data: any): data is FreelanceJob {
   if (!data || typeof data !== 'object') return false;
   if (typeof data.id !== 'string' || !data.id.trim()) return false;
@@ -45,109 +57,133 @@ function isValidFreelanceJob(data: any): data is FreelanceJob {
   return true;
 }
 
-/** فیلدهای مشتق‌شده‌ی هر پروژه (اولویت و تگ دسته) را کامل می‌کند. */
+/** همیشه دسته‌بندی وزن‌دار جدید و تناسب کاری را دقیق محاسبه می‌کند */
 function enrichJob(job: FreelanceJob): FreelanceJob {
-  // دسته از تاکسونومی مشترک می‌آید (ترجمه، گرافیک، ویدیو، صدا، کد و ...) — نه فقط چهار تگ کدنویسی.
-  const categoryKey =
-    job.categoryKey && job.categoryKey !== 'all'
-      ? job.categoryKey
-      : detectCategory(job.title, job.description).key;
+  const det = detectCategory(job.title, job.description, (job.tags || []).join(' '));
+  const categoryKey = det.key;
+  const rel = evaluateProjectRelevance(job.title, job.description, categoryKey, job.tags);
   return {
     ...job,
     categoryKey,
-    category: job.category || categoryLabel(categoryKey),
+    category: categoryLabel(categoryKey),
     priority: job.priority || (job.budget >= 6000000 ? 'High' : job.budget >= 4000000 ? 'Medium' : 'Low'),
-    categorizedTag: job.categorizedTag || categoryLabel(categoryKey),
+    categorizedTag: categoryLabel(categoryKey),
+    relevanceTier: rel.tier,
+    relevanceScore: rel.relevanceScore,
+    relevanceReason: rel.reason,
   };
 }
 
 /**
- * فید تازه را با پروژه‌های محلی کاربر ادغام می‌کند.
- * وضعیت/تحلیل/پروپوزالِ پروژه‌های شناخته‌شده دست‌نخورده می‌ماند (SPEC-005 / localStorage).
+ * ادغام تضمین‌شده بدون پاک‌شدن پروژه‌های دستی و سنجاق‌شده:
+ * ۱. تمام پروژه‌های گاوصندوق دائمی (konklancer_manual_jobs_v2 + isManual + pinned) همیشه در صدر حفظ می‌شوند.
+ * ۲. پروژه‌های دارای تحلیل، پروپوزال، فایل تحویلی یا وضعیت تغییریافته دست‌نخورده می‌مانند.
  */
-function mergeFeedJobs(
+export function mergeFeedJobs(
   current: FreelanceJob[],
   incoming: FreelanceJob[],
   seed: FreelanceJob[] = [],
 ): FreelanceJob[] {
+  const permanentMap = new Map<string, FreelanceJob>();
   const userTouchedMap = new Map<string, FreelanceJob>();
-  const customOnly: FreelanceJob[] = [];
+
+  for (const vJob of readPermanentManualVault()) {
+    permanentMap.set(vJob.id, enrichJob({ ...vJob, pinned: true }));
+  }
 
   for (const job of current) {
+    if (job.isManual || job.pinned || job.id.startsWith('custom-') || job.id.startsWith('manual-')) {
+      permanentMap.set(job.id, enrichJob({ ...job, pinned: true }));
+      continue;
+    }
     const isTouched =
       job.status !== 'new' ||
       Boolean(job.aiAnalysis) ||
       Boolean(job.proposal) ||
       Boolean(job.generatedFiles) ||
-      job.id.startsWith('custom-');
+      Boolean(job.solutionCode);
     if (isTouched) {
       userTouchedMap.set(job.id, job);
-      if (job.id.startsWith('custom-')) customOnly.push(job);
     }
   }
 
+  // همگام‌سازی خودکار گاوصندوق دائمی روی دیسک
+  if (permanentMap.size > 0) {
+    writePermanentManualVault([...permanentMap.values()]);
+  }
+
   const incomingIds = new Set(incoming.map((j) => j.id));
-  const mergedIncoming = incoming.map((job) => {
+  const mergedIncoming: FreelanceJob[] = [];
+
+  for (const job of incoming) {
+    if (permanentMap.has(job.id)) continue; // نسخه دائمی در صدر قرار می‌گیرد
     const prev = userTouchedMap.get(job.id);
-    if (!prev) return enrichJob(job);
-    return enrichJob({
-      ...job,
-      status: prev.status,
-      aiAnalysis: prev.aiAnalysis,
-      proposal: prev.proposal,
-      proposedPrice: prev.proposedPrice,
-      generatedFiles: prev.generatedFiles,
-      repoUrl: prev.repoUrl,
-      completedAt: prev.completedAt,
-      priority: prev.priority ?? job.priority,
-    });
-  });
+    if (!prev) {
+      mergedIncoming.push(enrichJob(job));
+    } else {
+      mergedIncoming.push(
+        enrichJob({
+          ...job,
+          status: prev.status,
+          aiAnalysis: prev.aiAnalysis,
+          proposal: prev.proposal,
+          proposedPrice: prev.proposedPrice,
+          generatedFiles: prev.generatedFiles,
+          solutionCode: prev.solutionCode,
+          executiveSummary: prev.executiveSummary,
+          blueprintMode: prev.blueprintMode,
+          repoUrl: prev.repoUrl,
+          completedAt: prev.completedAt,
+          priority: prev.priority ?? job.priority,
+        }),
+      );
+    }
+  }
 
   const preservedOffFeed = [...userTouchedMap.values()].filter(
-    (j) => !incomingIds.has(j.id) && !j.id.startsWith('custom-'),
+    (j) => !incomingIds.has(j.id) && !permanentMap.has(j.id),
   );
-  const usedIds = new Set([...incomingIds, ...userTouchedMap.keys()]);
+  const usedIds = new Set([...permanentMap.keys(), ...incomingIds, ...userTouchedMap.keys()]);
   const seeded = seed.filter((j) => !usedIds.has(j.id)).map(enrichJob);
 
-  return [...customOnly, ...mergedIncoming, ...preservedOffFeed, ...seeded];
+  return [...permanentMap.values(), ...mergedIncoming, ...preservedOffFeed, ...seeded];
 }
 
 export default function App() {
-  // Navigation
   const [activeTab, setActiveTab] = useState<'hunter' | 'coder' | 'pipeline' | 'autopilot'>('hunter');
 
-  // Core Data
-  // پروژه‌ها از فید واقعی (/api/jobs) می‌آیند؛ از localStorage فقط برای نگه‌داشتن
-  // وضعیت/تحلیل/پروپوزالِ خودِ کاربر استفاده می‌شود. داده‌ی ساختگی فقط در حالت دمو می‌آید.
   const [jobs, setJobs] = useState<FreelanceJob[]>(() => {
+    const manualVault = readPermanentManualVault().map(enrichJob);
     const saved = localStorage.getItem('freelanceflow_jobs');
-    if (!saved) return [];
+    if (!saved) return manualVault;
     try {
       const parsed: FreelanceJob[] = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed.map(enrichJob) : [];
-    } catch (e) {
-      console.error('Failed to parse jobs from localStorage:', e);
-      return [];
+      const list = Array.isArray(parsed) ? parsed.map(enrichJob) : [];
+      return mergeFeedJobs(manualVault, list, []);
+    } catch {
+      return manualVault;
     }
   });
 
-  // SPEC-004: منبع فید و زمان آخرین اسکن
   const [feed, setFeed] = useState<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>({
     source: 'unknown',
     scannedAt: null,
     scannedProjects: 0,
   });
 
+  const [aiAvailable, setAiAvailable] = useState<boolean>(() => hasConfiguredBrowserKey());
+
   const [settings, setSettings] = useState<UserSettings>(() => {
-    const defaults = {
+    const defaults: UserSettings = {
       githubToken: '',
+      githubUseSSH: false,
+      githubSSHKey: '',
       defaultDiscountRate: 18,
       autoBidThreshold: 85,
       cyborgMode: true,
       preferredTone: 'friendly_expert',
       dailyEarningsGoal: 5000000,
     };
-    // SPEC-003 R2: the GitHub token lives only in sessionStorage; customLLM & strategy settings persist cleanly.
     let parsed: Partial<UserSettings> = {};
     let standaloneCustomLLM: UserSettings['customLLM'] | undefined;
     try {
@@ -157,8 +193,8 @@ export default function App() {
       if (saved) parsed = JSON.parse(saved);
       const savedCustom = localStorage.getItem('freelanceflow_custom_llm');
       if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
-    } catch (e) {
-      console.error('Failed to parse settings from localStorage:', e);
+    } catch {
+      // ignore invalid json
     }
     const { githubToken: legacyToken, ...rest } = parsed as any;
     const sessionToken = sessionStorage.getItem('freelanceflow_github_token') || '';
@@ -173,25 +209,30 @@ export default function App() {
     };
   });
 
+  useEffect(() => {
+    const unsub = subscribeVaultChanges(() => {
+      setAiAvailable(hasConfiguredBrowserKey());
+    });
+    return unsub;
+  }, []);
+
   const [logs, setLogs] = useState<ActivityLogItem[]>([
     {
       id: 'log-1',
-      timestamp: '۱۰:۴۲',
+      timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
       type: 'scan',
-      message: 'موتور رصد به پلتفرم‌های پونیشا، کارلانسر و پارسکدرز متصل شد.',
+      message: 'موتور v3 کونک‌لنسر (اسکن عمیق چندصفحه‌ای + گاوصندوق دائمی + استودیو ۳ مرحله‌ای تحویل) آماده است.',
     },
   ]);
 
-  // Socket.io Real-Time Client State
   const socketRef = useRef<Socket | null>(null);
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
   const [socketError, setSocketError] = useState<string | null>(null);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
-  // Selected Jobs for Modals & Workspaces
   const [selectedJobForAnalysis, setSelectedJobForAnalysis] = useState<FreelanceJob | null>(null);
   const [selectedJobForProposal, setSelectedJobForProposal] = useState<FreelanceJob | null>(null);
-  const [selectedJobForCoding, setSelectedJobForCoding] = useState<FreelanceJob | null>(null);
+  const [selectedJobForCodingId, setSelectedJobForCodingId] = useState<string | null>(null);
   const [gitHubPushState, setGitHubPushState] = useState<{
     job: FreelanceJob | null;
     files: Record<string, string>;
@@ -200,13 +241,22 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  // فید ابری: اسکنر واقعی روی رانرهای گیت‌هاب اجرا می‌شود (سایت‌ها از این سرور قابل دسترسی نیستند)
-  const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: false });
+  const [scanStatusText, setScanStatusText] = useState<string | null>(null);
+  const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: true });
   const [cloudBusy, setCloudBusy] = useState(false);
 
-  // Sync state to localStorage (keeping githubToken exclusively in sessionStorage per SPEC-003 R2)
+  const selectedJobForCoding = jobs.find((j) => j.id === selectedJobForCodingId) || null;
+
   useEffect(() => {
-    localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
+    try {
+      localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
+      const protectedJobs = jobs.filter(
+        (j) => j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-'),
+      );
+      writePermanentManualVault(protectedJobs);
+    } catch {
+      // ignore storage errors
+    }
   }, [jobs]);
 
   useEffect(() => {
@@ -218,32 +268,16 @@ export default function App() {
       const serialized = JSON.stringify(persisted);
       localStorage.setItem('konklancer_settings', serialized);
       localStorage.setItem('freelanceflow_settings', serialized);
-      if (settings.customLLM) {
-        localStorage.setItem('freelanceflow_custom_llm', JSON.stringify(settings.customLLM));
-      }
-    } catch (err) {
-      console.warn('[settings] ذخیره تنظیمات ناموفق بود:', err);
+    } catch {
+      // ignore storage errors
     }
   }, [settings]);
 
-  // SPEC-004: خواندن فید از سرور (خروجی اسکنر) به‌جای داده‌ی ساختگی.
   const refreshCloudStatus = useCallback(async () => {
-    if (isNativeAndroidApp()) {
-      setCloudInfo({ enabled: true, repo: 'reARbitRA/konklancer2' });
-      return { enabled: true };
-    }
-    try {
-      const res = await fetch('/api/bridge/cloud');
-      const data = await res.json();
-      setCloudInfo({ enabled: Boolean(data?.enabled && data?.hasToken !== false), repo: data?.repo, status: data?.status });
-      return data;
-    } catch {
-      setCloudInfo({ enabled: true });
-      return null;
-    }
+    setCloudInfo({ enabled: true, repo: 'reARbitRA/konklancer2' });
+    return { enabled: true };
   }, []);
 
-  // همگام‌سازی فید محلی با آخرین فید ابری / محلی تبلت
   const refreshFeed = useCallback(async (): Promise<void> => {
     try {
       const data = await loadInitialFeedUnified();
@@ -274,48 +308,9 @@ export default function App() {
     jobsRef.current = jobs;
   }, [jobs]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const biddedJobs = jobsRef.current.filter(j => j.status === 'bidded');
-      if (biddedJobs.length > 0 && Notification.permission === 'granted') {
-        new Notification('یادآوری بررسی وضعیت پروژه‌ها', {
-          body: `شما ${biddedJobs.length} پروژه در وضعیت «ارسال پیشنهاد» دارید. برای بررسی بازخوردها اقدام کنید.`,
-        });
-      }
-    }, 4 * 60 * 60 * 1000); // 4 hours
-
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  // Sound feedback using Web Audio API
-  const playChime = () => {
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
-      gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.3);
-    } catch {
-      // AudioContext may be restricted by browser policy
-    }
-  };
-
   const addLog = (message: string, type: ActivityLogItem['type'] = 'scan') => {
     const newLog: ActivityLogItem = {
-      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
       type,
       message,
@@ -323,83 +318,51 @@ export default function App() {
     setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
   };
 
-  // --- فید ابری / اسکن مستقیم بومی روی تبلت اندروید ---
   const handleSyncCloudFeed = useCallback(async () => {
     setCloudBusy(true);
     try {
       const result = await syncCloudFeedDirectFromGitHub(settings.githubToken);
       addLog(result.message, 'scan');
       if (result.jobs && result.jobs.length > 0) {
-        setJobs((prev) => mergeFeedJobs(prev, result.jobs!, []));
+        setJobs((prev) => mergeFeedJobs(prev, result.jobs, []));
         setFeed({
           source: 'scanner',
           scannedAt: result.scannedAt ?? new Date().toISOString(),
           scannedProjects: result.total ?? result.jobs.length,
         });
-      } else {
-        await refreshFeed();
       }
-      await refreshCloudStatus();
     } catch (err: any) {
       addLog(`همگام‌سازی فید ناموفق بود: ${err?.message ?? err}`, 'scan');
     } finally {
       setCloudBusy(false);
     }
-  }, [settings.githubToken, refreshFeed, refreshCloudStatus]);
+  }, [settings.githubToken]);
 
-  // درخواست اسکن ابری یا اسکن زنده مستقیم روی تبلت اندروید
-  const handleCloudScan = useCallback(async () => {
-    if (isNativeAndroidApp()) {
-      setCloudBusy(true);
-      addLog('شروع اسکن زنده مستقیم از تبلت روی پارس‌کدرز، پونیشا، کارلانسر و تلگرام...', 'scan');
-      try {
-        const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
-        setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
-        setFeed({
-          source: 'scanner',
-          scannedAt: out.scannedAt ?? new Date().toISOString(),
-          scannedProjects: out.total,
-        });
-        addLog(`اسکن مستقیم تبلت کامل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
-      } catch (err: any) {
-        addLog(`خطا در اسکن مستقیم تبلت: ${err?.message ?? err}`, 'scan');
-      } finally {
-        setCloudBusy(false);
-      }
-      return;
-    }
-
-    setCloudBusy(true);
-    addLog('درخواست اسکن ابری ثبت شد؛ رانر گیت‌هاب در حال اجرای اسکنر واقعی است...', 'scan');
+  const handleQuickScan = useCallback(async () => {
+    setIsScanning(true);
+    setScanStatusText('شروع اسکن عمیق چندصفحه‌ای...');
     try {
-      const res = await fetch('/api/bridge/cloud-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+      const out = await runDirectTabletLiveScan((msg) => {
+        setScanStatusText(msg);
+        addLog(msg, 'scan');
       });
-      const data = await res.json();
-      addLog(String(data?.message ?? data?.error ?? 'درخواست اسکن ابری ثبت شد.'), 'scan');
-      const deadline = Date.now() + 5 * 60_000;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 15_000));
-        const status = await refreshCloudStatus();
-        if (status?.status?.phase === 'finished') {
-          addLog(`اسکن ابری تمام شد (${status.status.projects_this_run ?? 0} پروژه در این اجرا).`, 'scan');
-          await handleSyncCloudFeed();
-          return;
-        }
-      }
-      addLog('زمان پیگیری اسکن ابری تمام شد؛ بعداً دکمه‌ی «همگام‌سازی» را بزنید.', 'scan');
+      setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
+      setFeed({
+        source: 'scanner',
+        scannedAt: out.scannedAt ?? new Date().toISOString(),
+        scannedProjects: out.total,
+      });
+      addLog(`اسکن عمیق تکمیل شد: ${out.added.toLocaleString('fa-IR')} مورد جدید (${out.summary})`, 'scan');
     } catch (err: any) {
-      addLog(`اسکن ابری ناموفق بود: ${err?.message ?? err}`, 'scan');
+      addLog(`خطا در اسکن عمیق: ${err?.message || err}`, 'scan');
     } finally {
-      setCloudBusy(false);
+      setIsScanning(false);
+      setScanStatusText(null);
     }
-  }, [refreshCloudStatus, handleSyncCloudFeed]);
+  }, []);
 
-  // Robust Socket.io Client Setup (skipped cleanly in standalone Android APK mode so zero red disconnect banners show)
   useEffect(() => {
-    if (isNativeAndroidApp()) {
+    if (isStandaloneClientMode() || isNativeAndroidApp()) {
       setSocketConnected(true);
       setSocketError(null);
       return;
@@ -407,228 +370,37 @@ export default function App() {
     const socket: Socket = io({
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 30, // 30 automatic retries
-      reconnectionDelay: 1000,   // Initial 1s delay
-      reconnectionDelayMax: 5000,// Maximum 5s backoff cap
-      randomizationFactor: 0.5,  // Jitter factor to avoid thundering herds
-      timeout: 10000,            // 10s connection timeout
+      reconnectionAttempts: 3,
+      timeout: 6000,
     });
-
     socket.on('connect', () => {
       setSocketConnected(true);
-      setSocketError(null); // Clear persistent error banner on successful connection
+      setSocketError(null);
       setIsReconnecting(false);
-      addLog('اتصال زنده وب‌سوکت Socket.io با بریج دریافت پروژه‌ها با موفقیت برقرار شد.', 'scan');
     });
-
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', () => setSocketConnected(false));
+    socket.on('connect_error', () => {
       setSocketConnected(false);
-      if (reason === 'io server disconnect') {
-        // The server forcefully disconnected; reconnect manually
-        socket.connect();
-      }
-      addLog(`ارتباط وب‌سوکت قطع شد (${reason})، در حال تلاش برای اتصال مجدد...`, 'scan');
-    });
-
-    // Persistent Error & Connect Error Handlers
-    socket.on('connect_error', (err) => {
-      setSocketConnected(false);
-      setIsReconnecting(true);
-      const errMsg = `خطای اتصال به بریج وب‌سوکت: ${err.message || 'شبکه در دسترس نیست'}.`;
-      setSocketError(errMsg);
-      addLog(errMsg, 'scan');
-    });
-
-    socket.on('error', (err: any) => {
-      setSocketConnected(false);
-      const errMsg = typeof err === 'string' ? err : err?.message || 'خطای سوکت رخ داده است.';
-      setSocketError(`خطای وب‌سوکت: ${errMsg}`);
-      addLog(`خطای سیستمی وب‌سوکت: ${errMsg}`, 'scan');
-    });
-
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      setIsReconnecting(true);
-      addLog(`در حال تلاش مجدد برای اتصال به بریج (تلاش شماره ${attemptNumber})...`, 'scan');
-    });
-
-    socket.on('reconnect_failed', () => {
       setIsReconnecting(false);
-      setSocketError('تلاش‌های متعدد برای برقراری ارتباط با بریج با شکست مواجه شد. لطفاً اتصال اینترنت را بررسی و دکمه تلاش مجدد را فشار دهید.');
     });
-
-    // Handle real-time push of newly discovered jobs with runtime schema validation and Gemini categorization
-    socket.on('job:new', async (incomingData: unknown) => {
-      // Validate incoming data against FreelanceJob interface
-      if (!isValidFreelanceJob(incomingData)) {
-        console.warn('[Socket.io Bridge] Received malformed job payload failing FreelanceJob validation:', incomingData);
-        addLog('یک داده آگهی نامعتبر دریافت و به دلیل عدم تطابق با شمای پروژه رد شد.', 'scan');
-        return;
-      }
-
-      // دسته‌بندی خودکار هنگام دریافت (تاکسونومی مشترک؛ سرور و UI یک کلید می‌دهند)
-      const categoryKey =
-        incomingData.categoryKey && incomingData.categoryKey !== 'all'
-          ? incomingData.categoryKey
-          : detectCategory(incomingData.title, incomingData.description).key;
-      let categorizedTag = incomingData.categorizedTag || categoryLabel(categoryKey);
-      if (!incomingData.categorizedTag) {
-        categorizedTag = categoryLabel(
-          await categorizeJobWithGemini(incomingData.title, incomingData.description),
-        );
-      }
-
-      const priority: PriorityLevel = incomingData.priority || 
-        (incomingData.budget >= 6000000 ? 'High' : incomingData.budget >= 4000000 ? 'Medium' : 'Low');
-
-      const enrichedJob: FreelanceJob = {
-        ...incomingData,
-        categoryKey,
-        category: incomingData.category || categoryLabel(categoryKey),
-        categorizedTag,
-        priority,
-        tags: incomingData.tags.includes(categorizedTag) 
-          ? incomingData.tags 
-          : [...incomingData.tags, categorizedTag]
-      };
-
-      setJobs((prev) => {
-        // Idempotency check: Guard against duplicates
-        if (prev.some((j) => j.id === enrichedJob.id)) {
-          return prev;
-        }
-        playChime();
-        
-        // Trigger browser notification for high-priority jobs
-        if (enrichedJob.priority === 'High' && Notification.permission === 'granted') {
-          new Notification(`پروژه اولویت بالا: ${enrichedJob.platform}`, {
-            body: enrichedJob.title,
-            icon: '/favicon.ico', // Ensure this exists or use a generic icon
-          });
-        }
-        
-        return [enrichedJob, ...prev];
-      });
-
-      addLog(
-        `[پوش زنده Socket.io] پروژه جدید از ${enrichedJob.platform} با تگ هوشمند ${categorizedTag} و اولویت ${priority} دریافت شد: "${enrichedJob.title}" (${enrichedJob.budgetFormatted})`,
-        'scan'
-      );
-    });
-
-    // نتیجه‌ی اسکن واقعی (SPEC-004) که سرور پس از پایان کار می‌فرستد
-    socket.on('scan:done', (payload: { added?: number; total?: number; scannedAt?: string | null }) => {
-      setIsScanning(false);
-      const added = payload?.added ?? 0;
-      const total = payload?.total ?? 0;
-      setFeed((prev) => ({
-        ...prev,
-        source: total > 0 ? 'scanner' : prev.source,
-        scannedAt: payload?.scannedAt ?? prev.scannedAt,
-        scannedProjects: total || prev.scannedProjects,
-      }));
-      addLog(`اسکن تمام شد: ${added} پروژه‌ی جدید (${total} پروژه در فید).`, 'scan');
-      refreshFeed();
-    });
-
-    // Handle incoming bridge logs
-    socket.on('bridge:log', (logPayload: { message: string; type?: ActivityLogItem['type'] }) => {
-      if (logPayload?.message) {
-        addLog(logPayload.message, logPayload.type || 'scan');
-      }
-    });
-
     socketRef.current = socket;
-
     return () => {
       socket.disconnect();
     };
-  }, [refreshFeed]);
+  }, []);
 
   const handleManualReconnect = () => {
     setIsReconnecting(true);
-    addLog('تلاش دستی برای برقراری مجدد ارتباط با سوکت...');
-    if (socketRef.current) {
-      socketRef.current.connect();
-    }
-  };
-
-  // Real-time scan trigger (uses native direct scraper on Android tablet APK, or Socket/HTTP bridge on web)
-  const handleQuickScan = async () => {
-    if (isNativeAndroidApp()) {
-      setIsScanning(true);
-      try {
-        const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
-        setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
-        setFeed({
-          source: 'scanner',
-          scannedAt: out.scannedAt ?? new Date().toISOString(),
-          scannedProjects: out.total,
-        });
-        addLog(`اسکن زنده تبلت تکمیل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
-      } catch (err: any) {
-        addLog(`خطا در اسکن زنده تبلت: ${err?.message || err}`, 'scan');
-      } finally {
-        setIsScanning(false);
-      }
-      return;
-    }
-
-    setIsScanning(true);
-    addLog('ارسال سیگنال اسکن زنده به بریج وب‌سوکت Socket.io...');
-
-    if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit('scan:trigger');
-    } else {
-      // Fallback HTTP endpoint if socket is reconnecting
-      fetch('/api/bridge/trigger-scan', { method: 'POST' })
-        .then((res) => res.json())
-        .then(async (data) => {
-          setIsScanning(false);
-          if (data?.message) addLog(String(data.message), 'scan');
-          if (typeof data?.added === 'number') {
-            setFeed((prev) => ({
-              ...prev,
-              source: (data?.total ?? 0) > 0 ? 'scanner' : prev.source,
-              scannedAt: data?.scannedAt ?? prev.scannedAt,
-              scannedProjects: data?.total ?? prev.scannedProjects,
-            }));
-            refreshFeed();
-          }
-          if (data.job && isValidFreelanceJob(data.job)) {
-            let job = data.job;
-            if (!job.categorizedTag) {
-              const catTag = await categorizeJobWithGemini(job.title, job.description);
-              job = {
-                ...job,
-                categoryKey: job.categoryKey || catTag,
-                category: job.category || categoryLabel(job.categoryKey || catTag),
-                categorizedTag: categoryLabel(catTag),
-                tags: job.tags.includes(catTag) ? job.tags : [...job.tags, catTag]
-              };
-            }
-            if (!job.priority) {
-              job.priority = job.budget >= 6000000 ? 'High' : job.budget >= 4000000 ? 'Medium' : 'Low';
-            }
-            setJobs((prev) => {
-              if (prev.some((j) => j.id === job.id)) return prev;
-              playChime();
-              return [job, ...prev];
-            });
-          }
-        })
-        .catch(console.error);
-    }
-
-    setTimeout(() => {
-      setIsScanning(false);
-    }, 1000);
+    socketRef.current?.connect();
   };
 
   // Updaters
+  const handleFullJobUpdate = (updatedJob: FreelanceJob) => {
+    setJobs((prev) => prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
+  };
+
   const handleUpdateAnalysis = (jobId: string, analysis: AIAnalysis) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, aiAnalysis: analysis } : j))
-    );
+    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, aiAnalysis: analysis } : j)));
     addLog(`تحلیل هوش مصنوعی برای پروژه "${jobId}" با امتیاز ${analysis.automatabilityScore}٪ ثبت شد.`, 'bid');
   };
 
@@ -642,8 +414,8 @@ export default function App() {
               proposedPrice: price,
               status: j.status === 'new' ? 'bidded' : j.status,
             }
-          : j
-      )
+          : j,
+      ),
     );
     addLog(`پیشنهاد قیمت ${price.toLocaleString('fa-IR')} تومان در پایپ‌لاین ثبت گردید.`, 'bid');
   };
@@ -652,14 +424,14 @@ export default function App() {
     setJobs((prev) =>
       prev.map((j) => {
         if (j.id === jobId) {
-          const updatedJob = { ...j, generatedFiles: files, status: 'in_progress' as const };
+          const updatedJob = { ...j, generatedFiles: files, solutionCode: files, status: 'in_progress' as const };
           setJobToInit(updatedJob);
           return updatedJob;
         }
         return j;
-      })
+      }),
     );
-    addLog(`سورس کامل پروژه "${jobId}" با ایجنت کدنویسی تولید و اعتبارسنجی شد.`, 'code');
+    addLog(`پکیج مستندات فنی و فایل‌های تحویلی پروژه "${jobId}" تولید و ذخیره شد.`, 'code');
   };
 
   const handleCompleteJob = (jobId: string, repoUrl: string) => {
@@ -673,16 +445,14 @@ export default function App() {
               status: 'completed',
               completedAt: j.completedAt || todayIso,
             }
-          : j
-      )
+          : j,
+      ),
     );
-    playChime();
-    addLog(`پروژه "${jobId}" در گیت‌هاب منتشر شد و درآمد آن تسویه گردید!`, 'payment');
+    addLog(`پروژه "${jobId}" نهایی شد.`, 'payment');
   };
 
   const handleMoveJobStatus = (jobId: string, newStatus: FreelanceJob['status']) => {
     const todayIso = new Date().toISOString().split('T')[0];
-    const job = jobsRef.current.find(j => j.id === jobId);
     setJobs((prev) =>
       prev.map((j) =>
         j.id === jobId
@@ -691,36 +461,22 @@ export default function App() {
               status: newStatus,
               ...(newStatus === 'completed' && !j.completedAt ? { completedAt: todayIso } : {}),
             }
-          : j
-      )
+          : j,
+      ),
     );
-    if (job && newStatus === 'in_progress') {
-        setJobToInit({...job, status: 'in_progress'});
-    }
-    addLog(`وضعیت پروژه "${jobId}" به "${newStatus}" تغییر یافت.`, 'scan');
   };
 
   const handleUpdateJobRepoUrl = (jobId: string, repoUrl: string) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, repoUrl } : j))
-    );
-    addLog(`مخزن گیت‌هاب برای پروژه "${jobId}" با موفقیت ایجاد شد: ${repoUrl}`, 'github');
+    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, repoUrl } : j)));
   };
 
   const handleUpdatePriority = (jobId: string, newPriority: PriorityLevel) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, priority: newPriority } : j))
-    );
-    addLog(`اولویت تسک "${jobId}" به ${newPriority} تغییر یافت.`, 'scan');
+    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, priority: newPriority } : j)));
   };
 
   const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>) => {
     const fullJob = newJob as FreelanceJob;
-    // Categorize using Gemini API upon receipt
-    const categoryKey =
-      fullJob.categoryKey && fullJob.categoryKey !== 'all'
-        ? fullJob.categoryKey
-        : detectCategory(fullJob.title, fullJob.description).key;
+    const categoryKey = detectCategory(fullJob.title, fullJob.description).key;
     const categorizedTag =
       fullJob.categorizedTag ||
       categoryLabel(await categorizeJobWithGemini(fullJob.title, fullJob.description));
@@ -728,74 +484,82 @@ export default function App() {
       fullJob.priority ||
       (fullJob.budget >= 6000000 ? 'High' : fullJob.budget >= 4000000 ? 'Medium' : 'Low');
 
-    const enrichedJob: FreelanceJob = {
+    const enrichedJob: FreelanceJob = enrichJob({
       ...fullJob,
+      isManual: true,
+      pinned: true,
       categoryKey,
-      category: fullJob.category || categoryLabel(categoryKey),
+      category: categoryLabel(categoryKey),
       categorizedTag,
       priority,
-      tags:
-        fullJob.tags && fullJob.tags.includes(categorizedTag)
-          ? fullJob.tags
-          : [...(fullJob.tags || []), categorizedTag],
-    };
+      tags: Array.from(new Set([...(fullJob.tags || []), categorizedTag])),
+    });
 
-    setJobs((prev) => [enrichedJob, ...prev]);
-    setSelectedJobForAnalysis(enrichedJob);
-    addLog(
-      `پروژه دستی "${enrichedJob.title}" با تگ هوشمند ${categorizedTag} و اولویت ${priority} افزوده شد.`,
-      'scan'
-    );
+    const existingVault = readPermanentManualVault().filter((v) => v.id !== enrichedJob.id);
+    writePermanentManualVault([enrichedJob, ...existingVault]);
+
+    setJobs((prev) => [enrichedJob, ...prev.filter((p) => p.id !== enrichedJob.id)]);
+    addLog(`پروژه "${enrichedJob.title}" در گاوصندوق دائمی ثبت شد و هرگز در اسکن‌ها پاک نخواهد شد.`, 'scan');
   };
 
-  // Revenue metrics
+  const handleTogglePinJob = (jobId: string) => {
+    setJobs((prev) => {
+      const next = prev.map((j) => {
+        if (j.id !== jobId) return j;
+        const willProtect = !(j.isManual || j.pinned);
+        return { ...j, pinned: willProtect, isManual: willProtect ? j.isManual : false };
+      });
+      const protectedJobs = next.filter((j) => j.isManual || j.pinned);
+      writePermanentManualVault(protectedJobs);
+      return next;
+    });
+  };
+
+  const handleDeleteManualJob = (jobId: string) => {
+    const remainingVault = readPermanentManualVault().filter((v) => v.id !== jobId);
+    writePermanentManualVault(remainingVault);
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    addLog('پروژه از گاوصندوق دائمی حذف شد.', 'scan');
+  };
+
   const completedJobs = jobs.filter((j) => j.status === 'completed');
   const totalEarningsToday = completedJobs.reduce(
     (acc, j) => acc + (j.proposedPrice || j.budget || 0),
-    0
+    0,
   );
-  const activeJobsCount = jobs.filter((j) => j.status !== 'completed').length;
+  const activeJobsCount = jobs.filter((j) => j.status !== 'completed' && j.status !== 'new').length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Bar Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onQuickScan={handleQuickScan}
         isScanning={isScanning}
+        scanStatusText={scanStatusText}
         totalEarningsToday={totalEarningsToday}
         activeJobsCount={activeJobsCount}
         socketConnected={socketConnected}
       />
 
-      {/* Persistent Socket.io Connection Error Notification Banner */}
       {socketError && (
-        <div className="bg-red-950/80 border-b border-red-800/80 text-red-200 px-4 py-2.5 text-xs transition-all animate-in slide-in-from-top duration-200">
+        <div className="bg-red-950/80 border-b border-red-800/80 text-red-200 px-4 py-2.5 text-xs">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <WifiOff className="h-4 w-4 text-red-400 shrink-0" />
-              <span className="font-medium">
-                {socketError}
-              </span>
+              <span className="font-medium">{socketError}</span>
             </div>
-
             <div className="flex items-center gap-2">
               <button
                 onClick={handleManualReconnect}
                 disabled={isReconnecting}
-                className="flex items-center gap-1.5 px-3 py-1 bg-red-900/60 hover:bg-red-850 text-red-100 border border-red-700/60 rounded text-[11px] font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1 bg-red-900/60 text-red-100 border border-red-700/60 rounded text-[11px]"
               >
                 <RefreshCw className={`h-3 w-3 ${isReconnecting ? 'animate-spin' : ''}`} />
-                <span>{isReconnecting ? 'در حال اتصال مجدد...' : 'تلاش مجدد برای اتصال (Reconnect)'}</span>
+                <span>تلاش مجدد</span>
               </button>
-
-              <button
-                onClick={() => setSocketError(null)}
-                className="text-red-400 hover:text-red-200 p-1"
-                title="بستن پیام"
-              >
+              <button onClick={() => setSocketError(null)} className="text-red-400 hover:text-red-200 p-1">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -803,39 +567,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Workspace Canvas */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 pb-24 sm:p-6 md:pb-8 lg:p-8">
         {activeTab === 'hunter' && (
           <FeedStatusBar
             source={feed.source}
             scannedAt={feed.scannedAt}
             scannedProjects={feed.scannedProjects}
-            jobCount={jobs.length}
+            jobCount={jobs.filter((j) => j.isManual || j.pinned || j.relevanceTier !== 'junk').length}
             isScanning={isScanning}
             onScan={handleQuickScan}
             cloudEnabled={cloudInfo.enabled}
-            cloudBusy={cloudBusy}
-            onCloudScan={handleCloudScan}
+            cloudBusy={cloudBusy || isScanning}
+            onCloudScan={handleQuickScan}
             onSyncFeed={handleSyncCloudFeed}
           />
         )}
+
         {activeTab === 'hunter' && (
           <JobHunter
             jobs={jobs}
             onSelectJobForAnalysis={(job) => setSelectedJobForAnalysis(job)}
             onSelectJobForProposal={(job) => setSelectedJobForProposal(job)}
             onSelectJobForCoding={(job) => {
-              setSelectedJobForCoding(job);
+              setSelectedJobForCodingId(job.id);
               setActiveTab('coder');
             }}
             onAddNewManualJob={handleAddNewManualJob}
+            onTogglePinJob={handleTogglePinJob}
+            onDeleteManualJob={handleDeleteManualJob}
           />
         )}
 
         {activeTab === 'coder' && (
           <CodeWorkspace
             job={selectedJobForCoding}
+            aiAvailable={aiAvailable}
+            onOpenSettings={() => setIsSettingsOpen(true)}
             githubToken={settings.githubToken}
+            onUpdateJob={handleFullJobUpdate}
             onOpenGitHubPush={(job, files) => {
               setGitHubPushState({ job, files });
             }}
@@ -850,7 +619,7 @@ export default function App() {
             onSelectJobForAnalysis={(job) => setSelectedJobForAnalysis(job)}
             onSelectJobForProposal={(job) => setSelectedJobForProposal(job)}
             onSelectJobForCoding={(job) => {
-              setSelectedJobForCoding(job);
+              setSelectedJobForCodingId(job.id);
               setActiveTab('coder');
             }}
             onMoveJobStatus={handleMoveJobStatus}
@@ -858,12 +627,13 @@ export default function App() {
             dailyEarningsGoal={settings.dailyEarningsGoal}
           />
         )}
+
         {jobToInit && (
           <GitHubWorkflowManager
             job={jobToInit}
             githubToken={settings.githubToken}
             onRepoCreated={(repoUrl) => {
-              setJobs(prev => prev.map(j => j.id === jobToInit.id ? { ...j, repoUrl } : j));
+              setJobs((prev) => prev.map((j) => (j.id === jobToInit.id ? { ...j, repoUrl } : j)));
               setJobToInit(null);
             }}
             autoStart={false}
@@ -882,36 +652,31 @@ export default function App() {
         )}
       </main>
 
-      {/* Modal: AI Feasibility & Price Evaluator */}
       {selectedJobForAnalysis && (
         <AIEvaluatorModal
           job={selectedJobForAnalysis}
           onClose={() => setSelectedJobForAnalysis(null)}
-          onProceedToProposal={(job) => {
-            setSelectedJobForProposal(job);
-          }}
+          onProceedToProposal={(job) => setSelectedJobForProposal(job)}
           onProceedToCoding={(job) => {
-            setSelectedJobForCoding(job);
+            setSelectedJobForCodingId(job.id);
             setActiveTab('coder');
           }}
           onUpdateAnalysis={handleUpdateAnalysis}
         />
       )}
 
-      {/* Modal: Proposal Studio */}
       {selectedJobForProposal && (
         <ProposalStudioModal
           job={selectedJobForProposal}
           onClose={() => setSelectedJobForProposal(null)}
           onProceedToCoding={(job) => {
-            setSelectedJobForCoding(job);
+            setSelectedJobForCodingId(job.id);
             setActiveTab('coder');
           }}
           onSaveProposalToJob={handleSaveProposalToJob}
         />
       )}
 
-      {/* Modal: GitHub Dispatcher & Employer Delivery */}
       {gitHubPushState.job && (
         <GitHubDispatcher
           job={gitHubPushState.job}
@@ -922,9 +687,9 @@ export default function App() {
         />
       )}
 
-      {/* Modal: Settings */}
       {isSettingsOpen && (
         <SettingsModal
+          isOpen={isSettingsOpen}
           settings={settings}
           onClose={() => setIsSettingsOpen(false)}
           onSave={(newSettings) => setSettings(newSettings)}
