@@ -499,9 +499,11 @@ export function buildFeed(projects: ScannedProject[], options: FeedOptions = {})
     .filter((job) => job.score >= minScore)
     .sort((a, b) => b.score - a.score || (b.scrapedAt || '').localeCompare(a.scrapedAt || ''));
 
+  const jobScraped = jobs.map((j) => j.scrapedAt).filter(Boolean).sort();
+  const projScraped = projects.map((p) => p.scraped_at ?? '').filter(Boolean).sort();
   const scannedAt =
-    jobs.map((j) => j.scrapedAt).filter(Boolean).sort().at(-1) ??
-    projects.map((p) => p.scraped_at ?? '').filter(Boolean).sort().at(-1) ??
+    (jobScraped.length > 0 ? jobScraped[jobScraped.length - 1] : '') ||
+    (projScraped.length > 0 ? projScraped[projScraped.length - 1] : '') ||
     null;
 
   return { jobs, scannedAt };

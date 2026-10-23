@@ -94,11 +94,43 @@
   </head>
   <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500/20 selection:text-emerald-300 min-h-screen">
     <div id="root"></div>
+    <script>
+      // --- Polyfills for older WebView / Samsung Internet / local file:// ---
+      // Array.prototype.at requires Chrome 92+; Object.hasOwn requires Chrome 93+;
+      // structuredClone requires Chrome 98+. Android WebView < 92 will crash otherwise.
+      if (window.Array && !Array.prototype.at) {
+        Array.prototype.at = function (n) {
+          var len = this.length;
+          var k = Math.floor(n);
+          if (k < 0) k += len;
+          if (k < 0 || k >= len) return undefined;
+          return this[k];
+        };
+      }
+      if (window.Object && typeof Object.hasOwn !== 'function') {
+        Object.hasOwn = function (obj, key) {
+          return Object.prototype.hasOwnProperty.call(obj, key);
+        };
+      }
+      if (typeof window.structuredClone !== 'function') {
+        window.structuredClone = function (obj) {
+          return JSON.parse(JSON.stringify(obj));
+        };
+      }
+      if (window.TextEncoder && !window.TextDecoder) {
+        // TextDecoder is used in some Chromium builds on older Android; Node/undici polyfill fallback
+        window.TextDecoder = function TextDecoderFallback() {
+          this.decode = function (buf) { return String(buf); };
+        };
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Use RELATIVE service worker URL so it works on GitHub Pages subpaths,
+      // Netlify/Vercel, local file://, and the APK WebView — not only on root origins.
       if ('serviceWorker' in navigator && !window.Capacitor) {
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function () {});
+          navigator.serviceWorker.register('./sw.js').catch(function () {});
         });
       }
     </script>

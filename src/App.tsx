@@ -17,7 +17,7 @@ import { categoryLabel, detectCategory } from '../shared/taxonomy';
 import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
 import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
-import { subscribeVaultChanges } from './utils/customLLMClient';
+import { subscribeVaultChanges, readStoredCustomLLM } from './utils/customLLMClient';
 import {
   loadInitialFeedUnified,
   runDirectTabletLiveScan,
@@ -477,9 +477,15 @@ export default function App() {
   const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>) => {
     const fullJob = newJob as FreelanceJob;
     const categoryKey = detectCategory(fullJob.title, fullJob.description).key;
+    // Only call the AI categorizer when the user didn't provide a tag and only
+    // when a key is configured — otherwise every manual add fires an un-awaited
+    // LLM request and can cause a 429 storm.
+    const hasApiKey = Boolean(readStoredCustomLLM()?.apiKey?.trim());
     const categorizedTag =
       fullJob.categorizedTag ||
-      categoryLabel(await categorizeJobWithGemini(fullJob.title, fullJob.description));
+      (hasApiKey
+        ? await categorizeJobWithGemini(fullJob.title, fullJob.description)
+        : categoryLabel(categoryKey));
     const priority: PriorityLevel =
       fullJob.priority ||
       (fullJob.budget >= 6000000 ? 'High' : fullJob.budget >= 4000000 ? 'Medium' : 'Low');

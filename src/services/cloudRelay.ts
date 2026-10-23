@@ -1,5 +1,5 @@
 /**
- * KonkLancer Cloud Relay & Shared Feed Store (US-East-1 Virginia via Supabase PostgREST + pgsql-http)
+ * KonkLancer Cloud Relay & Shared Feed Store (US-East-1 Virginia via Supabase Edge Function + PostgREST)
  *
  * Solves two hard physical constraints simultaneously on tablets in Iran:
  * 1. Bypasses browser CORS & Telegram blocks (`telegram.me/s/...`, `parscoders.com`) directly over Cloudflare HTTPS.
@@ -12,6 +12,17 @@ const SUPABASE_BASE_URL = 'https://rwuyuhjkitcnekpwmoml.supabase.co';
 const SUPABASE_ANON_JWT =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs';
 
+/**
+ * High-speed US Edge Relay (Supabase Edge Function `konklancer-relay`).
+ *
+ * The legacy SQL RPCs (konklancer_llm_relay / konklancer_fetch_page) inherited
+ * the `anon` role's `statement_timeout` (3s on this project), which killed every
+ * LLM request over 3s with a 504. The edge function is stateless, has no SQL
+ * timeout, and runs in Virginia (US-East-1) so geo-blocked LLM endpoints work
+ * without a VPN.
+ */
+const EDGE_FUNCTION_BASE = `${SUPABASE_BASE_URL}/functions/konklancer-relay`;
+
 function supabaseHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
@@ -23,10 +34,10 @@ function supabaseHeaders(): Record<string, string> {
 export async function fetchPageViaCloudRelay(targetUrl: string): Promise<{ ok: boolean; status: number; html: string }> {
   // Prefer telegram.me over t.me to avoid 302 app-redirect HTML stub
   const normalizedUrl = targetUrl.replace(/^https?:\/\/t\.me\/s\//i, 'https://telegram.me/s/');
-  const res = await fetch(`${SUPABASE_BASE_URL}/rest/v1/rpc/konklancer_fetch_page`, {
+  const res = await fetch(EDGE_FUNCTION_BASE, {
     method: 'POST',
     headers: supabaseHeaders(),
-    body: JSON.stringify({ target_url: normalizedUrl }),
+    body: JSON.stringify({ target_url: normalizedUrl, mode: 'page' }),
   });
   if (!res.ok) {
     return { ok: false, status: res.status, html: '' };
@@ -45,11 +56,12 @@ export async function relayLLMRequestViaUS(
   headers: Record<string, string>,
   body?: string,
 ): Promise<Response> {
-  const res = await fetch(`${SUPABASE_BASE_URL}/rest/v1/rpc/konklancer_llm_relay`, {
+  const res = await fetch(EDGE_FUNCTION_BASE, {
     method: 'POST',
     headers: supabaseHeaders(),
     body: JSON.stringify({
       target_url: targetUrl,
+      mode: 'llm',
       req_method: method.toUpperCase(),
       req_headers: headers,
       req_body: body ?? null,

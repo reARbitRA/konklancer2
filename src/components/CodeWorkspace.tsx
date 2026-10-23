@@ -29,6 +29,8 @@ import {
   renderMarkdownToRichHtml,
 } from '../services/deliveryEngine';
 import { createZipBlob } from '../utils/zipBuilder';
+import { safeCopyText } from '../utils/safeClipboard';
+import { downloadBlob } from '../utils/safeDownload';
 
 interface CodeWorkspaceProps {
   job: FreelanceJob | null;
@@ -216,16 +218,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   // ==================== خروجی‌های رسمی قابل تحویل به کارفرما ====================
   const triggerBlobDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 300);
+    downloadBlob(blob, filename);
   };
 
   const safeSlug = job.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'deliverable';
@@ -257,9 +250,9 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     triggerBlobDownload(blob, activeFile.split('/').pop() || activeFile);
   };
 
-  const handleCopyText = (key: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
+  const handleCopyText = async (key: string, text: string) => {
+    const ok = await safeCopyText(text);
+    setCopiedKey(ok ? key : null);
     setTimeout(() => setCopiedKey(null), 2000);
   };
 

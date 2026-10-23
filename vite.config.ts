@@ -12,6 +12,13 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, '.'),
       },
     },
+    // Emit ES2015-safe bundle: Android WebView / Samsung Internet < 92 do not
+    // support modern syntax (Object.hasOwn, Array.prototype.at, optional chaining in
+    // emitted helpers, etc). esbuild transpiles everything down to this target.
+    build: {
+      target: 'es2018',
+      cssMinify: 'esbuild' as const,
+    },
     server: {
       host: '0.0.0.0',
       port: 3000,

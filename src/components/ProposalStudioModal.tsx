@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { FreelanceJob } from '../types';
 import { generateProposalDirect } from '../services/browserLLM';
+import { safeCopyText } from '../utils/safeClipboard';
 
 interface ProposalStudioModalProps {
   job: FreelanceJob | null;
@@ -34,18 +35,22 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasGenerated, setHasGenerated] = useState(false);
 
+  // Initialize local state when the modal opens — but DO NOT auto-fire the
+  // LLM call. The user must explicitly click a tone or the "regenerate"
+  // button so we don't burn quota / show unexpected progress on open.
   useEffect(() => {
-    if (job) {
-      const initialPrice = job.proposedPrice || (job.budget ? Math.round(job.budget * 0.82) : 2500000);
-      setCustomPrice(initialPrice);
-      if (job.proposal) {
-        setProposalText(job.proposal);
-      } else {
-        generateProposal('friendly_expert', initialPrice);
-      }
+    if (!job) return;
+    const initialPrice = job.proposedPrice || (job.budget ? Math.round(job.budget * 0.82) : 2500000);
+    setCustomPrice(initialPrice);
+    if (job.proposal) {
+      setProposalText(job.proposal);
+    } else {
+      setProposalText('');
+      setHasGenerated(false);
     }
-  }, [job]);
+  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) return null;
 
@@ -56,6 +61,7 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
       const data = await generateProposalDirect(job, selectedTone, price);
       setProposalText(data.proposal);
       setDeliveryTime(data.deliveryTime || '۴ ساعت');
+      setHasGenerated(true);
       onSaveProposalToJob(job.id, data.proposal, price);
     } catch (err: any) {
       setError(err.message || 'خطا در ارتباط با سرور هوش مصنوعی');
@@ -64,9 +70,9 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
     }
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(proposalText);
-    setCopied(true);
+  const handleCopy = async () => {
+    const ok = await safeCopyText(proposalText);
+    setCopied(ok);
     setTimeout(() => setCopied(false), 2000);
   };
 

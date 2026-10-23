@@ -32,7 +32,7 @@ interface JobHunterProps {
   onSelectJobForAnalysis: (job: FreelanceJob) => void;
   onSelectJobForProposal: (job: FreelanceJob) => void;
   onSelectJobForCoding: (job: FreelanceJob) => void;
-  onAddNewManualJob: (job: Partial<FreelanceJob>) => void;
+  onAddNewManualJob: (job: Partial<FreelanceJob>) => Promise<void> | void;
   onTogglePinJob: (jobId: string) => void;
   onDeleteManualJob: (jobId: string) => void;
 }
@@ -180,13 +180,13 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 : 'parscoders';
         const rows = parsePlatformHtmlClient(html, src, targetUrl);
         const { jobs: built } = buildJobsFromRows(rows);
-        built.forEach((j) =>
-          onAddNewManualJob({
+        for (const j of built) {
+          await onAddNewManualJob({
             ...j,
             isManual: true,
             pinned: true,
-          }),
-        );
+          });
+        }
         setUrlScrapeResult({
           success: built.length > 0,
           count: built.length,
@@ -229,13 +229,13 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             : 'https://parscoders.com';
       const rows = parsePlatformHtmlClient(htmlInput.trim(), htmlPlatform, base);
       const { jobs: built } = buildJobsFromRows(rows);
-      built.forEach((j) =>
-        onAddNewManualJob({
+      for (const j of built) {
+        await onAddNewManualJob({
           ...j,
           isManual: true,
           pinned: true,
-        }),
-      );
+        });
+      }
       setHtmlScrapeResult({
         success: built.length > 0,
         count: built.length,

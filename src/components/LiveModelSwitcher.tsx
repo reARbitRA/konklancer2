@@ -21,6 +21,22 @@ import {
 } from '../utils/customLLMClient';
 import { detectProviderClient, scanModelsDirect } from '../services/browserLLM';
 
+/** fallback نچسباندن کلیپ‌بورد در Internet/file:// / Android WebView */
+async function pasteFromClipboard(inputEl: HTMLInputElement | HTMLTextAreaElement): Promise<void> {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (typeof text === 'string') {
+      const start = inputEl.selectionStart ?? inputEl.value.length;
+      const end = inputEl.selectionEnd ?? inputEl.value.length;
+      inputEl.value = inputEl.value.slice(0, start) + text + inputEl.value.slice(end);
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.setSelectionRange(start + text.length, start + text.length);
+    }
+  } catch {
+    // clipboard blocked; user can still type
+  }
+}
+
 interface LiveModelSwitcherProps {
   onOpenFullSettings: () => void;
 }
@@ -43,13 +59,18 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
 
   useEffect(() => {
     if (!open) return;
+    // Use 'click' instead of 'mousedown': on Samsung Galaxy Tab, the keyboard's
+    // clipboard/paste popup and long-press synthesis can fire mousedown *after*
+    // the touch target is already determined, unmounting the dropdown before a
+    // paste can land. Click fires only after the gesture is complete and inside
+    // the dropdown's subtree (or outside of it, which is what we want).
     const onOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', onOutside);
-    return () => document.removeEventListener('mousedown', onOutside);
+    document.addEventListener('click', onOutside);
+    return () => document.removeEventListener('click', onOutside);
   }, [open]);
 
   const activeProfile: SavedApiKeyProfile | null =
@@ -259,14 +280,30 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                     placeholder="نام دلخواه (مثلاً Gemini اصلی، Groq سریع...)"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
-                  <input
-                    type="password"
-                    value={quickKey}
-                    onChange={(e) => setQuickKey(e.target.value)}
-                    placeholder="چسباندن کلید API (AIza... / gsk_... / sk-or-... / sk-...)"
-                    dir="ltr"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={quickKey}
+                      onChange={(e) => setQuickKey(e.target.value)}
+                      placeholder="چسباندن کلید API (AIza... / gsk_... / sk-or-... / sk-...)"
+                      dir="ltr"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 pr-24 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) =>
+                        pasteFromClipboard(
+                          (e.currentTarget.previousElementSibling as HTMLInputElement) ||
+                            (document.activeElement as HTMLInputElement),
+                        )
+                      }
+                      className="absolute right-1 top-1 px-2 py-0.5 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                    >
+                      پِست
+                    </button>
+                  </div>
                   {quickKey.trim() && (
                     <div className="text-[10px] text-slate-400">
                       سرویس تشخیص داده‌شده:{' '}

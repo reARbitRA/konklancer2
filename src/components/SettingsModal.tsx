@@ -26,6 +26,23 @@ import {
   scanModelsDirect,
   testConnectionDirect,
 } from '../services/browserLLM';
+import { safeCopyText } from '../utils/safeClipboard';
+
+/** fallback نچسباندن کلیپ‌بورد در اینترنت/file:// (پشتیبانی pass-through Android WebView) */
+async function pasteFromClipboard(inputEl: HTMLInputElement | HTMLTextAreaElement): Promise<void> {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (typeof text === 'string') {
+      const start = inputEl.selectionStart ?? inputEl.value.length;
+      const end = inputEl.selectionEnd ?? inputEl.value.length;
+      inputEl.value = inputEl.value.slice(0, start) + text + inputEl.value.slice(end);
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.setSelectionRange(start + text.length, start + text.length);
+    }
+  } catch {
+    // clipboard blocked; user can still type
+  }
+}
 
 interface SettingsModalProps {
   isOpen?: boolean;
@@ -64,7 +81,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setAutoFailover(vault.autoFailoverKeys);
     setGithubToken(settings.githubToken || '');
     setStatusMsg(null);
-  }, [isOpen, settings]);
+    // IMPORTANT: only re-init when the modal is opened — NOT when `settings`
+    // changes. Otherwise saving a key immediately resets the status message
+    // (and can drop keys written to the in-memory fallback storage on WebView).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -339,15 +360,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
-                <Key className="w-4 h-4 text-slate-500 absolute right-3 top-2.5" />
+                <Key className="w-4 h-4 text-slate-500 absolute right-14 top-2.5" />
                 <input
-                  type="password"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={newApiKey}
                   onChange={(e) => setNewApiKey(e.target.value)}
                   placeholder="کلید API را اینجا بچسبانید (AIza... / gsk_... / sk-or-... / sk-...)"
                   dir="ltr"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-9 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-28 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
                 />
+                <button
+                  type="button"
+                  onClick={(e) => pasteFromClipboard((e.currentTarget.previousElementSibling as HTMLInputElement) || (document.activeElement as HTMLInputElement))}
+                  className="absolute right-1 top-2 px-2.5 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                >
+                  پِست
+                </button>
               </div>
               <button
                 type="submit"
@@ -509,14 +539,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <label className="block text-xs font-bold text-slate-300">
               توکن GitHub جهت انتشار مخزن تحویلی (اختیاری - ذخیره امن فقط در نشست فعلی)
             </label>
-            <input
-              type="password"
-              value={githubToken}
-              onChange={(e) => setGithubToken(e.target.value)}
-              placeholder="ghp_... یا github_pat_..."
-              dir="ltr"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                placeholder="ghp_... یا github_pat_..."
+                dir="ltr"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 pr-24 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={(e) =>
+                  pasteFromClipboard(
+                    (e.currentTarget.previousElementSibling as HTMLInputElement) ||
+                      (document.activeElement as HTMLInputElement),
+                  )
+                }
+                className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+              >
+                پِست
+              </button>
+            </div>
           </div>
 
           <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">

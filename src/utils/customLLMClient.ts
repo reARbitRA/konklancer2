@@ -1,5 +1,57 @@
 import { CustomLLMConfig, LLMProviderId, SavedApiKeyProfile } from '../types';
 
+/* ------------------------------------------------------------------
+ * Storage wrapper with in-memory Map fallback.
+ * On old Android WebView / content:// HTML files, `window.localStorage`
+ * can throw SecurityError/TypeError. The index.html shim covers most
+ * cases, but as a second line of defense we also keep a memory Map and
+ * route every accessor through this wrapper.
+ * ------------------------------------------------------------------ */
+
+const _memoryStore = new Map<string, string>();
+
+function _memGet(key: string): string | null {
+  return _memoryStore.has(key) ? (_memoryStore.get(key) as string) : null;
+}
+function _memSet(key: string, value: string): void {
+  _memoryStore.set(key, value);
+}
+function _memRemove(key: string): void {
+  _memoryStore.delete(key);
+}
+
+/** Read with fallback: localStorage → in-memory Map → null */
+function _getItem(key: string): string | null {
+  try {
+    const v = window.localStorage.getItem(key);
+    if (v !== null) return v;
+  } catch {
+    // SecurityError / TypeError on Android WebView & file://
+  }
+  return _memGet(key);
+}
+
+/** Write with fallback: localStorage → in-memory Map */
+function _setItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+    return;
+  } catch {
+    // QuotaExceeded / SecurityError — keep in memory so the current session continues
+  }
+  _memSet(key, value);
+}
+
+/** Remove from both localStorage and in-memory fallback */
+function _removeItem(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+  _memRemove(key);
+}
+
 export interface ActiveCustomLLM {
   id?: string;
   label?: string;
@@ -99,7 +151,7 @@ export function readKeyVault(): KeyVaultState {
   let autoFailoverKeys = true;
 
   try {
-    const rawVault = localStorage.getItem(KEY_VAULT_STORAGE_KEY);
+    const rawVault = _getItem(KEY_VAULT_STORAGE_KEY);
     if (rawVault) {
       const parsed = JSON.parse(rawVault);
       if (Array.isArray(parsed?.profiles)) profiles = parsed.profiles;
@@ -111,7 +163,7 @@ export function readKeyVault(): KeyVaultState {
     if (profiles.length === 0) {
       const legacyCandidates: Array<CustomLLMConfig | undefined> = [];
       for (const k of ['konklancer_settings', 'freelanceflow_settings']) {
-        const s = localStorage.getItem(k);
+        const s = _getItem(k);
         if (s) {
           try {
             const p = JSON.parse(s);
@@ -126,7 +178,7 @@ export function readKeyVault(): KeyVaultState {
           }
         }
       }
-      const standalone = localStorage.getItem('freelanceflow_custom_llm');
+      const standalone = _getItem('freelanceflow_custom_llm');
       if (standalone) {
         try {
           const p = JSON.parse(standalone);
@@ -180,7 +232,7 @@ export function writeKeyVault(
   };
 
   try {
-    localStorage.setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
+    _setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
 
     // همگام‌سازی کامل با ساختار قبلی برای سازگاری ۱۰۰٪ همه ماژول‌ها
     const active = profiles.find((p) => p.id === resolvedActiveId);
@@ -194,11 +246,11 @@ export function writeKeyVault(
         availableModels: active.availableModels || [],
         lastPingMs: active.lastPingMs,
       };
-      localStorage.setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
+      _setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
 
       for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
         try {
-          const prevRaw = localStorage.getItem(settingsKey);
+          const prevRaw = _getItem(settingsKey);
           const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
           const nextObj = {
             ...prevObj,
@@ -207,7 +259,7 @@ export function writeKeyVault(
             activeProfileId: resolvedActiveId,
             autoFailoverKeys,
           };
-          localStorage.setItem(settingsKey, JSON.stringify(nextObj));
+          _setItem(settingsKey, JSON.stringify(nextObj));
         } catch {
           // ignore
         }

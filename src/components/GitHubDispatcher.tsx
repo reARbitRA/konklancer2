@@ -19,6 +19,23 @@ import {
   List
 } from 'lucide-react';
 import { FreelanceJob } from '../types';
+import { safeCopyText } from '../utils/safeClipboard';
+
+/** fallback نچسباندن کلیپ‌بورد در Internet/file:// / Android WebView */
+async function pasteFromClipboard(inputEl: HTMLInputElement | HTMLTextAreaElement): Promise<void> {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (typeof text === 'string') {
+      const start = inputEl.selectionStart ?? inputEl.value.length;
+      const end = inputEl.selectionEnd ?? inputEl.value.length;
+      inputEl.value = inputEl.value.slice(0, start) + text + inputEl.value.slice(end);
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.setSelectionRange(start + text.length, start + text.length);
+    }
+  } catch {
+    // clipboard blocked; user can still type
+  }
+}
 
 interface GitHubDispatcherProps {
   job: FreelanceJob | null;
@@ -283,18 +300,18 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
     }
   };
 
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     if (repoUrl) {
-      navigator.clipboard.writeText(repoUrl);
-      setCopiedLink(true);
+      const ok = await safeCopyText(repoUrl);
+      setCopiedLink(ok);
       setTimeout(() => setCopiedLink(false), 2000);
     }
   };
 
-  const handleCopyMessage = () => {
+  const handleCopyMessage = async () => {
     if (deliveryMessage) {
-      navigator.clipboard.writeText(deliveryMessage);
-      setCopiedMsg(true);
+      const ok = await safeCopyText(deliveryMessage);
+      setCopiedMsg(ok);
       setTimeout(() => setCopiedMsg(false), 2000);
     }
   };
@@ -373,12 +390,26 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
 
                 <div className="relative">
                   <input
-                    type="password"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                     placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxx"
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 dir-ltr text-left focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 pr-24 text-xs font-mono text-emerald-400 dir-ltr text-left focus:outline-none focus:border-emerald-500"
                   />
+                  <button
+                    type="button"
+                    onClick={(e) =>
+                      pasteFromClipboard(
+                        (e.currentTarget.previousElementSibling as HTMLInputElement) ||
+                          (document.activeElement as HTMLInputElement),
+                      )
+                    }
+                    className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                  >
+                    پِست
+                  </button>
                 </div>
 
                 {/* Verified user badge or loading status */}
