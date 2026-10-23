@@ -1,6 +1,6 @@
 """دسته‌بندی مشترک با سرور/کلاینت — از همان فایل `shared/taxonomy.json` خوانده می‌شود.
 
-هیچ فهرست دسته‌ای در این فایل تکرار نشده تا اسکنر (Python) و UI (TypeScript) همیشه یکسان بمانند.
+مجهز به نرمال‌سازی فارسی (ی/ک عربی، نیم‌فاصله ZWNJ) و وزن‌دهی چندبخشی (عنوان ۳.۵ برابر متن شرح، تگ‌ها ۲.۲ برابر).
 """
 
 from __future__ import annotations
@@ -46,53 +46,71 @@ CATEGORY_BY_KEY = {c.key: c for c in [*CATEGORIES, FALLBACK]}
 _ASCII = re.compile(r"^[\x20-\x7e]+$")
 
 
-def _matches(text: str, keyword: str) -> bool:
-    needle = keyword.strip().lower()
+def normalize_persian_text(raw: str) -> str:
+    s = (raw or "").lower()
+    s = re.sub(r"[يیئ]", "ی", s)
+    s = s.replace("ك", "ک").replace("ة", "ه").replace("ؤ", "و")
+    s = re.sub(r"[أإآ]", "ا", s)
+    s = re.sub(r"[\u200c\u200f\u200e\u00a0]", " ", s)
+    s = re.sub(r"[\u064b-\u065f\u0670]", "", s)
+    s = re.sub(r"[_/\\|•·،؛,:;!؟?()\[\]{}<>«»\"'`~]+", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
+def _matches(norm_spaced: str, norm_compact: str, keyword: str) -> bool:
+    needle = normalize_persian_text(keyword)
     if not needle:
         return False
     if _ASCII.match(needle):
-        return re.search(rf"(^|[^a-z0-9]){re.escape(needle)}([^a-z0-9]|$)", text) is not None
-    return needle in text
+        return re.search(rf"(^|[^a-z0-9]){re.escape(needle)}([^a-z0-9]|$)", norm_spaced) is not None
+    if needle in norm_spaced:
+        return True
+    if " " in needle and len(needle) >= 5:
+        return needle.replace(" ", "") in norm_compact
+    return False
 
 
-#: کلیدواژه‌ی «قوی» = نام خودِ محصول قابل‌تحویل (ترجمه، لوگو، گویندگی...)
-STRONG_KEYWORD_WEIGHT = 8
+STRONG_KEYWORD_WEIGHT = 9
+PART_WEIGHTS = (3.5, 1.0, 2.2)
 
 
 def keyword_weight(keyword: str) -> int:
-    """وزن کلیدواژه = ۱ + تعداد واژه‌ها. عبارت‌های بلندتر (مثل «طراحی رابط کاربری») خاص‌ترند."""
     return 1 + len([token for token in keyword.split() if token])
 
 
-def _category_score(category: Category, text: str) -> int:
+def _category_score_part(category: Category, part_text: str) -> int:
+    norm_spaced = normalize_persian_text(part_text)
+    if not norm_spaced:
+        return 0
+    norm_compact = norm_spaced.replace(" ", "")
     total = 0
     for keyword in category.keywords:
-        if _matches(text, keyword):
+        if _matches(norm_spaced, norm_compact, keyword):
             total += keyword_weight(keyword)
     for keyword in category.strong:
-        if _matches(text, keyword):
+        if _matches(norm_spaced, norm_compact, keyword):
             total += STRONG_KEYWORD_WEIGHT
     return total
 
 
 def category_scores(*parts: str | None) -> dict[str, int]:
-    text = " ".join(part for part in parts if part).lower()
-    if not text.strip():
+    cleaned = [p for p in parts if p and p.strip()]
+    if not cleaned:
         return {}
     scores: dict[str, int] = {}
     for category in CATEGORIES:
-        total = _category_score(category, text)
-        if total:
-            scores[category.key] = total
+        weighted = 0.0
+        for idx, part in enumerate(cleaned):
+            mult = PART_WEIGHTS[idx] if idx < len(PART_WEIGHTS) else 1.0
+            weighted += _category_score_part(category, part) * mult
+        rounded = round(weighted)
+        if rounded > 0:
+            scores[category.key] = rounded
     return scores
 
 
 def detect_category(*parts: str | None) -> Category:
-    """دسته‌ی غالب بر اساس مجموع وزن کلیدواژه‌های منطبق.
-
-    «تطبیق اول» کافی نیست: مثلاً در «مونتاژ ویدیو یوتیوب همراه زیرنویس» هم صنف ویدیو و هم
-    ترجمه سیگنال دارند و باید ویدیو برنده شود. در تساوی، ترتیب فایل (خاص‌تر اول) تعیین می‌کند.
-    """
     scores = category_scores(*parts)
     if not scores:
         return FALLBACK

@@ -130,7 +130,7 @@ def test_telegram_real_channels_flagged_correctly():
 
     data = json.loads(Path(__file__).parent.parent.joinpath("telegram_sources.json").read_text(encoding="utf-8"))
     enabled = {ch["username"] for ch in data["channels"] if ch["scan_enabled"]}
-    assert enabled == {"workarc", "freelancer_projects"}
+    assert enabled == {"ponisha_ir", "workarc"}
     for channel in data["channels"]:
         if not channel["scan_enabled"]:
             assert channel.get("disabled_reason"), f"@{channel['username']} باید دلیل غیرفعال‌بودن داشته باشد"

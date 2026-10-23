@@ -152,6 +152,10 @@ jobs:
             --out-dir scanner/out/live-captures 2>&1 | tee -a scanner/out/diagnostics.txt
           ls -la scanner/out/live-captures || true
 
+      - name: اسکن عمیق چندصفحه‌ای و همگام‌سازی ابری (پونیشا ۶ صفحه + پارس‌کدرز ۷ صفحه + کارلانسر)
+        continue-on-error: true
+        run: python -m scanner.deep_cloud_sync 2>&1 | tee -a scanner/out/diagnostics.txt
+
       - name: انتشار فید و گزارش وضعیت روی برنچ
         if: always()
         env:

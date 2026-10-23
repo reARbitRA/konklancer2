@@ -1,6 +1,11 @@
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
-import { readStoredCustomLLM, ActiveCustomLLM } from '../utils/customLLMClient';
+import {
+  ActiveCustomLLM,
+  getOrderedVaultCandidates,
+  readStoredCustomLLM,
+  switchActiveKeyOrModel,
+} from '../utils/customLLMClient';
 import { categoryPromptList } from '../../shared/taxonomy';
 import { relayLLMRequestViaUS } from './cloudRelay';
 
@@ -29,11 +34,19 @@ const PROVIDER_DEFAULTS: Record<string, { endpoint: string; defaultModel: string
     endpoint: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
   },
+  ollama: {
+    endpoint: 'http://localhost:11434/v1',
+    defaultModel: 'llama3.2',
+  },
   custom: {
     endpoint: 'https://api.deepseek.com/v1',
     defaultModel: 'deepseek-chat',
   },
 };
+
+export function hasConfiguredBrowserKey(): boolean {
+  return Boolean(readStoredCustomLLM()?.apiKey?.trim());
+}
 
 export function isNativeAndroidApp(): boolean {
   try {
@@ -96,197 +109,278 @@ export function sanitizeModelIdClient(rawModel?: string): string {
     .trim();
 }
 
-export function normalizeEndpointBaseClient(rawEndpoint?: string): string {
-  if (!rawEndpoint) return '';
-  return rawEndpoint
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/models$/i, '');
-}
+/**
+ * Tries fast direct browser/native fetch first; if blocked by Iran ISP / CORS / Geo-IP
+ * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
+ * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
+ */
+async function smartFetchLLM(
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string },
+): Promise<Response> {
+  const method = init.method || 'GET';
+  const headers = init.headers || {};
 
-export function normalizeClientLLMConfig(raw?: Partial<ActiveCustomLLM> | null): Required<ActiveCustomLLM> | null {
-  const apiKey = (raw?.apiKey || '').trim();
-  if (!apiKey) return null;
-
-  let provider = (raw?.provider || '').trim().toLowerCase();
-  const cleanEp = normalizeEndpointBaseClient(raw?.endpoint);
-
-  if (apiKey.startsWith('AIza')) provider = 'gemini';
-  else if (apiKey.startsWith('gsk_')) provider = 'groq';
-  else if (apiKey.startsWith('sk-or-')) provider = 'openrouter';
-  else if (cleanEp.includes('generativelanguage.googleapis.com')) provider = 'gemini';
-  else if (cleanEp.includes('api.groq.com')) provider = 'groq';
-  else if (cleanEp.includes('openrouter.ai')) provider = 'openrouter';
-  else if (!provider) provider = 'openrouter';
-
-  const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
-  let endpoint = cleanEp || defaults.endpoint;
-  if (provider === 'gemini' && !endpoint.includes('generativelanguage.googleapis.com')) {
-    endpoint = PROVIDER_DEFAULTS.gemini.endpoint;
-  } else if (provider === 'groq' && (endpoint.includes('openrouter.ai') || endpoint.includes('googleapis.com'))) {
-    endpoint = PROVIDER_DEFAULTS.groq.endpoint;
-  } else if (provider === 'openrouter' && (endpoint.includes('api.groq.com') || endpoint.includes('googleapis.com'))) {
-    endpoint = PROVIDER_DEFAULTS.openrouter.endpoint;
+  let directRes: Response | null = null;
+  try {
+    directRes = await fetch(url, {
+      method,
+      headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+    });
+    if (directRes.ok) return directRes;
+    if (directRes.status !== 400 && directRes.status !== 403 && directRes.status < 500) {
+      return directRes;
+    }
+  } catch {
+    // Network / ISP filter / CORS error -> fall through to US-East-1 Cloud Relay
   }
 
-  let model = sanitizeModelIdClient(raw?.model);
-  if (provider === 'gemini') {
-    model = model.replace(/^models\//, '');
-    if (!model || model.includes('/') || model.includes(':free') || !model.startsWith('gemini')) {
-      model = PROVIDER_DEFAULTS.gemini.defaultModel;
-    }
-  } else if (provider === 'groq') {
-    if (!model || model.includes(':free') || model.startsWith('meta-llama/') || model.startsWith('gemini-')) {
-      model = PROVIDER_DEFAULTS.groq.defaultModel;
-    }
-  } else if (!model) {
+  try {
+    return await relayLLMRequestViaUS(url, method, headers, init.body);
+  } catch {
+    // fall back to direct response if any
+  }
+
+  if (directRes) return directRes;
+  throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
+}
+
+export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {
+  const ep = (endpoint || '').trim().toLowerCase();
+  const key = (apiKey || '').trim();
+  if (key.startsWith('AIza')) return 'gemini';
+  if (key.startsWith('gsk_')) return 'groq';
+  if (key.startsWith('sk-or-')) return 'openrouter';
+  if (explicitProvider && explicitProvider !== 'custom') return explicitProvider;
+  if (ep.includes('generativelanguage.googleapis.com')) return 'gemini';
+  if (ep.includes('openrouter.ai')) return 'openrouter';
+  if (ep.includes('api.groq.com')) return 'groq';
+  if (ep.includes('api.openai.com')) return 'openai';
+  if (ep.includes(':11434')) return 'ollama';
+  return explicitProvider || 'openrouter';
+}
+
+export function normalizeEndpointBaseClient(endpoint: string): string {
+  let clean = endpoint.trim().replace(/\/+$/, '');
+  if (clean.endsWith('/chat/completions')) clean = clean.slice(0, -'/chat/completions'.length);
+  if (clean.endsWith('/models')) clean = clean.slice(0, -'/models'.length);
+  return clean;
+}
+
+export function resolveClientLLMConfig(raw?: Partial<ActiveCustomLLM> | null): ActiveCustomLLM | null {
+  const source = raw?.apiKey ? raw : readStoredCustomLLM();
+  if (!source || !source.apiKey?.trim()) return null;
+
+  const provider = detectProviderClient(source.endpoint, source.provider, source.apiKey);
+  const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
+  let model = (source.model || defaults.defaultModel).trim();
+  if (provider === 'openrouter' && model === 'google/gemini-2.0-flash-lite-preview-02-05:free') {
     model = defaults.defaultModel;
   }
 
-  return { provider, endpoint, apiKey, model };
+  return {
+    id: source.id,
+    label: source.label,
+    provider,
+    endpoint: (source.endpoint || defaults.endpoint).trim() || defaults.endpoint,
+    apiKey: source.apiKey.trim(),
+    model,
+  };
 }
 
-export function parseJsonLooseClient<T = any>(raw: string): T | null {
-  const trimmed = (raw || '').trim();
-  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-  const sliceObj = (() => {
-    const start = unfenced.indexOf('{');
-    const end = unfenced.lastIndexOf('}');
-    return start >= 0 && end > start ? unfenced.slice(start, end + 1) : null;
-  })();
-
-  for (const candidate of [unfenced, sliceObj]) {
+export function parseJsonLooseClient<T = unknown>(raw: string): T | null {
+  const cleaned = (raw || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  for (const candidate of [cleaned, extractBalancedBlock(cleaned)]) {
     if (!candidate) continue;
     try {
       return JSON.parse(candidate) as T;
     } catch {
-      // continue
+      // try next candidate
     }
+  }
+  return null;
+}
+
+function extractBalancedBlock(text: string): string | null {
+  const startObj = text.indexOf('{');
+  const startArr = text.indexOf('[');
+  const start =
+    startObj === -1 ? startArr : startArr === -1 ? startObj : Math.min(startObj, startArr);
+  if (start === -1) return null;
+  const open = text[start];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (ch === '\\') {
+      esc = true;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (ch === open) depth++;
+    else if (ch === close && --depth === 0) return text.slice(start, i + 1);
   }
   return null;
 }
 
 async function safeReadError(res: Response): Promise<string> {
   try {
-    const txt = await res.text();
-    try {
-      const parsed = JSON.parse(txt);
-      return parsed?.error?.message || parsed?.message || txt.slice(0, 200);
-    } catch {
-      return txt.slice(0, 200);
-    }
+    const data: any = await res.json();
+    return data?.error?.message || data?.message || JSON.stringify(data).slice(0, 220);
   } catch {
-    return '';
+    try {
+      return (await res.text()).slice(0, 220);
+    } catch {
+      return `HTTP ${res.status}`;
+    }
   }
 }
 
-/**
- * مستقیم از مرورگر تبلت یا لایه Native HTTP اندروید (CapacitorHttp بدون محدودیت CORS)
- * به OpenRouter / Groq / Google Gemini / OpenAI وصل می‌شود.
- */
-export async function callBrowserLLM(params: {
-  prompt: string;
-  system?: string;
-  json?: boolean;
-  maxTokens?: number;
-  temperature?: number;
-  overrideConfig?: Partial<ActiveCustomLLM> | null;
-}): Promise<{ text: string; model: string; provider: string }> {
-  const cfg = normalizeClientLLMConfig(params.overrideConfig ?? readStoredCustomLLM());
-  if (!cfg) {
-    throw new Error(
-      'کلید هوش مصنوعی تنظیم نشده است. از دکمه چرخ‌دنده (تنظیمات ⬅ اتصال هوش مصنوعی) کلید رایگان Gemini، Groq یا OpenRouter خود را وارد و ذخیره کنید.',
-    );
-  }
+async function executeSingleKeyCall(
+  cfg: ActiveCustomLLM,
+  opts: {
+    prompt: string;
+    systemPrompt?: string;
+    json?: boolean;
+    maxTokens?: number;
+    temperature?: number;
+  },
+): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
+  const maxTokens = opts.maxTokens ?? 4096;
+  const temperature = opts.temperature ?? 0.35;
 
-  // 1. Google Gemini Native REST API (supports CORS directly + native Android HTTP)
   if (cfg.provider === 'gemini') {
-    const modelName = cfg.model.replace(/^models\//, '') || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
-    const isFlash25 = modelName.startsWith('gemini-2.5-flash');
-    const payload = {
-      contents: [{ role: 'user', parts: [{ text: params.prompt }] }],
-      ...(params.system ? { systemInstruction: { parts: [{ text: params.system }] } } : {}),
+    const cleanModel = cfg.model.startsWith('models/') ? cfg.model.slice(7) : cfg.model;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+    const body: Record<string, unknown> = {
+      contents: [{ role: 'user', parts: [{ text: opts.prompt }] }],
       generationConfig: {
-        temperature: params.temperature ?? 0.3,
-        maxOutputTokens: Math.max(params.maxTokens ?? 2048, 512),
-        ...(params.json ? { responseMimeType: 'application/json' } : {}),
-        ...(isFlash25 && (params.maxTokens ?? 2048) <= 256 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+        maxOutputTokens: maxTokens,
+        temperature,
+        ...(opts.json ? { responseMimeType: 'application/json' } : {}),
       },
     };
+    if (opts.systemPrompt) {
+      body.systemInstruction = { parts: [{ text: opts.systemPrompt }] };
+    }
 
     const res = await smartFetchLLM(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
       const detail = await safeReadError(res);
-      throw new Error(`خطای Gemini (${res.status}): ${detail || 'کلید API یا محدودیت شبکه را بررسی کنید.'}`);
+      const err: any = new Error(`خطای Gemini (${res.status}): ${detail}`);
+      err.status = res.status;
+      throw err;
     }
 
     const data: any = await res.json();
     const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
     const text = parts
-      .filter((p) => !p?.thought && typeof p?.text === 'string')
+      .filter((p) => typeof p?.text === 'string' && !p?.thought)
       .map((p) => p.text)
       .join('')
       .trim();
 
     if (!text) {
-      const reason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || '';
-      throw new Error(`پاسخ متنی Gemini خالی بود${reason ? ` (${reason})` : ''}.`);
+      throw new Error('پاسخ متنی از مدل Gemini دریافت نشد.');
     }
-
-    return { text, model: modelName, provider: 'gemini' };
+    return { text, model: cleanModel, provider: 'gemini', keyLabel: cfg.label };
   }
 
-  // 2. OpenRouter / Groq / OpenAI / Custom OpenAI-Compatible Direct Call
-  const isOpenRouter = cfg.provider === 'openrouter' || cfg.endpoint.includes('openrouter.ai');
-  const url = `${normalizeEndpointBaseClient(cfg.endpoint)}/chat/completions`;
+  const base = normalizeEndpointBaseClient(cfg.endpoint);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cfg.apiKey}`,
   };
-  if (isOpenRouter) {
-    headers['HTTP-Referer'] = window.location.origin || 'https://konklancer.app';
+  if (cfg.provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://konklancer.app';
     headers['X-Title'] = 'KonkLancer Studio';
   }
 
-  const messages = [
-    ...(params.system ? [{ role: 'system', content: params.system }] : []),
-    { role: 'user', content: params.prompt },
-  ];
+  const messages: Array<{ role: string; content: string }> = [];
+  if (opts.systemPrompt) {
+    messages.push({ role: 'system', content: opts.systemPrompt });
+  }
+  messages.push({
+    role: 'user',
+    content: opts.json
+      ? `${opts.prompt}\n\n[خروجی را حتماً و فقط به شکل یک شیء JSON معتبر بدون توضیحات اضافی بنویسید]`
+      : opts.prompt,
+  });
 
-  const candidates =
-    isOpenRouter && (cfg.model.endsWith(':free') || cfg.model === 'openrouter/free')
-      ? Array.from(
-          new Set([
-            cfg.model,
-            'openrouter/free',
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'qwen/qwen-2.5-72b-instruct:free',
-          ]),
-        )
-      : [cfg.model];
-
-  let lastErr: Error | null = null;
-
-  for (let i = 0; i < candidates.length; i++) {
-    const modelId = candidates[i];
-    const isLast = i === candidates.length - 1;
-    const body: Record<string, unknown> = {
-      model: modelId,
+  const res = await smartFetchLLM(`${base}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: cfg.model,
       messages,
-      temperature: params.temperature ?? 0.3,
-      max_tokens: Math.max(params.maxTokens ?? 2048, 256),
-      ...(params.json && !modelId.endsWith(':free') && modelId !== 'openrouter/free'
-        ? { response_format: { type: 'json_object' } }
-        : {}),
-    };
+      max_tokens: maxTokens,
+      temperature,
+    }),
+  });
 
+  if (!res.ok) {
+    const detail = await safeReadError(res);
+    const err: any = new Error(`خطای سرویس هوش مصنوعی (${res.status}): ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data: any = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  const text = typeof content === 'string' ? content.trim() : '';
+  if (!text) {
+    throw new Error('پاسخ خالی از مدل هوش مصنوعی دریافت شد.');
+  }
+  return { text, model: data?.model || cfg.model, provider: cfg.provider, keyLabel: cfg.label };
+}
+
+/**
+ * اجرای هوشمند درخواست LLM با پشتیبانی از:
+ * ۱. رله خودکار آمریکا (AWS us-east-1) بدون نیاز به VPN
+ * ۲. چرخش خودکار بین کلیدهای ذخیره‌شده (Auto-Failover) در صورت خطای سهمیه 429 یا قطعی سرویس‌دهنده
+ */
+export async function callBrowserLLM(opts: {
+  prompt: string;
+  systemPrompt?: string;
+  json?: boolean;
+  maxTokens?: number;
+  temperature?: number;
+  overrideConfig?: Partial<ActiveCustomLLM>;
+}): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
+  const rawCandidates = getOrderedVaultCandidates(opts.overrideConfig);
+  const candidates = rawCandidates
+    .map((c) => resolveClientLLMConfig(c))
+    .filter((c): c is ActiveCustomLLM => Boolean(c));
+
+  if (candidates.length === 0) {
+    throw new Error(
+      'کلید هوش مصنوعی تنظیم نشده است. از نوار بالا روی سوییچر مدل یا آیکون تنظیمات (چرخ‌دنده) بزنید و کلید API خود را وارد کنید.',
+    );
+  }
+
+  let lastError: Error | null = null;
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const cfg = candidates[idx];
     try {
       const res = await smartFetchLLM(url, {
         method: 'POST',
@@ -298,46 +392,17 @@ export async function callBrowserLLM(params: {
         const detail = await safeReadError(res);
         throw new Error(`کلید API رد شد (HTTP ${res.status}): ${detail}`);
       }
-
-      if (!res.ok) {
-        const detail = await safeReadError(res);
-        lastErr = new Error(`خطای سرویس هوش مصنوعی (${res.status}) روی مدل ${modelId}: ${detail}`);
-        if (!isLast) continue;
-        throw lastErr;
-      }
-
-      const data: any = await res.json();
-      const msg = data?.choices?.[0]?.message;
-      let text =
-        typeof msg?.content === 'string' && msg.content.trim()
-          ? msg.content
-          : Array.isArray(msg?.content)
-            ? msg.content.map((c: any) => (typeof c === 'string' ? c : c?.text || '')).join('')
-            : '';
-
-      if (!text.trim() && typeof msg?.reasoning === 'string' && !params.json) {
-        text = msg.reasoning;
-      }
-
-      if (!text.trim()) {
-        lastErr = new Error(`پاسخ متنی مدل ${modelId} خالی بود.`);
-        if (!isLast) continue;
-        throw lastErr;
-      }
-
-      return {
-        text: text.trim(),
-        model: data?.model || modelId,
-        provider: cfg.provider,
-      };
+      return result;
     } catch (err: any) {
-      if (String(err?.message || '').includes('کلید API رد شد')) throw err;
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      if (isLast) throw lastErr;
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // اگر کلیدهای جایگزین دیگری در خزانه داریم، روی خطای 429/401/402/5xx کلید بعدی را امتحان کن
+      if (idx < candidates.length - 1) {
+        continue;
+      }
     }
   }
 
-  throw lastErr ?? new Error('پاسخی از سرویس هوش مصنوعی دریافت نشد.');
+  throw lastError || new Error('خطا در اجرای درخواست هوش مصنوعی.');
 }
 
 export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
@@ -349,12 +414,12 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
   latencyMs?: number;
   error?: string;
 }> {
-  const start = Date.now();
-  const cfg = normalizeClientLLMConfig(raw);
+  const cfg = resolveClientLLMConfig(raw);
   if (!cfg) {
-    return { success: false, models: [], error: 'کلید API وارد نشده است.' };
+    return { success: false, models: [], error: 'لطفاً ابتدا کلید API معتبر وارد کنید.' };
   }
 
+  const start = Date.now();
   try {
     if (cfg.provider === 'gemini') {
       const res = await smartFetchLLM(
@@ -363,11 +428,11 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
       );
       if (!res.ok) {
         const detail = await safeReadError(res);
-        return { success: false, models: [], error: `خطا در احراز هویت Gemini (${res.status}): ${detail}` };
+        return { success: false, models: [], error: `خطای کلید Gemini (${res.status}): ${detail}` };
       }
       const data: any = await res.json();
-      const models: DiscoveredClientModel[] = (data?.models || [])
-        .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+      const models: DiscoveredClientModel[] = (data.models || [])
+        .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
         .map((m: any) => {
           const id = String(m.name || '').replace(/^models\//, '');
           const isFree = id.includes('flash') || id.includes('gemma');
@@ -430,6 +495,7 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
 
     const preferred =
       models.find((m) => m.isFree && m.id.includes('llama-3.3-70b')) ||
+      models.find((m) => m.isFree && m.id.includes('deepseek')) ||
       models.find((m) => m.isFree && m.id.includes('qwen')) ||
       models.find((m) => m.isFree) ||
       models[0];
@@ -446,7 +512,7 @@ export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
     return {
       success: false,
       models: [],
-      error: `عدم ارتباط مستقیم با سرویس (${err?.message || err}). مطمئن شوید اینترنت/فیلترشکن روی تبلت متصل است.`,
+      error: `عدم ارتباط با سرویس (${err?.message || err}).`,
     };
   }
 }
@@ -475,40 +541,42 @@ export async function testConnectionDirect(raw: Partial<ActiveCustomLLM>): Promi
 }
 
 export async function analyzeJobDirect(job: FreelanceJob): Promise<AIAnalysis & { model: string }> {
-  const prompt = `شما معمار ارشد سیستم‌های اتوماسیون هوش مصنوعی فریلنسری هستید.
-پروژه فریلنسری زیر از پلتفرم "${job.platform || 'فریلنسری'}" را تحلیل فنی و اقتصادی کنید:
+  const prompt = `شما معمار ارشد سیستم‌های نرم‌افزاری، هوش مصنوعی و اتوماسیون تجاری هستید.
+پروژه فریلنسری زیر از پلتفرم "${job.platform || 'فریلنسری'}" را به شکل عمیق، واقع‌بینانه و مهندسی تحلیل کنید:
 عنوان: ${job.title}
-توضیحات: ${job.description}
-بودجه کارفرما: ${job.budgetFormatted || job.budget || 'نامشخص'}
+دسته تشخیص‌داده‌شده: ${job.category}
+توضیحات کامل کارفرما: ${job.description}
+بودجه اعلامی کارفرما: ${job.budgetFormatted || job.budget || 'توافقی / نامشخص'}
+تعداد پیشنهادهای فعلی رقبا: ${job.proposalsCount}
 
-خروجی را دقیقاً در قالب JSON معتبر زیر بازگردانید:
+خروجی را دقیقاً در قالب JSON معتبر زیر برگردانید:
 {
-  "automatabilityScore": 95,
-  "recommendedBid": 2800000,
-  "suggestedDuration": "۴ ساعت",
-  "technicalStack": ["Python", "Playwright"],
-  "feasibilityReason": "توضیح تحلیلی ۲ خطی به زبان فارسی درباره نحوه اجرای سریع پروژه",
+  "automatabilityScore": 92,
+  "recommendedBid": 4200000,
+  "suggestedDuration": "۶ ساعت کاری (تحویل ۲ روزه)",
+  "technicalStack": ["Python 3.11", "FastAPI", "Structured Markdown Spec"],
+  "feasibilityReason": "تحلیل دقیق ۳ خطی به زبان فارسی درباره معماری تحویل سریع با بالاترین کیفیت و کمترین نیاز به جلسات رفت‌وبرگشتی با کارفرما",
   "riskLevel": "low",
   "winProbability": "۸۵٪",
-  "suggestedKicker": "نکته کلیدی که باید در خط اول پیشنهاد به آن اشاره شود تا کارفرما متوجه شود پروژه دقیق خوانده شده است"
+  "suggestedKicker": "قلاب فنی دقیق برای خط اول پیشنهاد (اشاره به یک ریسک یا نکته فنی ظریف در همین پروژه که نشان دهد شما معمار واقعی کار هستید)"
 }`;
 
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1200 });
+  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1500 });
   const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
-  const recommendedBid = Number(parsed.recommendedBid) || (job.budget ? Math.round(job.budget * 0.85) : 3000000);
+  const recommendedBid = Number(parsed.recommendedBid) || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
 
   return {
     model: llm.model,
     automatabilityScore: Number(parsed.automatabilityScore) || 90,
     recommendedBid,
     recommendedBidFormatted: `${recommendedBid.toLocaleString('fa-IR')} تومان`,
-    suggestedDuration: parsed.suggestedDuration || '۴ ساعت',
-    technicalStack: Array.isArray(parsed.technicalStack) ? parsed.technicalStack : ['Python', 'Automation'],
+    suggestedDuration: parsed.suggestedDuration || '۱ الی ۲ روز کاری',
+    technicalStack: Array.isArray(parsed.technicalStack) ? parsed.technicalStack : ['AI Architecture', 'Automation'],
     feasibilityReason:
-      parsed.feasibilityReason || 'پروژه دیجیتال بوده و با ورک‌فلوهای هوش مصنوعی به‌سرعت قابل پیاده‌سازی و تحویل است.',
+      parsed.feasibilityReason || 'پروژه کاملاً دیجیتال بوده و با معماری ماژولار و مستندات مهندسی قابل تحویل یک‌ضرب است.',
     riskLevel: parsed.riskLevel === 'high' || parsed.riskLevel === 'medium' ? parsed.riskLevel : 'low',
     winProbability: parsed.winProbability || '۸۵٪',
-    suggestedKicker: parsed.suggestedKicker || 'ارائه نمونه اولیه تست‌شده پیش از شروع رسمی',
+    suggestedKicker: parsed.suggestedKicker || 'ارسال پیش‌طرح معماری و ساختار دقیق خروجی همزمان با ثبت پیشنهاد',
   };
 }
 
@@ -517,72 +585,48 @@ export async function generateProposalDirect(
   tone: string,
   budget: number,
 ): Promise<{ proposal: string; proposedPrice: number; deliveryTime: string; model: string }> {
-  const targetPrice = budget || (job.budget ? Math.round(job.budget * 0.82) : 2500000);
+  const targetPrice = budget || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
   const toneInstructionsMap: Record<string, string> = {
-    friendly_expert: 'لحن: یک مهندس نرم‌افزار حرفه‌ای، صمیمی، خاکی و قابل اعتماد.',
-    direct_urgent: 'لحن: صریح، بسیار متمرکز بر زمان تحویل فوری زیر چند ساعت.',
-    technical_detailed: 'لحن: فنی و آگاه به جزییات کتابخانه‌ها و معماری اجرای بدون باگ.',
+    friendly_expert: 'لحن: متخصص ارشد با تجربه کاری بین‌المللی، خوش‌فکر، شفاف، بدون اغراق و کاملاً مسلط به کار.',
+    direct_urgent: 'لحن: بسیار موجز، نتیجه‌گرا و متمرکز بر تحویل سریع نسخه نهایی و تست‌شده.',
+    technical_detailed: 'لحن: معمار فنی دقیق؛ ذکر صریح ساختار خروجی، استاندارد کیفیت و مستندات تحویل.',
   };
 
-  const prompt = `شما یک مجری ارشد در بازار فریلنسری ایران هستید.
-برای پروژه زیر یک پیشنهاد بسیار متقاعدکننده بنویسید که کارفرما بلافاصله پیام دهد.
+  const prompt = `شما یک مجری طراز اول در کارلانسر و پونیشا هستید که با ارسال پیشنهادهای فنی دقیق و غیرکلیشه‌ای، بالاترین نرخ برد پروژه را دارد.
 عنوان پروژه: ${job.title}
-توضیحات پروژه: ${job.description}
-بودجه هدف: ${targetPrice} تومان
-${toneInstructionsMap[tone] || 'لحن: حرفه‌ای و صمیمی'}
+شرح پروژه: ${job.description}
+مبلغ پیشنهادی هدف: ${targetPrice} تومان
+${toneInstructionsMap[tone] || toneInstructionsMap.friendly_expert}
 
-قوانین سخت‌گیرانه:
-۱. واژه‌های کلیشه‌ای مثل "با کمال میل"، "تضمین ۱۰۰٪"، "در اسرع وقت" را هرگز به کار نبرید.
-۲. طول متن: حداکثر ۳ الی ۴ جمله.
-۳. در جمله اول دقیقاً به خواسته مشخص کارفرما در همین پروژه اشاره کنید.
-۴. ذکر کنید نسخه تست‌شده همراه با مستند کامل فارسی تحویل داده می‌شود.
+قوانین طلایی:
+۱. هرگز از جملات کلیشه‌ای مثل «سلام وقت بخیر پروژه شما را خواندم»، «با کمال میل»، «تضمین ۱۰۰٪» یا «در اسرع وقت» استفاده نکنید.
+۲. در همان جمله اول مستقیماً سراغ اصل مسأله کارفرما بروید و بگویید دقیقاً چه ساختار/راه‌حلی برایش پیاده می‌کنید.
+۳. در ۲-۳ بولت کوتاه بگویید دقیقاً چه فایل‌ها و مستندات تمیز و آماده‌ای تحویل می‌گیرد (تا خیالش راحت شود کار بدون رفت‌وبرگشت فرسایشی جمع می‌شود).
+۴. در پایان یک سؤال فنی هوشمندانه و کوتاه بپرسید که کارفرما را ترغیب کند همین الان چت را با شما باز کند.
 
 خروجی را فقط به صورت JSON برگردانید:
 {
-  "proposal": "متن فارسی پروپوزال",
+  "proposal": "متن کامل، خوش‌فرم و آماده کپی پروپوزال فارسی",
   "proposedPrice": ${targetPrice},
-  "deliveryTime": "۴ ساعت"
+  "deliveryTime": "۲ روز کاری"
 }`;
 
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1200 });
+  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1600 });
   const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
   return {
     model: llm.model,
     proposal: parsed.proposal || llm.text,
     proposedPrice: Number(parsed.proposedPrice) || targetPrice,
-    deliveryTime: parsed.deliveryTime || '۴ ساعت',
+    deliveryTime: parsed.deliveryTime || '۲ روز کاری',
   };
 }
 
 export async function generateSolutionDirect(
   job: FreelanceJob,
 ): Promise<{ files: Record<string, string>; model: string }> {
-  const prompt = `شما یک مهندس نرم‌افزار ارشد و ایجنت کدنویسی خودکار هستید.
-برای این پروژه فریلنسری:
-عنوان: ${job.title}
-توضیحات: ${job.description}
-
-یک پروژه کامل، قابل اجرا و آماده تحویل بسازید. خروجی را حتماً در قالب یک JSON معتبر برگردانید که کلیدهای آن نام فایل‌ها و مقادیر آن متن کامل فایل باشد:
-{
-  "files": {
-    "main.py": "سورس کامل و اجرایی با مدیریت خطا",
-    "requirements.txt": "وابستگی‌های دقیق",
-    "README.md": "راهنمای گام‌به‌گام فارسی برای کارفرما",
-    "test_suite.py": "تست‌های واحد"
-  }
-}`;
-
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 6000 });
-  const parsed = parseJsonLooseClient<any>(llm.text);
-  if (parsed?.files && typeof parsed.files === 'object' && Object.keys(parsed.files).length > 0) {
-    return { files: parsed.files, model: llm.model };
-  }
-  return {
-    model: llm.model,
-    files: {
-      'solution.md': llm.text,
-    },
-  };
+  const { generateEnterpriseDeliverablePackage } = await import('./deliveryEngine');
+  const res = await generateEnterpriseDeliverablePackage(job);
+  return { files: res.files, model: res.model };
 }
 
 export async function categorizeJobDirect(

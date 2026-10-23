@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.konkred.konklancer',
-  appName: 'KonkLancer Studio',
+  appId: 'com.konkred.konklancerv3',
+  appName: 'KonkLancer v3',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

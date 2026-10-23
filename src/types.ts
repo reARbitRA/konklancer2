@@ -1,13 +1,23 @@
 export type PlatformKey = 'all' | 'ponisha' | 'karlancer' | 'parskoders' | 'global';
 
-// کلید دسته = کلیدهای shared/taxonomy.json (ترجمه، گرافیک، ویدیو، صدا، داده، کد و ...).
-// 'all' یعنی «بدون محدودیت دسته».
 export type CategoryKey = 'all' | (string & {});
 
 export type PriorityLevel = 'High' | 'Medium' | 'Low';
 
-// برچسب دسته‌بندی؛ حالا برچسب فارسی هر دسته‌ی تاکسونومی است، نه فقط چهار تگ کدنویسی.
 export type JobCategoryTag = string;
+
+export type RelevanceTier = 'prime' | 'digital' | 'junk';
+
+export type LLMProviderId = 'openrouter' | 'gemini' | 'groq' | 'openai' | 'ollama' | 'custom';
+
+export type DeliverableBlueprintMode =
+  | 'auto'
+  | 'deep_technical_spec'
+  | 'software_mvp'
+  | 'ai_workflow_automation'
+  | 'data_excel_financial'
+  | 'feasibility_strategy_seo'
+  | 'bilingual_editorial_ux';
 
 export interface FreelanceJob {
   id: string;
@@ -30,17 +40,24 @@ export interface FreelanceJob {
   status: 'new' | 'bidded' | 'in_progress' | 'ready' | 'completed';
   priority?: PriorityLevel;
   categorizedTag?: JobCategoryTag;
-  completedAt?: string; // ISO date e.g. '2026-10-09'
-  // SPEC-004: فیلدهایی که از خروجی اسکنر می‌آیند
-  url?: string; // لینک صفحه‌ی اصلی پروژه روی پلتفرم
-  source?: string; // منبع اسکن (مثلاً 'parscoders' یا 'telegram:workarc')
-  score?: number; // امتیاز پیش‌فیلتر قاعده‌محور (۰ تا ۱۰۰)
-  scoreReasons?: string[]; // دلایل امتیاز، برای نمایش شفاف
-  scrapedAt?: string; // زمان اسکن (ISO)
+  completedAt?: string;
+  url?: string;
+  source?: string;
+  score?: number;
+  scoreReasons?: string[];
+  scrapedAt?: string;
+  isManual?: boolean;
+  pinned?: boolean;
+  relevanceTier?: RelevanceTier;
+  relevanceScore?: number;
+  relevanceReason?: string;
   aiAnalysis?: AIAnalysis;
   proposal?: string;
   proposedPrice?: number;
   generatedFiles?: Record<string, string>;
+  solutionCode?: Record<string, string>;
+  executiveSummary?: string;
+  blueprintMode?: DeliverableBlueprintMode;
   repoUrl?: string;
 }
 
@@ -81,7 +98,7 @@ export interface ScannedModelItem {
 
 export interface CustomLLMConfig {
   enabled: boolean;
-  provider: 'openrouter' | 'gemini' | 'groq' | 'openai' | 'ollama' | 'custom';
+  provider: LLMProviderId;
   endpoint: string;
   apiKey: string;
   selectedModel: string;
@@ -89,14 +106,30 @@ export interface CustomLLMConfig {
   lastPingMs?: number;
 }
 
+export interface SavedApiKeyProfile {
+  id: string;
+  label: string;
+  provider: LLMProviderId;
+  endpoint: string;
+  apiKey: string;
+  selectedModel: string;
+  availableModels?: ScannedModelItem[];
+  lastPingMs?: number;
+  lastError?: string;
+  enabled: boolean;
+}
+
 export interface UserSettings {
   githubToken: string;
-  githubUseSSH: boolean;
-  githubSSHKey: string;
-  defaultDiscountRate: number; // e.g. 15 (%)
-  autoBidThreshold: number; // e.g. 85 (%)
+  githubUseSSH?: boolean;
+  githubSSHKey?: string;
+  defaultDiscountRate: number;
+  autoBidThreshold: number;
   cyborgMode: boolean;
   preferredTone: 'friendly_expert' | 'direct_urgent' | 'technical_detailed';
-  dailyEarningsGoal: number; // Toman
+  dailyEarningsGoal: number;
   customLLM?: CustomLLMConfig;
+  apiKeyProfiles?: SavedApiKeyProfile[];
+  activeProfileId?: string;
+  autoFailoverKeys?: boolean;
 }
