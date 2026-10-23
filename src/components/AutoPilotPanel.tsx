@@ -49,10 +49,37 @@ export const AutoPilotPanel: React.FC<AutoPilotPanelProps> = ({
   const [bridgeStatus, setBridgeStatus] = useState<any>(null);
 
   React.useEffect(() => {
-    fetch('/api/bridge/status')
-      .then(res => res.json())
-      .then(data => setBridgeStatus(data.status))
-      .catch(console.error);
+    // The local bridge API only exists when running against a KonkLancer Node
+    // server. On standalone static hosting / APK / GitHub Pages there is no
+    // server, so the UI must not hang forever on "receiving status...". Detect
+    // whether we are on a real server first, and fall back to a "standalone"
+    // status after a short timeout if the request fails.
+    const setStandaloneStatus = () => setBridgeStatus('standalone');
+
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) setStandaloneStatus();
+    }, 2500);
+
+    fetch('/api/bridge/status', { method: 'GET' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (!cancelled) setBridgeStatus(data?.status || 'online');
+      })
+      .catch(() => {
+        if (!cancelled) setStandaloneStatus();
+      })
+      .finally(() => {
+        if (!cancelled) clearTimeout(timeout);
+      });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   // Completed jobs & today's calculations for the chart

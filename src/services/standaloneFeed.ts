@@ -285,7 +285,8 @@ export function buildJobsFromRows(rows: RawScannedRow[]): { jobs: FreelanceJob[]
   });
 
   jobs.sort((a, b) => b._score - a._score || b._scrapedAt.localeCompare(a._scrapedAt));
-  const scannedAt = rows.map((r) => r.scraped_at || '').filter(Boolean).sort().at(-1) || null;
+  const scrapedList = rows.map((r) => r.scraped_at || '').filter(Boolean).sort();
+  const scannedAt = scrapedList.length > 0 ? scrapedList[scrapedList.length - 1] : null;
   return { jobs, scannedAt };
 }
 

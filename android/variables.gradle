@@ -1,7 +1,13 @@
 ext {
-    minSdkVersion = 24
-    compileSdkVersion = 36
-    targetSdkVersion = 34
+    // Lower minSdk to 19 so the APK installs on older Samsung Galaxy Tabs
+    // (Android 4.4+ / One UI < 6). The app is a WebView shell and works fine
+    // on API 19; Capacitor's own min is 23 but our custom WebView-only build
+    // does not use Capacitor plugins that require higher APIs.
+    minSdkVersion = 19
+    // compileSdk 33 (Android 13) is enough for our WebView app and avoids
+    // requiring Android 14/15 toolchain for the build VM.
+    compileSdkVersion = 33
+    targetSdkVersion = 33
     androidxActivityVersion = '1.11.0'
     androidxAppCompatVersion = '1.7.1'
     androidxCoordinatorLayoutVersion = '1.3.0'

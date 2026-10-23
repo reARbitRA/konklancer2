@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "android:sync": "vite build && npx cap sync android",
+    "build": "vite build && node scripts/modernize-css.mjs",
+    "android:sync": "npm run build && npx cap sync android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "preview": "vite preview",
     "start": "tsx server.ts",
@@ -15,7 +15,9 @@
     "test:scanner": "python3 -m pytest -q scanner/tests",
     "scan": "python3 -m scanner.konklancer_scan scan",
     "scan:telegram": "python3 -m scanner.konklancer_scan scan --telegram",
-    "test": "tsx --test server/*.test.ts"
+    "test": "tsx --test server/*.test.ts",
+    "build:html": "npm run build && node scripts/build-standalone-html.mjs",
+    "build:zip": "npm run build:html && node scripts/package-release-zip.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

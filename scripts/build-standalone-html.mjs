@@ -21,9 +21,14 @@ const jsRaw = fs
   // Prevent any embedded "</script" literal inside strings/regexes from closing the inline script tag
   .replace(/<\/script/gi, '<\\/script');
 
-html = html.replace(/<link[^>]+rel="stylesheet"[^>]*>/gi, () => `<style>${cssRaw}</style>`);
+// Replace ONLY the Vite-built stylesheet link (which points into ./assets/) with
+// the inline <style>. The Google Fonts link is left untouched so Vazirmatn/JetBrains
+// still load. The old /g regex matched BOTH links and injected the CSS twice while
+// deleting the font preload — that is what broke the v3 standalone build.
+html = html.replace(/<link[^>]+rel="stylesheet"[^>]*href="\.?\/?assets\/[^"]+"[^>]*>/gi, () => `<style>${cssRaw}</style>`);
+
 html = html.replace(
-  /<script[^>]+type="module"[^>]+src="[^"]+"[^>]*><\/script>/gi,
+  /<script[^>]+type="module"[^>]+src="[^"]*assets\/[^"]+"[^>]*><\/script>/gi,
   () =>
     `<script>window.__KONKLANCER_STANDALONE__ = true;</script>\n<script type="module">\n${jsRaw}\n</script>`,
 );
