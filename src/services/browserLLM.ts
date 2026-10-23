@@ -79,47 +79,6 @@ async function smartFetchLLM(
 ): Promise<Response> {
   const method = init.method || 'GET';
   const headers = init.headers || {};
-  try {
-    const directRes = await fetch(url, {
-      method,
-      headers,
-      body: init.body,
-    });
-    if (directRes.status === 403 || directRes.status === 400) {
-      const peek = await directRes.clone().text().catch(() => '');
-      const isGeoBlock =
-        directRes.status === 403 ||
-        /location is not supported|country|region|territory|cloudflare|access denied/i.test(peek);
-      if (isGeoBlock) {
-        return await relayLLMRequestViaUS(url, method, headers, init.body);
-      }
-    }
-    return directRes;
-  } catch {
-    return await relayLLMRequestViaUS(url, method, headers, init.body);
-  }
-}
-
-export function sanitizeModelIdClient(rawModel?: string): string {
-  if (!rawModel) return '';
-  return rawModel
-    .trim()
-    .replace(/^⭐\s*/, '')
-    .replace(/\s*\[رایگان[^\]]*\]\s*$/i, '')
-    .trim();
-}
-
-/**
- * Tries fast direct browser/native fetch first; if blocked by Iran ISP / CORS / Geo-IP
- * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
- * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
- */
-async function smartFetchLLM(
-  url: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string },
-): Promise<Response> {
-  const method = init.method || 'GET';
-  const headers = init.headers || {};
 
   let directRes: Response | null = null;
   try {
@@ -382,15 +341,10 @@ export async function callBrowserLLM(opts: {
   for (let idx = 0; idx < candidates.length; idx++) {
     const cfg = candidates[idx];
     try {
-      const res = await smartFetchLLM(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        const detail = await safeReadError(res);
-        throw new Error(`کلید API رد شد (HTTP ${res.status}): ${detail}`);
+      const result = await executeSingleKeyCall(cfg, opts);
+      // اگر کلید اول خطا داد و کلید دوم در خزانه موفق شد، کلید سالم به عنوان کلید فعال انتخاب شود
+      if (idx > 0 && cfg.id && !opts.overrideConfig) {
+        switchActiveKeyOrModel(cfg.id);
       }
       return result;
     } catch (err: any) {

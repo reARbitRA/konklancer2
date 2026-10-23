@@ -22,8 +22,10 @@ import {
 } from 'lucide-react';
 import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, categoryAiFit, detectCategory } from '../../shared/taxonomy';
-import { isNativeAndroidApp } from '../services/browserLLM';
+import { evaluateProjectRelevance } from '../../shared/relevanceEngine';
 import { buildJobsFromRows, fetchHtmlSmart, parsePlatformHtmlClient } from '../services/standaloneFeed';
+
+type RelevanceFilterMode = 'relevant' | 'prime' | 'saved' | 'all';
 
 interface JobHunterProps {
   jobs: FreelanceJob[];
@@ -167,13 +169,15 @@ export const JobHunter: React.FC<JobHunterProps> = ({
       const html = await fetchHtmlSmart(targetUrl);
       if (html) {
         const host = targetUrl.toLowerCase();
-        const src = host.includes('ponisha')
-          ? 'ponisha'
-          : host.includes('karlancer')
-            ? 'karlancer'
-            : host.includes('t.me/') || host.includes('telegram.me/')
-              ? `telegram:${targetUrl.split('/').filter(Boolean).pop()}`
-              : 'parscoders';
+        const src = host.includes('ponisha_ir')
+          ? 'telegram:ponisha_ir'
+          : host.includes('ponisha')
+            ? 'ponisha'
+            : host.includes('karlancer')
+              ? 'karlancer'
+              : host.includes('t.me/') || host.includes('telegram.me/')
+                ? `telegram:${targetUrl.split('/').filter(Boolean).pop()?.split('?')[0]}`
+                : 'parscoders';
         const rows = parsePlatformHtmlClient(html, src, targetUrl);
         const { jobs: built } = buildJobsFromRows(rows);
         built.forEach((j) =>
@@ -188,8 +192,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           count: built.length,
           message:
             built.length > 0
-              ? `${built.length} پروژه مستقیماً استخراج و به رادار اضافه شد!`
-              : 'صفحه خوانده شد اما کارت پروژه‌ای تشخیص داده نشد؛ می‌توانید متن آگهی را دستی ثبت کنید.',
+              ? `${built.length.toLocaleString('fa-IR')} پروژه استخراج و به گاوصندوق دائمی اضافه شد (در اسکن‌های بعدی هرگز پاک نمی‌شوند)!`
+              : 'صفحه خوانده شد اما کارت پروژه‌ای تشخیص داده نشد؛ از تب «پیست سورس HTML» یا «ثبت دستی» استفاده کنید.',
           extractedTitles: built.map((p) => p.title),
         });
         return;

@@ -16,7 +16,8 @@ import { categorizeJobWithGemini } from './utils/geminiCategorizer';
 import { categoryLabel, detectCategory } from '../shared/taxonomy';
 import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
-import { isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
+import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
+import { subscribeVaultChanges } from './utils/customLLMClient';
 import {
   loadInitialFeedUnified,
   runDirectTabletLiveScan,
@@ -249,8 +250,12 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
+      const protectedJobs = jobs.filter(
+        (j) => j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-'),
+      );
+      writePermanentManualVault(protectedJobs);
     } catch {
-      // ignore storage errors on restricted local protocols
+      // ignore storage errors
     }
   }, [jobs]);
 
@@ -356,9 +361,8 @@ export default function App() {
     }
   }, []);
 
-  // Robust Socket.io Client Setup (skipped cleanly in standalone HTML / Android APK mode)
   useEffect(() => {
-    if (isStandaloneClientMode()) {
+    if (isStandaloneClientMode() || isNativeAndroidApp()) {
       setSocketConnected(true);
       setSocketError(null);
       return;
@@ -366,40 +370,17 @@ export default function App() {
     const socket: Socket = io({
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1500,
-      reconnectionDelayMax: 5000,
-      randomizationFactor: 0.5,
-      timeout: 8000,
+      reconnectionAttempts: 3,
+      timeout: 6000,
     });
     socket.on('connect', () => {
       setSocketConnected(true);
       setSocketError(null);
       setIsReconnecting(false);
-      addLog('اتصال زنده وب‌سوکت Socket.io برقرار شد.', 'scan');
     });
-
-    socket.on('disconnect', () => {
-      setSocketConnected(false);
-    });
-
+    socket.on('disconnect', () => setSocketConnected(false));
     socket.on('connect_error', () => {
       setSocketConnected(false);
-      setIsReconnecting(false);
-      setSocketError(null);
-    });
-
-    socket.on('error', () => {
-      setSocketConnected(false);
-      setSocketError(null);
-    });
-
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      setIsReconnecting(true);
-      addLog(`در حال تلاش مجدد برای اتصال به بریج (تلاش شماره ${attemptNumber})...`, 'scan');
-    });
-
-    socket.on('reconnect_failed', () => {
       setIsReconnecting(false);
     });
     socketRef.current = socket;
@@ -410,29 +391,7 @@ export default function App() {
 
   const handleManualReconnect = () => {
     setIsReconnecting(true);
-    addLog('تلاش دستی برای برقراری مجدد ارتباط با سوکت...');
-    if (socketRef.current) {
-      socketRef.current.connect();
-    }
-  };
-
-  // Unified live scan across Cloud Relay + Native Android HTTP in every mode
-  const handleQuickScan = async () => {
-    setIsScanning(true);
-    try {
-      const out = await runDirectTabletLiveScan((msg) => addLog(msg, 'scan'));
-      setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
-      setFeed({
-        source: 'scanner',
-        scannedAt: out.scannedAt ?? new Date().toISOString(),
-        scannedProjects: out.total,
-      });
-      addLog(`اسکن زنده تکمیل شد: ${out.added} پروژه جدید (${out.summary})`, 'scan');
-    } catch (err: any) {
-      addLog(`خطا در اسکن زنده: ${err?.message || err}`, 'scan');
-    } finally {
-      setIsScanning(false);
-    }
+    socketRef.current?.connect();
   };
 
   // Updaters

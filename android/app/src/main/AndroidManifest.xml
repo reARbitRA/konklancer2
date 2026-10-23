@@ -7,7 +7,7 @@
         android:usesCleartextTraffic="true"
         android:resizeableActivity="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="KonkLancer"
+        android:label="KonkLancer v3"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
@@ -15,7 +15,7 @@
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
-            android:label="KonkLancer"
+            android:label="KonkLancer v3"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask"

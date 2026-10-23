@@ -10,7 +10,8 @@ import {
   Smartphone,
   Cpu,
 } from 'lucide-react';
-import { isNativeAndroidApp, isStandaloneClientMode } from '../services/browserLLM';
+import { isNativeAndroidApp } from '../services/browserLLM';
+import { LiveModelSwitcher } from './LiveModelSwitcher';
 
 interface HeaderProps {
   activeTab: 'hunter' | 'coder' | 'pipeline' | 'autopilot';
@@ -113,23 +114,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Zone 3: Real-Time Key/Model Switcher + Deep Scan + Settings */}
           <div className="flex items-center gap-2">
-            <div className="hidden xl:flex items-center gap-2 px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
-              <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-slate-400">درآمد امروز:</span>
-              <span className="font-mono font-medium text-emerald-400 tabular-nums">
-                {totalEarningsToday.toLocaleString('fa-IR')} تومان
-              </span>
-            </div>
+            {totalEarningsToday > 0 && (
+              <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
+                <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="font-mono font-medium text-emerald-400 tabular-nums">
+                  {totalEarningsToday.toLocaleString('fa-IR')} ت
+                </span>
+              </div>
+            )}
 
-            {!isStandaloneClientMode() && (
-              <button
-                onClick={handleInstantWebAppInstall}
-                title="نصب میانبر روی صفحه اصلی تبلت"
-                className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-bold text-sky-300 bg-sky-950/70 hover:bg-sky-900/80 border border-sky-500/40 rounded-lg transition-all whitespace-nowrap"
-              >
-                <Zap className="h-3.5 w-3.5 text-sky-400" />
-                <span>نصب وب‌اپ</span>
-              </button>
+            {nativeApp && (
+              <span className="hidden lg:flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 rounded-lg">
+                <Smartphone className="h-3 w-3 text-emerald-400" />
+                <span>APK</span>
+              </span>
             )}
 
             {/* سوئیچر زنده و آنی کلید API و مدل هوش مصنوعی در هر لحظه */}

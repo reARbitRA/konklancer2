@@ -1,6 +1,7 @@
 import bundledCloudFeedRaw from '../../scanner/cloud-feed.jsonl?raw';
 import { FreelanceJob } from '../types';
-import { categoryAiFit, categoryLabel, CATEGORY_KEYS, detectCategory } from '../../shared/taxonomy';
+import { categoryAiFit, categoryLabel, detectCategory } from '../../shared/taxonomy';
+import { evaluateProjectRelevance } from '../../shared/relevanceEngine';
 import { isNativeAndroidApp, isStandaloneClientMode } from './browserLLM';
 import { fetchPageViaCloudRelay, readCloudSyncedRows, upsertCloudSyncedRows } from './cloudRelay';
 
@@ -311,7 +312,17 @@ function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = []
   const mergedMap = new Map<string, RawScannedRow>();
   for (const r of [...parseJsonlRows(bundledCloudFeedRaw), ...readLocalSavedRows(), ...cloudRows, ...newRows]) {
     if (!r || !r.id || isStaleHistoricalRow(r)) continue;
-    mergedMap.set(r.id, r);
+    const prev = mergedMap.get(r.id);
+    if (!prev) {
+      mergedMap.set(r.id, r);
+    } else {
+      mergedMap.set(r.id, {
+        ...prev,
+        ...r,
+        summary: (r.summary || '').length >= (prev.summary || '').length ? r.summary : prev.summary,
+        budget_text: r.budget_text || prev.budget_text,
+      });
+    }
   }
   const all = [...mergedMap.values()].slice(-1200);
   try {
@@ -541,7 +552,7 @@ export function parsePlatformHtmlClient(html: string, source: string, baseUrl: s
   return out;
 }
 
-/** واکشی هوشمند HTML: در اندروید ابتدا مستقیم (مناسب پونیشا/کارلنسر/پارس‌کدرز با اینترنت ایران) و در صورت خطا یا حالت مرورگر از رله کلاد آمریکا بدون CORS */
+/** واکشی هوشمند HTML بدون محدودیت CORS (بومی اندروید برای سایت‌های ایرانی + رله آمریکا برای تلگرام و مرورگر) */
 export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
   if (isNativeAndroidApp() && !targetUrl.includes('t.me/') && !targetUrl.includes('telegram.me/')) {
     try {
@@ -560,35 +571,12 @@ export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
   return cloud.html || '';
 }
 
-/** بارگذاری اولیه فید: ترکیب فوری فید تعبیه‌شده + مخزن ابری زنده Supabase (بدون نیاز به سرور یا توکن) */
 export async function loadInitialFeedUnified(): Promise<{
   jobs: FreelanceJob[];
   source: 'scanner';
   scannedAt: string | null;
   scannedProjects: number;
 }> {
-  if (!isStandaloneClientMode()) {
-    try {
-      const res = await fetch('/api/jobs');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data?.jobs) && data.jobs.length > 0) {
-          const freshOnly = data.jobs.filter((j: FreelanceJob) => !/^202[0-5]-/.test(String(j.postedTime || '')));
-          if (freshOnly.length > 0) {
-            return {
-              jobs: freshOnly,
-              source: 'scanner',
-              scannedAt: data.scannedAt ?? null,
-              scannedProjects: freshOnly.length,
-            };
-          }
-        }
-      }
-    } catch {
-      // Fall through to standalone + cloud feed
-    }
-  }
-
   const cloudRows = await readCloudSyncedRows<RawScannedRow>();
   const allRows = saveLocalRows([], cloudRows);
   const { jobs, scannedAt } = buildJobsFromRows(allRows);
@@ -619,100 +607,45 @@ export async function syncCloudFeedDirectFromGitHub(_githubToken?: string): Prom
 }
 
 /**
- * اسکن زنده در همه محیط‌ها (مرورگر کروم، فایل HTML مستقل تبلت، پیش‌نمایش زنده، و APK اندروید)
+ * اسکن عمیق چندصفحه‌ای (Deep Multi-Page Scanner):
+ * - ۴ صفحه پارس‌کدرز + دسته‌های تخصصی برنامه‌نویسی، هوش مصنوعی و تولید محتوا (~۱۲۰ پروژه زنده)
+ * - ۴ صفحه متوالی فید زنده رسمی پونیشا (@ponisha_ir با بودجه دقیق و لینک مستقیم سایت ~۸۰ پروژه تازه امروز)
+ * - ۳ صفحه وب کارلانسر و پونیشا (مستقیم روی تبلت اندروید + همگام‌سازی ابری Supabase)
+ * - کانال پروژه‌های مهندسی @workarc
  */
 export async function runDirectTabletLiveScan(
   onProgress?: (msg: string) => void,
 ): Promise<{ ok: boolean; added: number; total: number; jobs: FreelanceJob[]; scannedAt: string | null; summary: string }> {
-  const targets = [
-    { source: 'parscoders', label: 'پارس‌کدرز', url: 'https://parscoders.com/project/only-available' },
-    { source: 'telegram:workarc', label: 'تلگرام @workarc', url: 'https://telegram.me/s/workarc' },
-    { source: 'ponisha', label: 'پونیشا', url: 'https://ponisha.ir/search/projects' },
-    { source: 'karlancer', label: 'کارلانسر', url: 'https://www.karlancer.com/search' },
-  ];
-
   const beforeIds = new Set(saveLocalRows([]).map((r) => r.id));
-  onProgress?.('در حال همگام‌سازی مخزن ابری و اسکن زنده پلتفرم‌ها...');
-
-  const [cloudRows, ...htmlPages] = await Promise.all([
-    readCloudSyncedRows<RawScannedRow>(),
-    ...targets.map((t) => fetchHtmlSmart(t.url)),
-  ]);
-
   const collected: RawScannedRow[] = [];
 
-  targets.forEach((t, idx) => {
-    const html = htmlPages[idx] || '';
-    if (!html) {
-      if (t.source === 'ponisha' || t.source === 'karlancer') {
-        stats.push(`${t.label}: همگام از کلاد`);
-      }
-      return;
+  // فاز ۱: دریافت موازی صفحات اول پلتفرم‌ها + دسته‌های طلایی پارس‌کدرز + مخزن ابری
+  onProgress?.('فاز ۱/۳: اسکن موازی صفحات اول پونیشا، پارس‌کدرز (۴ بخش)، کارلانسر و کلاد...');
+
+  const wave1Targets = [
+    { source: 'parscoders', url: 'https://parscoders.com/project/only-available' },
+    { source: 'parscoders', url: 'https://parscoders.com/project/only-available?page=2' },
+    { source: 'parscoders', url: 'https://parscoders.com/project/only-available?page=3' },
+    { source: 'parscoders', url: 'https://parscoders.com/project/service/programming' },
+    { source: 'parscoders', url: 'https://parscoders.com/project/service/artificial-intelligence' },
+    { source: 'parscoders', url: 'https://parscoders.com/project/service/content-creation' },
+    { source: 'telegram:ponisha_ir', url: 'https://telegram.me/s/ponisha_ir' },
+    { source: 'telegram:workarc', url: 'https://telegram.me/s/workarc' },
+  ];
+
+  const [cloudRows, ...wave1Html] = await Promise.all([
+    readCloudSyncedRows<RawScannedRow>(),
+    ...wave1Targets.map((t) => fetchHtmlSmart(t.url)),
+  ]);
+
+  let ponishaMinPostId: number | null = null;
+  wave1Targets.forEach((t, idx) => {
+    const html = wave1Html[idx] || '';
+    if (!html) return;
+    if (t.source === 'telegram:ponisha_ir') {
+      ponishaMinPostId = extractMinTelegramPostId(html);
     }
-    const parsed = parsePlatformHtmlClient(html, t.source, t.url);
-    collected.push(...parsed);
-    if (parsed.length > 0) {
-      stats.push(`${t.label}: ${parsed.length} زنده`);
-    }
-  });
-
-  if (collected.length > 0) {
-    upsertCloudSyncedRows(collected);
-  }
-
-  const merged = saveLocalRows(collected, cloudRows);
-  const added = merged.filter((r) => !beforeIds.has(r.id)).length;
-  const { jobs, scannedAt } = buildJobsFromRows(merged);
-
-  return {
-    ok: merged.length > 0,
-    added,
-    total: merged.length,
-    jobs,
-    scannedAt: new Date().toISOString(),
-    summary: stats.length ? stats.join(' · ') : `${merged.length} پروژه فعال`,
-  };
-}
-
-/** همگام‌سازی مستقیم فید ابری گیت‌هاب از داخل APK/مرورگر (اگر کاربر توکن گیت‌هاب داده باشد) */
-export async function syncCloudFeedDirectFromGitHub(githubToken?: string): Promise<{
-  ok: boolean;
-  message: string;
-  jobs?: FreelanceJob[];
-  scannedAt?: string | null;
-  total?: number;
-}> {
-  if (!isNativeAndroidApp()) {
-    try {
-      const res = await fetch('/api/bridge/sync-feed', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data?.ok) {
-        return { ok: true, message: data.message || `همگام‌سازی انجام شد (${data.totalProjects} پروژه).` };
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  if (!githubToken?.trim()) {
-    // در حالت بدون توکن گیت‌هاب روی APK، مستقیماً اسکن زنده بومی تبلت را اجرا کن!
-    const scan = await runDirectTabletLiveScan();
-    return {
-      ok: scan.ok,
-      message: scan.ok
-        ? `اسکن مستقیم روی تبلت انجام شد (${scan.summary})`
-        : 'برای همگام‌سازی ابری مخزن خصوصی گیت‌هاب، یا اینترنت پلتفرم‌ها را وصل کنید یا PAT گیت‌هاب را در تنظیمات بگذارید.',
-      jobs: scan.jobs,
-      scannedAt: scan.scannedAt,
-      total: scan.total,
-    };
-  }
-
-  const res = await fetch('https://api.github.com/repos/reARbitRA/konklancer2/contents/scanner/cloud-feed.jsonl?ref=main', {
-    headers: {
-      Authorization: `Bearer ${githubToken.trim()}`,
-      Accept: 'application/vnd.github.raw+json',
-    },
+    collected.push(...parsePlatformHtmlClient(html, t.source, t.url));
   });
 
   // فاز ۲: صفحه‌بندی عمیق خودکار پونیشا (@ponisha_ir صفحات ۲، ۳ و ۴) + صفحات بعدی کارلانسر/پونیشا در اندروید
