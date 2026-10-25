@@ -113,8 +113,8 @@ export function detectOptimalBlueprintMode(job: FreelanceJob): Exclude<Deliverab
 }
 
 export interface DeliveryProgressState {
-  stage: 1 | 2 | 3;
-  totalStages: 3;
+  stage: number;
+  totalStages: number;
   label: string;
 }
 

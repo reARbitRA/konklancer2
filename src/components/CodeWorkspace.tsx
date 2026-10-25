@@ -17,6 +17,9 @@ import {
   Loader2,
   Layers,
   Award,
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { DeliverableBlueprintMode, FreelanceJob } from '../types';
 import {
@@ -28,6 +31,7 @@ import {
   refineSingleDeliverableFile,
   renderMarkdownToRichHtml,
 } from '../services/deliveryEngine';
+import { runArbiterQualityGate } from '../services/arbiterEngine';
 import { createZipBlob } from '../utils/zipBuilder';
 import { safeCopyText } from '../utils/safeClipboard';
 import { downloadBlob } from '../utils/safeDownload';
@@ -71,6 +75,11 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // افزودن دستی فایل جدید به پکیج تحویلی
   const [showNewFileInput, setShowNewFileInput] = useState(false);
   const [newFileName, setNewFileName] = useState('');
+
+  // وضعیت ممیزی و تضمین کیفیت ARBITER v2.2
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [arbiterScore, setArbiterScore] = useState<number | null>(null);
+  const [arbiterVerdict, setArbiterVerdict] = useState<string | null>(null);
 
   useEffect(() => {
     if (!job) return;
@@ -166,6 +175,41 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setProgress(null);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleRunArbiterAudit = async () => {
+    if (fileNames.length === 0 || isAuditing || isGenerating) return;
+    setIsAuditing(true);
+    setErrorMessage(null);
+    setProgress({
+      stage: 1,
+      totalStages: 1,
+      label: 'آماده‌سازی ممیزی کیفیت و رفع نقص مستقل توسط ARBITER v2.2...',
+    });
+
+    try {
+      const audit = await runArbiterQualityGate({
+        job,
+        files,
+        onProgress: (msg) => setProgress({ stage: 1, totalStages: 1, label: msg }),
+      });
+
+      setArbiterScore(audit.overallScore);
+      setArbiterVerdict(audit.verdict);
+      commitFilesUpdate(audit.remediatedFiles, {
+        status: 'in_progress',
+        blueprintMode: mode,
+        executiveSummary: audit.remediatedFiles['00-Executive-Pitch-and-Roadmap.md'] || '',
+      });
+      setSelectedFile('00-Arbiter-Quality-Audit.md');
+      setViewMode('rendered');
+      setProgress(null);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'خطا در اجرای ممیزی ARBITER v2.2');
+      setProgress(null);
+    } finally {
+      setIsAuditing(false);
     }
   };
 
@@ -273,7 +317,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button
               onClick={handleGenerateEnterprisePackage}
-              disabled={isGenerating}
+              disabled={isGenerating || isAuditing}
               className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-400 text-slate-950 font-extrabold rounded-xl transition-all shadow-lg shadow-emerald-500/20 text-xs sm:text-sm"
             >
               {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -285,6 +329,29 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                     : 'تولید کامل معماری، مستندات فنی و فایل‌های تحویلی'}
               </span>
             </button>
+
+            {fileNames.length > 0 && (
+              <button
+                onClick={handleRunArbiterAudit}
+                disabled={isGenerating || isAuditing}
+                className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/50 text-amber-200 font-bold rounded-xl transition-all shadow-md text-xs sm:text-sm disabled:opacity-40"
+                title="ممیزی جامع کدها، شکار استاب‌ها و فانتوم-ایمپورت‌ها و تاییدیه رسمی ARBITER v2.2"
+              >
+                {isAuditing ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                )}
+                <span>
+                  {isAuditing ? 'در حال قضاوت و ممیزی...' : 'ممیزی کیفیت با ARBITER v2.2'}
+                </span>
+                {arbiterScore !== null && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/40 text-amber-100 font-mono">
+                    {arbiterScore}/100
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
