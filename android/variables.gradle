@@ -1,9 +1,7 @@
 ext {
-    // Lower minSdk to 19 so the APK installs on older Samsung Galaxy Tabs
-    // (Android 4.4+ / One UI < 6). The app is a WebView shell and works fine
-    // on API 19; Capacitor's own min is 23 but our custom WebView-only build
-    // does not use Capacitor plugins that require higher APIs.
-    minSdkVersion = 19
+    // minSdkVersion 22 (Android 5.1 Lollipop MR1) satisfies AndroidX appcompat
+    // 1.7+ while installing on virtually every Galaxy Tab and Android tablet.
+    minSdkVersion = 22
     // compileSdk 34 (Android 14) is universally supported on Ubuntu CI runners
     // and compatible with AndroidX 1.13 / Activity 1.9.
     compileSdkVersion = 34
