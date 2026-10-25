@@ -20,6 +20,9 @@ import {
   PROVIDER_DEFAULTS_MAP,
   readKeyVault,
   writeKeyVault,
+  isEphemeralMode,
+  setEphemeralMode,
+  purgeAllApiKeys,
 } from '../utils/customLLMClient';
 import {
   detectProviderClient,
@@ -72,6 +75,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [customModelInput, setCustomModelInput] = useState('');
   const [savedToast, setSavedToast] = useState(false);
+  const [ephemeral, setEphemeral] = useState<boolean>(() => isEphemeralMode());
+  const [wipedToast, setWipedToast] = useState(false);
+
+  const handleToggleEphemeral = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.checked;
+    setEphemeral(val);
+    setEphemeralMode(val);
+    if (val) {
+      setStatusMsg({
+        type: 'ok',
+        text: 'حالت موقت فعال شد: کلیدها از دیسک و حافظه دستگاه پاک شده و صرفاً تا زمان باز بودن برنامه در حافظه رم می‌مانند.',
+      });
+    } else {
+      setStatusMsg({
+        type: 'ok',
+        text: 'حالت موقت غیرفعال شد: کلیدها جهت سهولت در استفاده برای نشست‌های بعدی نگهداری می‌شوند.',
+      });
+    }
+  };
+
+  const handleWipeAllKeys = () => {
+    if (window.confirm('آیا از امحای کامل و غیرقابل‌بازگشت کلیه کلیدهای API از روی این دستگاه مطمئن هستید؟')) {
+      purgeAllApiKeys();
+      setKeys([]);
+      setActiveKeyId('');
+      setWipedToast(true);
+      setStatusMsg({
+        type: 'ok',
+        text: 'تمامی کلیدها، شناسه‌ها و حافظه‌های موقت با موفقیت از روی دستگاه امحا شدند.',
+      });
+      setTimeout(() => setWipedToast(false), 3000);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -563,6 +599,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 پِست
               </button>
             </div>
+          </div>
+
+          {/* Security & Zero-Storage Guarantees */}
+          <div className="p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>امنیت و عدم ذخیره‌سازی کلیدها (Zero-Leakage Guarantee)</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleWipeAllKeys}
+                className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-colors"
+                title="امحا و پاکسازی فوری تمامی کلیدها از حافظه دستگاه"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {wipedToast ? 'امحا شد!' : 'امحای فوری کلیه کلیدها (Wipe)'}
+              </button>
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              🛡️ <strong className="text-slate-200">تضمین پکیج APK:</strong> هیچ کلید API یا توکن محرمانه‌ای درون فایل خروجی APK یا کدهای اپلیکیشن هاردکد نشده است.
+            </p>
+
+            <label className="flex items-start gap-2.5 cursor-pointer p-2 rounded-lg bg-slate-900/80 border border-slate-800 hover:border-slate-700">
+              <input
+                type="checkbox"
+                checked={ephemeral}
+                onChange={handleToggleEphemeral}
+                className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <span className="font-bold text-slate-200 block">حالت موقت (عدم ذخیره کلیدها روی دیسک / Ephemeral RAM-Only)</span>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  کلیدها صرفاً در حافظه RAM مرورگر/تبلت نگهداری شده و به محض بستن یا رفرش برنامه کاملاً پاک می‌شوند.
+                </span>
+              </div>
+            </label>
           </div>
 
           <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">

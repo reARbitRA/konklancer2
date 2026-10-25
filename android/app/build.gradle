@@ -22,11 +22,11 @@ android {
             storePassword System.getenv('KS_PASS') ?: 'konklancer2026'
             keyAlias System.getenv('KEY_ALIAS') ?: 'konklancer'
             keyPassword System.getenv('KEY_PASS') ?: 'konklancer2026'
-            // v1+v2+v3 signing so the APK installs on Android 7+ (API 24) and
-            // newer devices without "signature verification failed" errors.
-            v1SigningEnabled true
-            v2SigningEnabled true
-            v3SigningEnabled true
+            // v1+v2+v3+v4 signing for universal Android compatibility
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
     buildTypes {

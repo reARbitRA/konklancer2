@@ -62,7 +62,61 @@ export interface ActiveCustomLLM {
 }
 
 export const KEY_VAULT_STORAGE_KEY = 'konklancer_key_vault_v2';
+export const EPHEMERAL_MODE_STORAGE_KEY = 'konklancer_ephemeral_keys_only';
 export const LLM_CHANGED_EVENT = 'konklancer:llm-changed';
+
+export function isEphemeralMode(): boolean {
+  try {
+    return _getItem(EPHEMERAL_MODE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setEphemeralMode(enabled: boolean): void {
+  try {
+    if (enabled) {
+      _setItem(EPHEMERAL_MODE_STORAGE_KEY, 'true');
+      try {
+        window.localStorage.removeItem(KEY_VAULT_STORAGE_KEY);
+        window.localStorage.removeItem('freelanceflow_custom_llm');
+      } catch {
+        // ignore
+      }
+    } else {
+      _removeItem(EPHEMERAL_MODE_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function purgeAllApiKeys(): void {
+  try {
+    _removeItem(KEY_VAULT_STORAGE_KEY);
+    _removeItem('freelanceflow_custom_llm');
+    for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
+      try {
+        const prevRaw = _getItem(settingsKey);
+        if (prevRaw) {
+          const prevObj = JSON.parse(prevRaw);
+          delete prevObj.customLLM;
+          delete prevObj.apiKeyProfiles;
+          delete prevObj.activeProfileId;
+          _setItem(settingsKey, JSON.stringify(prevObj));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    _memoryStore.clear();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(LLM_CHANGED_EVENT, { detail: null }));
+    }
+  } catch {
+    // ignore
+  }
+}
 
 export const PROVIDER_DEFAULTS_MAP: Record<
   LLMProviderId,
@@ -151,7 +205,9 @@ export function readKeyVault(): KeyVaultState {
   let autoFailoverKeys = true;
 
   try {
-    const rawVault = _getItem(KEY_VAULT_STORAGE_KEY);
+    const rawVault = isEphemeralMode()
+      ? (_memGet(KEY_VAULT_STORAGE_KEY) || _getItem(KEY_VAULT_STORAGE_KEY))
+      : _getItem(KEY_VAULT_STORAGE_KEY);
     if (rawVault) {
       const parsed = JSON.parse(rawVault);
       if (Array.isArray(parsed?.profiles)) profiles = parsed.profiles;
@@ -160,7 +216,7 @@ export function readKeyVault(): KeyVaultState {
     }
 
     // مهاجرت خودکار کلید قبلی اگر خزانه جدید هنوز خالی باشد
-    if (profiles.length === 0) {
+    if (profiles.length === 0 && !isEphemeralMode()) {
       const legacyCandidates: Array<CustomLLMConfig | undefined> = [];
       for (const k of ['konklancer_settings', 'freelanceflow_settings']) {
         const s = _getItem(k);
@@ -232,7 +288,17 @@ export function writeKeyVault(
   };
 
   try {
-    _setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
+    if (isEphemeralMode()) {
+      _memSet(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
+      try {
+        window.localStorage.removeItem(KEY_VAULT_STORAGE_KEY);
+        window.localStorage.removeItem('freelanceflow_custom_llm');
+      } catch {
+        // ignore
+      }
+    } else {
+      _setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
+    }
 
     // همگام‌سازی کامل با ساختار قبلی برای سازگاری ۱۰۰٪ همه ماژول‌ها
     const active = profiles.find((p) => p.id === resolvedActiveId);
@@ -246,22 +312,28 @@ export function writeKeyVault(
         availableModels: active.availableModels || [],
         lastPingMs: active.lastPingMs,
       };
-      _setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
+      if (isEphemeralMode()) {
+        _memSet('freelanceflow_custom_llm', JSON.stringify(legacyObj));
+      } else {
+        _setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
+      }
 
-      for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
-        try {
-          const prevRaw = _getItem(settingsKey);
-          const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
-          const nextObj = {
-            ...prevObj,
-            customLLM: legacyObj,
-            apiKeyProfiles: profiles,
-            activeProfileId: resolvedActiveId,
-            autoFailoverKeys,
-          };
-          _setItem(settingsKey, JSON.stringify(nextObj));
-        } catch {
-          // ignore
+      if (!isEphemeralMode()) {
+        for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
+          try {
+            const prevRaw = _getItem(settingsKey);
+            const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
+            const nextObj = {
+              ...prevObj,
+              customLLM: legacyObj,
+              apiKeyProfiles: profiles,
+              activeProfileId: resolvedActiveId,
+              autoFailoverKeys,
+            };
+            _setItem(settingsKey, JSON.stringify(nextObj));
+          } catch {
+            // ignore
+          }
         }
       }
     }
