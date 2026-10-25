@@ -62,30 +62,79 @@ export interface ActiveCustomLLM {
 }
 
 export const KEY_VAULT_STORAGE_KEY = 'konklancer_key_vault_v2';
-export const EPHEMERAL_MODE_STORAGE_KEY = 'konklancer_ephemeral_keys_only';
 export const LLM_CHANGED_EVENT = 'konklancer:llm-changed';
 
-export function isEphemeralMode(): boolean {
+const IDB_NAME = 'konklancer_vault_db';
+const IDB_STORE = 'vault_records';
+const IDB_KEY = 'primary_vault_state';
+
+function saveToIndexedDB(state: KeyVaultState): void {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) return;
   try {
-    return _getItem(EPHEMERAL_MODE_STORAGE_KEY) === 'true';
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.put(state, IDB_KEY);
+      tx.oncomplete = () => db.close();
+    };
   } catch {
-    return false;
+    // ignore
   }
 }
 
-export function setEphemeralMode(enabled: boolean): void {
+function deleteFromIndexedDB(): void {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) return;
   try {
-    if (enabled) {
-      _setItem(EPHEMERAL_MODE_STORAGE_KEY, 'true');
-      try {
-        window.localStorage.removeItem(KEY_VAULT_STORAGE_KEY);
-        window.localStorage.removeItem('freelanceflow_custom_llm');
-      } catch {
-        // ignore
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (db.objectStoreNames.contains(IDB_STORE)) {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).delete(IDB_KEY);
       }
-    } else {
-      _removeItem(EPHEMERAL_MODE_STORAGE_KEY);
-    }
+      db.close();
+    };
+  } catch {
+    // ignore
+  }
+}
+
+/** بازیابی خودکار کلیدها از IndexedDB در صورت پاک شدن موقت localStorage در اندروید */
+export function initKeyVaultPersistence(): void {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) return;
+  try {
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const getReq = store.get(IDB_KEY);
+      getReq.onsuccess = () => {
+        const idbState = getReq.result as KeyVaultState | undefined;
+        if (idbState && Array.isArray(idbState.profiles) && idbState.profiles.length > 0) {
+          const currentVault = readKeyVault();
+          if (currentVault.profiles.length === 0) {
+            writeKeyVault(idbState.profiles, idbState.activeProfileId, idbState.autoFailoverKeys);
+            notifyLLMChanged();
+          }
+        }
+        db.close();
+      };
+    };
   } catch {
     // ignore
   }
@@ -95,6 +144,7 @@ export function purgeAllApiKeys(): void {
   try {
     _removeItem(KEY_VAULT_STORAGE_KEY);
     _removeItem('freelanceflow_custom_llm');
+    deleteFromIndexedDB();
     for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
       try {
         const prevRaw = _getItem(settingsKey);
@@ -205,9 +255,7 @@ export function readKeyVault(): KeyVaultState {
   let autoFailoverKeys = true;
 
   try {
-    const rawVault = isEphemeralMode()
-      ? (_memGet(KEY_VAULT_STORAGE_KEY) || _getItem(KEY_VAULT_STORAGE_KEY))
-      : _getItem(KEY_VAULT_STORAGE_KEY);
+    const rawVault = _getItem(KEY_VAULT_STORAGE_KEY) || _memGet(KEY_VAULT_STORAGE_KEY);
     if (rawVault) {
       const parsed = JSON.parse(rawVault);
       if (Array.isArray(parsed?.profiles)) profiles = parsed.profiles;
@@ -216,7 +264,7 @@ export function readKeyVault(): KeyVaultState {
     }
 
     // مهاجرت خودکار کلید قبلی اگر خزانه جدید هنوز خالی باشد
-    if (profiles.length === 0 && !isEphemeralMode()) {
+    if (profiles.length === 0) {
       const legacyCandidates: Array<CustomLLMConfig | undefined> = [];
       for (const k of ['konklancer_settings', 'freelanceflow_settings']) {
         const s = _getItem(k);
@@ -288,19 +336,14 @@ export function writeKeyVault(
   };
 
   try {
-    if (isEphemeralMode()) {
-      _memSet(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
-      try {
-        window.localStorage.removeItem(KEY_VAULT_STORAGE_KEY);
-        window.localStorage.removeItem('freelanceflow_custom_llm');
-      } catch {
-        // ignore
-      }
-    } else {
-      _setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
-    }
+    // ۱. ذخیره‌سازی همزمان در localStorage و حافظه فعال
+    _setItem(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
+    _memSet(KEY_VAULT_STORAGE_KEY, JSON.stringify(state));
 
-    // همگام‌سازی کامل با ساختار قبلی برای سازگاری ۱۰۰٪ همه ماژول‌ها
+    // ۲. ذخیره‌سازی پشتیبان در IndexedDB جهت تضمین بقا در ری‌استارت اندروید/تبلت
+    saveToIndexedDB(state);
+
+    // ۳. همگام‌سازی کامل با کلیدهای ماژول‌های قبلی
     const active = profiles.find((p) => p.id === resolvedActiveId);
     if (active) {
       const legacyObj: CustomLLMConfig = {
@@ -312,28 +355,23 @@ export function writeKeyVault(
         availableModels: active.availableModels || [],
         lastPingMs: active.lastPingMs,
       };
-      if (isEphemeralMode()) {
-        _memSet('freelanceflow_custom_llm', JSON.stringify(legacyObj));
-      } else {
-        _setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
-      }
+      _setItem('freelanceflow_custom_llm', JSON.stringify(legacyObj));
+      _memSet('freelanceflow_custom_llm', JSON.stringify(legacyObj));
 
-      if (!isEphemeralMode()) {
-        for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
-          try {
-            const prevRaw = _getItem(settingsKey);
-            const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
-            const nextObj = {
-              ...prevObj,
-              customLLM: legacyObj,
-              apiKeyProfiles: profiles,
-              activeProfileId: resolvedActiveId,
-              autoFailoverKeys,
-            };
-            _setItem(settingsKey, JSON.stringify(nextObj));
-          } catch {
-            // ignore
-          }
+      for (const settingsKey of ['konklancer_settings', 'freelanceflow_settings']) {
+        try {
+          const prevRaw = _getItem(settingsKey);
+          const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
+          const nextObj = {
+            ...prevObj,
+            customLLM: legacyObj,
+            apiKeyProfiles: profiles,
+            activeProfileId: resolvedActiveId,
+            autoFailoverKeys,
+          };
+          _setItem(settingsKey, JSON.stringify(nextObj));
+        } catch {
+          // ignore
         }
       }
     }

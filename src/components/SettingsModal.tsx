@@ -20,8 +20,6 @@ import {
   PROVIDER_DEFAULTS_MAP,
   readKeyVault,
   writeKeyVault,
-  isEphemeralMode,
-  setEphemeralMode,
   purgeAllApiKeys,
 } from '../utils/customLLMClient';
 import {
@@ -75,25 +73,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [customModelInput, setCustomModelInput] = useState('');
   const [savedToast, setSavedToast] = useState(false);
-  const [ephemeral, setEphemeral] = useState<boolean>(() => isEphemeralMode());
   const [wipedToast, setWipedToast] = useState(false);
-
-  const handleToggleEphemeral = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.checked;
-    setEphemeral(val);
-    setEphemeralMode(val);
-    if (val) {
-      setStatusMsg({
-        type: 'ok',
-        text: 'حالت موقت فعال شد: کلیدها از دیسک و حافظه دستگاه پاک شده و صرفاً تا زمان باز بودن برنامه در حافظه رم می‌مانند.',
-      });
-    } else {
-      setStatusMsg({
-        type: 'ok',
-        text: 'حالت موقت غیرفعال شد: کلیدها جهت سهولت در استفاده برای نشست‌های بعدی نگهداری می‌شوند.',
-      });
-    }
-  };
 
   const handleWipeAllKeys = () => {
     if (window.confirm('آیا از امحای کامل و غیرقابل‌بازگشت کلیه کلیدهای API از روی این دستگاه مطمئن هستید؟')) {
@@ -103,7 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setWipedToast(true);
       setStatusMsg({
         type: 'ok',
-        text: 'تمامی کلیدها، شناسه‌ها و حافظه‌های موقت با موفقیت از روی دستگاه امحا شدند.',
+        text: 'تمامی کلیدها با موفقیت از روی دستگاه پاکسازی شدند.',
       });
       setTimeout(() => setWipedToast(false), 3000);
     }
@@ -601,42 +581,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Security & Zero-Storage Guarantees */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 space-y-3">
+          {/* Permanent Safe Storage Guarantees */}
+          <div className="p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
-                <ShieldCheck className="w-4 h-4 text-amber-400" />
-                <span>امنیت و عدم ذخیره‌سازی کلیدها (Zero-Leakage Guarantee)</span>
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>ذخیره‌سازی دائمی و خودکار کلیدها (Permanent Safe Storage)</span>
               </div>
               <button
                 type="button"
                 onClick={handleWipeAllKeys}
-                className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-colors"
-                title="امحا و پاکسازی فوری تمامی کلیدها از حافظه دستگاه"
+                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors"
+                title="پاکسازی دستی تمامی کلیدها از حافظه این دستگاه"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                {wipedToast ? 'امحا شد!' : 'امحای فوری کلیه کلیدها (Wipe)'}
+                <Trash2 className="w-3 h-3" />
+                {wipedToast ? 'پاک شد!' : 'پاکسازی همه کلیدها'}
               </button>
             </div>
 
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              🛡️ <strong className="text-slate-200">تضمین پکیج APK:</strong> هیچ کلید API یا توکن محرمانه‌ای درون فایل خروجی APK یا کدهای اپلیکیشن هاردکد نشده است.
+            <p className="text-[11px] leading-relaxed text-slate-300">
+              💾 <strong>ذخیره ماندگار:</strong> تمامی کلیدهای اضافه‌شده به‌صورت دائمی در دیتابیس بومی دستگاه و LocalStorage ثبت می‌شوند. در دفعات بعدی اجرای برنامه یا روشن کردن تبلت، نیازی به ورود مجدد ندارید.
             </p>
-
-            <label className="flex items-start gap-2.5 cursor-pointer p-2 rounded-lg bg-slate-900/80 border border-slate-800 hover:border-slate-700">
-              <input
-                type="checkbox"
-                checked={ephemeral}
-                onChange={handleToggleEphemeral}
-                className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
-              />
-              <div className="text-xs">
-                <span className="font-bold text-slate-200 block">حالت موقت (عدم ذخیره کلیدها روی دیسک / Ephemeral RAM-Only)</span>
-                <span className="text-[11px] text-slate-400 block mt-0.5">
-                  کلیدها صرفاً در حافظه RAM مرورگر/تبلت نگهداری شده و به محض بستن یا رفرش برنامه کاملاً پاک می‌شوند.
-                </span>
-              </div>
-            </label>
+            <p className="text-[10px] leading-relaxed text-slate-400">
+              ⚡ <strong>تماس مستقیم و واقعی:</strong> کلیه تحلیل‌ها و کدهای تحویلی مستقیماً به API اصلی ارسال می‌شوند (هیچ شبیه‌ساز یا Mock آفلاین در سیستم فعال نیست).
+            </p>
           </div>
 
           <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">
