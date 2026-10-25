@@ -7,6 +7,58 @@ export interface BlueprintModeOption {
   subtitle: string;
 }
 
+/**
+ * استخراج قدرتمند چندفایله به سبک Claude Code و Artifacts رسمی Anthropic
+ * پشتیبانی از هر دو فرمت:
+ * ۱. بلوک‌های استاندارد فایل: ### FILE: filename.ext یا <artifact file="...">
+ * ۲. فنس‌کد مستقیم: ```lang:filename.ext
+ * ۳. فرمت شیء JSON سنتی: { "files": { "filename": "content" } }
+ */
+export function extractArtifactOrJsonFiles(rawText: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!rawText || !rawText.trim()) return result;
+
+  // ۱. بررسی فرمت استاندارد Claude Artifacts و مارک‌داون فایل‌محور
+  // الگو: ### FILE: filename.ext یا ### File: filename.ext یا <artifact file="filename.ext">
+  const artifactRegex = /(?:###?\s*(?:FILE|File|فایل):\s*[`'"]?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+)[`'"]?|<artifact[^>]*?(?:file|identifier)=["']([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+)["'][^>]*?>)\s*(?:```[a-zA-Z0-9_-]*\r?\n([\s\S]*?)\r?\n```|([\s\S]*?)(?=###?\s*(?:FILE|File|فایل):|<artifact|\Z))/gi;
+
+  let match: RegExpExecArray | null;
+  while ((match = artifactRegex.exec(rawText)) !== null) {
+    const fileName = (match[1] || match[2] || '').trim();
+    let content = match[3] !== undefined ? match[3] : match[4] || '';
+    content = content.replace(/<\/artifact>\s*$/i, '').trim();
+    if (fileName && content) {
+      result[fileName] = content;
+    }
+  }
+
+  // ۲. الگوی فنس‌کد مستقیم: ```lang:path/to/file.ext
+  if (Object.keys(result).length === 0) {
+    const fenceRegex = /```[a-zA-Z0-9_-]*[:\s]+(?:file=)?["']?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+)["']?\r?\n([\s\S]*?)\r?\n```/gi;
+    while ((match = fenceRegex.exec(rawText)) !== null) {
+      const fileName = match[1].trim();
+      const content = match[2].trim();
+      if (fileName && content) {
+        result[fileName] = content;
+      }
+    }
+  }
+
+  // ۳. بررسی فال‌بک فرمت JSON سنتی
+  if (Object.keys(result).length === 0) {
+    const parsed = parseJsonLooseClient<{ files?: Record<string, string> }>(rawText);
+    if (parsed?.files && typeof parsed.files === 'object') {
+      for (const [k, v] of Object.entries(parsed.files)) {
+        if (k && typeof v === 'string' && v.trim()) {
+          result[k.trim()] = v;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export const BLUEPRINT_MODES: BlueprintModeOption[] = [
   {
     id: 'deep_technical_spec',
@@ -203,41 +255,68 @@ ${res1.text.slice(0, 1800)}
   options?.onProgress?.({
     stage: 3,
     totalStages: 3,
-    label: 'مرحله ۳ از ۳: تولید فایل‌های اجرایی کامل پروداکشن و «راهنمای رسمی تحویل به کارفرما»...',
+    label: 'مرحله ۳ از ۳: تولید فایل‌های اجرایی کامل پروداکشن به سبک کلاود و «راهنمای رسمی تحویل»...',
   });
 
-  const stage3Prompt = `اکنون بر اساس مشخصات فنی دقیق زیر، کلیه فایل‌های اجرایی/عملیاتی نهایی پروژه + فایل «99-Client-Handover-Guide.md» (راهنمای گام‌به‌گام تحویل و استفاده کارفرما به زبان فارسی بسیار شیک و شفاف) را به صورت کامل بسازید.
+  const stage3Prompt = `<role_and_authority>
+You are an Elite Staff Principal Systems Architect and Lead Production Engineer.
+Your code is indistinguishable from top 1% senior engineering staff at Google, Stripe, and Anthropic.
+You produce complete, resilient, enterprise-grade, battle-tested software packages ready for immediate deployment.
+</role_and_authority>
 
+<task_context>
 عنوان پروژه: ${job.title}
-شرح کارفرما: ${job.description}
+پلتفرم: ${job.platform} | بودجه کارفرما: ${job.budgetFormatted}
+شرح کارفرما:
+${job.description}
 نوع بسته تحویلی: ${resolvedMode}
 ${extraNotes}
-خلاصه معماری مصوب:
-${res2.text.slice(0, 2600)}
 
-قوانین حیاتی:
-۱. خروجی این مرحله را دقیقاً در قالب یک شیء JSON معتبر به شکل زیر برگردانید:
-{
-  "files": {
-    "نام_فایل_اول_با_پسوند_مناسب": "محتوای ۱۰۰٪ کامل، طولانی، دقیق و آماده استفاده بدون هیچ TODO یا حذفیات",
-    "نام_فایل_دوم": "...",
-    "99-Client-Handover-Guide.md": "راهنمای کامل تحویل، نحوه اجرا/استفاده، نکات نگهداری و پشتیبانی ویژه کارفرما"
-  }
-}
-۲. نام و پسوند فایل‌ها را دقیقاً متناسب با ماهیت واقعی پروژه انتخاب کنید (مثلاً برای پایتون/اتوماسیون: \`.py\`, \`requirements.txt\`, \`config.example.json\`؛ برای وب: \`.tsx\`/\`.html\`/\`.css\`؛ برای اکسل و داده: \`formulas_and_schema.md\`, \`automation_generator.py\`, \`sample_data.csv\`؛ برای طرح توجیهی/سئو/محتوا/ترجمه: فایل‌های تفکیک‌شده \`.md\` یا \`.csv\` عملیاتی).
-۳. هر فایل باید کاملاً پرمحتوا، واقعی و بلافاصله قابل استفاده توسط کارفرما باشد.`;
+مستند معماری تصویب‌شده در مرحله قبل:
+${res2.text.slice(0, 3000)}
+</task_context>
+
+<anthropic_execution_mandates>
+۱. تفکر معماری قبل از کدنویسی (<thinking>):
+ابتدا درون بلوک <thinking> نیازمندی‌های دقیق، قراردادهای ورودی-خروجی، جریان خطا، و وابستگی‌ها را تحلیل کنید.
+
+۲. قانون سفت‌وسخت عدم استفاده از هرگونه Placeholder یا کد ناقص (ZERO-STUB MANDATE):
+- نوشتن هرگونه عبارتی نظیر \`// TODO\`, \`// implement here\`, \`pass\`, \`# add logic later\`, \`...\` یا \`// rest of code remains the same\` یک نقض بحرانی است.
+- تمام توابع، اعتبارسنجی‌ها، ریجکس‌ها، کلاس‌ها، روت‌ها و هندلرهای خطا باید ۱۰۰٪ به صورت کامل، عملیاتی و بدون نقص پیاده‌سازی شوند.
+- بسته‌های پایتون یا Node باید دارای فایل کامل \`requirements.txt\` (با ورژن‌های دقیق پین‌شده) یا \`package.json\` باشند.
+- فایل تنظیمات نمونه (\`.env.example\` یا \`config.py\`) باید تمام متغیرهای محیطی با توضیحات کامل را در بر داشته باشد.
+
+۳. فایل تست خودکار و اعتبارسنجی (Self-Verification Suite):
+حتماً یک فایل تست خودکار مستقل و قابل اجرا (مثلاً \`test_verification.py\` یا \`verify_pipeline.py\`) قرار دهید که کارفرما بتواند فوراً صحت کارکرد سیستم را بسنجد.
+
+۴. سند جامع و شکیل تحویل به کارفرما (\`99-Client-Handover-Guide.md\`):
+یک راهنمای گام‌به‌گام تحویل با بالاترین شأن مهندسی و احترام به کارفرما به زبان فارسی فصیح شامل:
+- خلاصه اجرایی و ویژگی‌های کلیدی تحویل‌شده
+- پیش‌نیازها و دستورات تک‌خطی راه‌اندازی (Setup & Quickstart)
+- سناریوهای تست و راستی‌آزمایی
+- راهنمای عیب‌یابی موارد مرزی (Troubleshooting & FAQ)
+- تعهد پشتیبانی و ارتقای آتی.
+
+۵. فرمت خروجی چندفایله (Claude Artifacts Format):
+برای حفظ بی‌نقص کاراکترها و فرمت فایل‌ها، هر فایل را دقیقاً با ساختار زیر صادر کنید:
+
+### FILE: path/to/filename.ext
+\`\`\`language
+[کد یا متن ۱۰۰٪ کامل، بدون خلاصه و آماده اجرا]
+\`\`\`
+</anthropic_execution_mandates>`;
 
   const res3 = await callBrowserLLM({
     prompt: stage3Prompt,
-    json: true,
-    maxTokens: 6500,
-    temperature: 0.25,
+    json: false,
+    maxTokens: 8192,
+    temperature: 0.2,
   });
   activeModel = res3.model;
 
-  const parsed3 = parseJsonLooseClient<{ files?: Record<string, string> }>(res3.text);
-  if (parsed3?.files && typeof parsed3.files === 'object' && Object.keys(parsed3.files).length > 0) {
-    for (const [k, v] of Object.entries(parsed3.files)) {
+  const extractedFiles = extractArtifactOrJsonFiles(res3.text);
+  if (Object.keys(extractedFiles).length > 0) {
+    for (const [k, v] of Object.entries(extractedFiles)) {
       if (k && typeof v === 'string' && v.trim()) {
         files[k] = v;
       }
@@ -259,24 +338,32 @@ export async function refineSingleDeliverableFile(params: {
   currentContent: string;
   instruction: string;
 }): Promise<{ updatedContent: string; model: string }> {
-  const prompt = `شما معمار ارشد فنی و ویراستار ارشد تحویل پروژه به کارفرما هستید.
-پروژه: ${params.job.title}
-نام فایل فعلی: ${params.fileName}
+  const prompt = `<role>
+You are an Elite Staff Principal Engineer and Lead Code Reviewer.
+Your task is to refine, upgrade, or extend the specified file strictly adhering to the highest standards of code completeness, defensive programming, and architecture.
+</role>
 
-دستور دقیق کاربر برای ارتقا/تغییر این فایل:
+<context>
+پروژه: ${params.job.title}
+نام فایل هدف: ${params.fileName}
+دستور ارتقای کاربر:
 «${params.instruction}»
 
 محتوای فعلی فایل:
 ---
 ${params.currentContent}
 ---
+</context>
 
-نسخه کامل، ارتقایافته، دقیق و نهایی همین فایل (${params.fileName}) را بدون هیچ توضیح اضافه در ابتدا و انتها (مستقیم خود محتوای نهایی فایل) برگردانید:`;
+<rules>
+۱. قانون ممنوعیت خلاصه یا کوتاه‌سازی: تحت هیچ شرایطی از عباراتی نظیر "// کدهای قبلی بدون تغییر می‌مانند" یا "// TODO" استفاده نکنید. کل فایل باید از خط اول تا خط آخر به صورت ۱۰۰٪ کامل و اجرایی تولید شود.
+۲. فرمت خروجی: فقط و فقط خود محتوای نهایی فایل را در یک بلوک کد مناسب صادر کنید (یا متن کامل اگر فایل مارک‌داون است).
+</rules>`;
 
   const res = await callBrowserLLM({
     prompt,
-    maxTokens: 6500,
-    temperature: 0.3,
+    maxTokens: 8192,
+    temperature: 0.2,
   });
   return { updatedContent: res.text, model: res.model };
 }
