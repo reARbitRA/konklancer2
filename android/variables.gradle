@@ -1,7 +1,7 @@
 ext {
-    // minSdkVersion 22 (Android 5.1 Lollipop MR1) satisfies AndroidX appcompat
-    // 1.7+ while installing on virtually every Galaxy Tab and Android tablet.
-    minSdkVersion = 22
+    // minSdkVersion 24 (Android 7.0 Nougat) matches Cordova 14.0.1 & Capacitor 6/7/8
+    // and installs on 98%+ of all modern Android tablets and phones.
+    minSdkVersion = 24
     // compileSdk 34 (Android 14) is universally supported on Ubuntu CI runners
     // and compatible with AndroidX 1.13 / Activity 1.9.
     compileSdkVersion = 34

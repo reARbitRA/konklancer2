@@ -35,7 +35,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Ensure Android SDK Platform 34 (compatible with compileSdk 34 / minSdk 19)
+      - name: Ensure Android SDK Platform 34 (compatible with compileSdk 34 / minSdk 24)
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
