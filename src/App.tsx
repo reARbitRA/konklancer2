@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { RefreshCw, X, WifiOff } from 'lucide-react';
+import { RefreshCw, X, WifiOff, Radar, Settings, Terminal, Workflow, Sparkles } from 'lucide-react';
 import { Header } from './components/Header';
+import { StatusBar, MobileNav } from './components/StatusBar';
+import { CommandPalette, PaletteAction } from './components/CommandPalette';
 import { JobHunter } from './components/JobHunter';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { PipelineBoard } from './components/PipelineBoard';
@@ -240,6 +242,7 @@ export default function App() {
   const [jobToInit, setJobToInit] = useState<FreelanceJob | null>(null);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatusText, setScanStatusText] = useState<string | null>(null);
   const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: true });
@@ -535,6 +538,65 @@ export default function App() {
   );
   const activeJobsCount = jobs.filter((j) => j.status !== 'completed' && j.status !== 'new').length;
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setIsCommandPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const paletteActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: 'scan',
+        label: 'اجرای اسکن زنده و شکار پروژه‌ها',
+        hint: 'اسکن چندصفحه‌ای پونیشا، پارس‌کدرز و کارلانسر',
+        icon: Radar,
+        run: () => handleQuickScan(),
+      },
+      {
+        id: 'settings',
+        label: 'تنظیمات و مدیریت گاوصندوق کلیدهای API',
+        hint: 'افزودن و تغییر کلیدهای OpenRouter، Gemini و مدل‌ها',
+        icon: Settings,
+        run: () => setIsSettingsOpen(true),
+      },
+      {
+        id: 'tab-hunter',
+        label: 'رفتن به رادار شکار پروژه‌ها',
+        hint: 'فهرست، فیلترهای هوشمند و اولویت‌بندی',
+        icon: Radar,
+        run: () => setActiveTab('hunter'),
+      },
+      {
+        id: 'tab-coder',
+        label: 'رفتن به استودیو تحویل کد و مستندات',
+        hint: 'موتور ۳ مرحله‌ای معماری، کد و تضمین کیفیت ARBITER',
+        icon: Terminal,
+        run: () => setActiveTab('coder'),
+      },
+      {
+        id: 'tab-pipeline',
+        label: 'رفتن به تابلوی پایپ‌لاین و درآمد',
+        hint: 'کانبان وضعیت پروژه‌ها و نمودار درآمد ۷ روزه',
+        icon: Workflow,
+        run: () => setActiveTab('pipeline'),
+      },
+      {
+        id: 'tab-autopilot',
+        label: 'رفتن به مرکز کنترل و رادار سایبورگ',
+        hint: 'لاگ زنده و اتوماسیون پیشنهاددهی',
+        icon: Sparkles,
+        run: () => setActiveTab('autopilot'),
+      },
+    ],
+    [handleQuickScan],
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Header
@@ -547,6 +609,7 @@ export default function App() {
         totalEarningsToday={totalEarningsToday}
         activeJobsCount={activeJobsCount}
         socketConnected={socketConnected}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
       />
 
       {socketError && (
@@ -701,6 +764,31 @@ export default function App() {
           onSave={(newSettings) => setSettings(newSettings)}
         />
       )}
+
+      <StatusBar
+        socketConnected={socketConnected}
+        feedSource={feed.source}
+        jobCount={jobs.length}
+        activeTab={activeTab}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+      />
+
+      <MobileNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        activeJobsCount={activeJobsCount}
+      />
+
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        jobs={jobs}
+        actions={paletteActions}
+        onSelectJob={(job) => {
+          setSelectedJobForAnalysis(job);
+        }}
+      />
     </div>
   );
 }

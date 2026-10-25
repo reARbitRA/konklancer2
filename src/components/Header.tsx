@@ -9,13 +9,16 @@ import {
   TrendingUp,
   Smartphone,
   Cpu,
+  Search,
 } from 'lucide-react';
 import { isNativeAndroidApp } from '../services/browserLLM';
 import { LiveModelSwitcher } from './LiveModelSwitcher';
 
+export type AppTab = 'hunter' | 'coder' | 'pipeline' | 'autopilot';
+
 interface HeaderProps {
-  activeTab: 'hunter' | 'coder' | 'pipeline' | 'autopilot';
-  setActiveTab: (tab: 'hunter' | 'coder' | 'pipeline' | 'autopilot') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   onOpenSettings: () => void;
   onQuickScan: () => void;
   isScanning: boolean;
@@ -23,7 +26,15 @@ interface HeaderProps {
   totalEarningsToday: number;
   activeJobsCount: number;
   socketConnected?: boolean;
+  onOpenCommandPalette?: () => void;
 }
+
+const TABS: Array<{ key: AppTab; label: string; short: string; icon: React.ElementType }> = [
+  { key: 'hunter', label: 'رادار پروژه‌ها', short: 'پروژه‌ها', icon: Radar },
+  { key: 'coder', label: 'استودیو تحویل کد', short: 'کد', icon: Terminal },
+  { key: 'pipeline', label: 'پایپ‌لاین', short: 'پایپ‌لاین', icon: Workflow },
+  { key: 'autopilot', label: 'مرکز سایبورگ', short: 'سایبورگ', icon: Sparkles },
+];
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
@@ -34,171 +45,121 @@ export const Header: React.FC<HeaderProps> = ({
   scanStatusText,
   totalEarningsToday,
   activeJobsCount,
+  socketConnected = false,
+  onOpenCommandPalette,
 }) => {
   const nativeApp = isNativeAndroidApp();
 
   return (
-    <>
-      <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/95 backdrop-blur-md pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex min-h-16 py-2 max-w-7xl flex-wrap items-center justify-between gap-2 px-3 sm:px-6">
-          {/* Zone 1: Brand title wordmark */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              <Zap className="h-5 w-5" />
-            </div>
-            <div className="flex flex-col">
-              <div className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-                <span>KonkLancer</span>
-                <span className="text-[10px] font-bold text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.2 rounded">
-                  {nativeApp ? 'v3 APK' : 'v3 Studio'}
-                </span>
-              </div>
-            </div>
+    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#070c16]/90 backdrop-blur-xl pt-[env(safe-area-inset-top)]">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-3 sm:px-6">
+        {/* Zone 1: Brand title wordmark */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-[0_0_20px_-8px_rgba(52,211,153,0.7)]">
+            <Zap className="h-4 w-4" />
           </div>
-
-          {/* Zone 2: Desktop / Landscape Tablet Navigation */}
-          <nav className="hidden md:flex items-center gap-1 p-1 bg-slate-900/90 border border-slate-800/80 rounded-xl">
-            <button
-              onClick={() => setActiveTab('hunter')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === 'hunter'
-                  ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700/60 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm sm:text-base font-bold tracking-tight text-white">KonkLancer</span>
+            <span className="font-mono text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.2 rounded">
+              {nativeApp ? 'v3 APK' : 'v3 Studio'}
+            </span>
+            <span
+              className={`ms-1 h-1.5 w-1.5 shrink-0 rounded-full ${
+                socketConnected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]' : 'bg-amber-400'
               }`}
-            >
-              <Radar className="h-3.5 w-3.5" />
-              <span>شکار پروژه‌ها</span>
-            </button>
+              title={socketConnected ? 'اتصال زنده اسکنر برقرار است' : 'حالت لوکال / در حال اتصال…'}
+            />
+          </div>
+        </div>
 
+        {/* Zone 2: Navigation */}
+        <nav className="hidden md:flex items-center gap-1 p-1 bg-slate-900/80 border border-slate-800/80 rounded-xl" aria-label="بخش‌های اصلی">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
+                  active
+                    ? 'bg-slate-800 text-emerald-300 shadow-sm border border-slate-700/60 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Icon className={`h-3.5 w-3.5 ${active ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <span className="hidden lg:inline">{tab.label}</span>
+                <span className="lg:hidden">{tab.short}</span>
+                {tab.key === 'pipeline' && activeJobsCount > 0 && (
+                  <span className="font-mono text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded px-1.5 py-0.2">
+                    {activeJobsCount.toLocaleString('fa-IR')}
+                  </span>
+                )}
+                {active && <span className="absolute -bottom-[5px] inset-x-2 h-[2px] bg-emerald-400/80 rounded-full" />}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Zone 3: Search / Palette + Key Switcher + Scan + Settings */}
+        <div className="flex items-center gap-2">
+          {/* Quick command search trigger */}
+          {onOpenCommandPalette && (
             <button
-              onClick={() => setActiveTab('coder')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === 'coder'
-                  ? 'bg-emerald-500/15 text-emerald-300 shadow-sm border border-emerald-500/40 font-bold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
+              onClick={onOpenCommandPalette}
+              className="group hidden sm:flex h-8 items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 text-slate-400 transition-colors hover:border-slate-700 hover:text-slate-200"
+              title="جست‌وجوی سراسری (Ctrl + K)"
             >
-              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-              <span>استودیو تحویل و مستندات فنی</span>
+              <Search className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300" />
+              <span className="hidden lg:inline text-[11px] text-slate-500">جست‌وجو…</span>
+              <kbd className="kbd">Ctrl+K</kbd>
             </button>
+          )}
 
-            <button
-              onClick={() => setActiveTab('pipeline')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === 'pipeline'
-                  ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700/60 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Workflow className="h-3.5 w-3.5" />
-              <span>پایپ‌لاین</span>
-              {activeJobsCount > 0 && (
-                <span className="font-mono text-[10px] bg-slate-700 text-slate-200 rounded px-1.5 py-0.2">
-                  {activeJobsCount.toLocaleString('fa-IR')}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('autopilot')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === 'autopilot'
-                  ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700/60 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>رادار سایبورگ</span>
-            </button>
-          </nav>
-
-          {/* Zone 3: Real-Time Key/Model Switcher + Deep Scan + Settings */}
-          <div className="flex items-center gap-2">
-            {totalEarningsToday > 0 && (
-              <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="font-mono font-medium text-emerald-400 tabular-nums">
-                  {totalEarningsToday.toLocaleString('fa-IR')} ت
-                </span>
-              </div>
-            )}
-
-            {nativeApp && (
-              <span className="hidden lg:flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 rounded-lg">
-                <Smartphone className="h-3 w-3 text-emerald-400" />
-                <span>APK</span>
+          {totalEarningsToday > 0 && (
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs">
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="font-mono font-medium text-emerald-400 tabular-nums">
+                {totalEarningsToday.toLocaleString('fa-IR')} ت
               </span>
-            )}
-
-            {/* سوئیچر زنده و آنی کلید API و مدل هوش مصنوعی در هر لحظه */}
-            <LiveModelSwitcher onOpenFullSettings={onOpenSettings} />
-
-            <button
-              onClick={onQuickScan}
-              disabled={isScanning}
-              className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 active:scale-95 transition-all rounded-lg shadow-sm whitespace-nowrap disabled:opacity-50"
-            >
-              <Radar className={`h-3.5 w-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-              <span>{isScanning ? 'اسکن عمیق...' : 'اسکن عمیق'}</span>
-            </button>
-
-            <button
-              onClick={onOpenSettings}
-              className="p-2 text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors"
-              title="مدیریت گاوصندوق کلیدهای API و تنظیمات"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-          </div>
-
-          {isScanning && scanStatusText && (
-            <div className="w-full pt-1.5 border-t border-slate-800/70 flex items-center gap-2 text-xs text-emerald-300">
-              <Cpu className="w-3.5 h-3.5 animate-pulse text-emerald-400 shrink-0" />
-              <span className="truncate">{scanStatusText}</span>
             </div>
           )}
-        </div>
-      </header>
 
-      {/* Portrait Tablet / Split-Screen Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[calc(0.4rem+env(safe-area-inset-bottom))] grid grid-cols-4 gap-1">
-        <button
-          onClick={() => setActiveTab('hunter')}
-          className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-[11px] font-medium ${
-            activeTab === 'hunter' ? 'text-emerald-400 bg-slate-900' : 'text-slate-400'
-          }`}
-        >
-          <Radar className="h-4 w-4 mb-0.5" />
-          <span>پروژه‌ها</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('coder')}
-          className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-[11px] font-medium ${
-            activeTab === 'coder' ? 'text-emerald-400 bg-slate-900' : 'text-slate-400'
-          }`}
-        >
-          <Terminal className="h-4 w-4 mb-0.5" />
-          <span>مستندات و تحویل</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('pipeline')}
-          className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-[11px] font-medium relative ${
-            activeTab === 'pipeline' ? 'text-emerald-400 bg-slate-900' : 'text-slate-400'
-          }`}
-        >
-          <Workflow className="h-4 w-4 mb-0.5" />
-          <span>پایپ‌لاین</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('autopilot')}
-          className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-[11px] font-medium ${
-            activeTab === 'autopilot' ? 'text-emerald-400 bg-slate-900' : 'text-slate-400'
-          }`}
-        >
-          <Sparkles className="h-4 w-4 mb-0.5" />
-          <span>رادار خودکار</span>
-        </button>
-      </nav>
-    </>
+          {nativeApp && (
+            <span className="hidden lg:flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 rounded-lg">
+              <Smartphone className="h-3 w-3 text-emerald-400" />
+              <span>APK</span>
+            </span>
+          )}
+
+          {/* سوئیچر زنده و آنی کلید API و مدل هوش مصنوعی در هر لحظه */}
+          <LiveModelSwitcher onOpenFullSettings={onOpenSettings} />
+
+          <button
+            onClick={onQuickScan}
+            disabled={isScanning}
+            className="btn btn-primary h-8 px-2.5 sm:px-3 text-xs"
+          >
+            <Radar className={`h-3.5 w-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isScanning ? 'در حال اسکن...' : 'اسکن عمیق'}</span>
+          </button>
+
+          <button
+            onClick={onOpenSettings}
+            className="icon-btn h-8 w-8 border border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white"
+            title="مدیریت گاوصندوق کلیدهای API و تنظیمات"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {isScanning && scanStatusText && (
+        <div className="w-full border-t border-slate-800/70 bg-emerald-950/30 px-4 py-1 flex items-center gap-2 text-xs text-emerald-300">
+          <Cpu className="w-3.5 h-3.5 animate-pulse text-emerald-400 shrink-0" />
+          <span className="truncate">{scanStatusText}</span>
+        </div>
+      )}
+    </header>
   );
 };

@@ -19,6 +19,7 @@ import {
   Target,
   Layers,
   ShieldCheck,
+  Terminal,
 } from 'lucide-react';
 import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, categoryAiFit, detectCategory } from '../../shared/taxonomy';
@@ -81,7 +82,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   const [manualBudget, setManualBudget] = useState('5000000');
   const [manualPlatform, setManualPlatform] = useState('پونیشا');
 
-  // محاسبه لحظه‌ای تناسب اگر رکورد قدیمی فاقد فیلد باشد
+  // Dynamic enrichment
   const enrichedJobs = jobs.map((job) => {
     if (job.relevanceTier) return job;
     const rel = evaluateProjectRelevance(job.title, job.description, job.categoryKey, job.tags);
@@ -192,8 +193,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           count: built.length,
           message:
             built.length > 0
-              ? `${built.length.toLocaleString('fa-IR')} پروژه استخراج و به گاوصندوق دائمی اضافه شد (در اسکن‌های بعدی هرگز پاک نمی‌شوند)!`
-              : 'صفحه خوانده شد اما کارت پروژه‌ای تشخیص داده نشد؛ از تب «پیست سورس HTML» یا «ثبت دستی» استفاده کنید.',
+              ? `${built.length.toLocaleString('fa-IR')} پروژه استخراج و به گاوصندوق دائمی اضافه شد!`
+              : 'صفحه خوانده شد اما کارت پروژه‌ای یافت نشد؛ از تب ۲ یا ۳ استفاده کنید.',
           extractedTitles: built.map((p) => p.title),
         });
         return;
@@ -201,7 +202,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
 
       setUrlScrapeResult({
         success: false,
-        message: 'اتصال مستقیم برقرار نشد؛ سورس صفحه را در تب ۲ پیست کنید یا دستی ثبت نمایید.',
+        message: 'اتصال مستقیم برقرار نشد؛ لطفاً سورس HTML را در تب ۲ پیست کنید یا دستی ثبت نمایید.',
       });
     } catch (err: any) {
       setUrlScrapeResult({
@@ -241,8 +242,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
         count: built.length,
         message:
           built.length > 0
-            ? `${built.length.toLocaleString('fa-IR')} پروژه از سورس HTML استخراج و به صورت دائمی ذخیره شد!`
-            : 'کارت پروژه‌ای در این HTML تشخیص داده نشد؛ اگر متن ساده یک آگهی است از تب «ثبت دستی» استفاده کنید.',
+            ? `${built.length.toLocaleString('fa-IR')} پروژه از سورس HTML استخراج و ذخیره شد!`
+            : 'کارت پروژه‌ای در این HTML تشخیص داده نشد.',
         extractedTitles: built.map((p) => p.title),
       });
       if (built.length > 0) setHtmlInput('');
@@ -257,15 +258,18 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   };
 
   return (
-    <div className="space-y-5">
-      {/* Header Row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+    <div className="space-y-4">
+      {/* Top Header Card */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900/95 via-slate-900/80 to-[#0b1424] border border-slate-800/80 shadow-sm">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">
-            رادار شکار عمیق و دسته‌بندی هوشمند پروژه‌ها
+          <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+            <span>رادار هوشمند شکار و دسته‌بندی پروژه‌ها</span>
+            <span className="font-mono text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+              {filteredJobs.length.toLocaleString('fa-IR')} پروژه
+            </span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            اسکن چندصفحه‌ای پونیشا (با بودجه مخفی)، پارس‌کدرز و کارلانسر · حذف خودکار آگهی‌های نامربوط و حفاظت دائمی از پروژه‌های دستی
+          <p className="text-xs text-slate-400 mt-0.5">
+            اسکن چندمنبعی با استخراج بودجه‌های پنهان، فیلتر نویز، و گاوصندوق دائمی ثبت اختصاصی
           </p>
         </div>
 
@@ -276,16 +280,16 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             setUrlScrapeResult(null);
             setHtmlScrapeResult(null);
           }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-950 transition-all active:scale-95 border border-emerald-400/30 self-start"
+          className="btn btn-primary h-9 px-3.5 self-start sm:self-auto text-xs"
         >
           <Plus className="h-4 w-4" />
-          <span>ثبت / استخراج دائمی پروژه جدید (URL · HTML · دستی)</span>
+          <span>افزودن پروژه جدید (URL / HTML / دستی)</span>
         </button>
       </div>
 
       {/* Smart Relevance Filter Bar */}
-      <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="p-2.5 rounded-xl bg-slate-900/85 border border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => setRelevanceFilter('relevant')}
@@ -296,7 +300,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             }`}
           >
             <Target className="w-3.5 h-3.5" />
-            <span>فقط مرتبط با من ({relevantCount.toLocaleString('fa-IR')})</span>
+            <span>پروژه‌های مرتبط ({relevantCount.toLocaleString('fa-IR')})</span>
           </button>
 
           <button
@@ -309,7 +313,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             }`}
           >
             <Gem className="w-3.5 h-3.5" />
-            <span>شکار طلایی پرتناسب ({primeCount.toLocaleString('fa-IR')})</span>
+            <span>شکار طلایی ({primeCount.toLocaleString('fa-IR')})</span>
           </button>
 
           <button
@@ -322,7 +326,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             }`}
           >
             <Pin className="w-3.5 h-3.5" />
-            <span>دستی و سنجاق‌شده دائمی ({savedCount.toLocaleString('fa-IR')})</span>
+            <span>گاوصندوق دائمی ({savedCount.toLocaleString('fa-IR')})</span>
           </button>
 
           <button
@@ -335,35 +339,35 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>نمایش خام همه ({enrichedJobs.length.toLocaleString('fa-IR')})</span>
+            <span>نمایش همه ({enrichedJobs.length.toLocaleString('fa-IR')})</span>
           </button>
         </div>
 
         {hiddenJunkCount > 0 && relevanceFilter !== 'all' && (
-          <span className="text-[11px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-            ✓ {hiddenJunkCount.toLocaleString('fa-IR')} آگهی نامربوط/حضوری/تبلیغاتی خودکار حذف شد
+          <span className="text-[11px] text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full font-medium">
+            ✓ {hiddenJunkCount.toLocaleString('fa-IR')} مورد نامربوط فیلتر شد
           </span>
         )}
       </div>
 
       {/* Search & Platform Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
         <div className="md:col-span-5 relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="جستجو در عنوان، پایتون، اتوماسیون، هوش مصنوعی، ترجمه، اسکرپینگ..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg pr-9 pl-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
+            placeholder="جستجو در عنوان، شرح، مهارت‌ها و تگ‌ها..."
+            className="w-full bg-slate-900/90 border border-slate-800 rounded-xl pr-9 pl-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/60 transition-colors"
           />
         </div>
 
         <div className="md:col-span-7 flex flex-wrap items-center gap-1.5 justify-start md:justify-end">
-          <span className="text-[11px] text-slate-400 ml-1">پلتفرم:</span>
+          <span className="text-[11px] text-slate-400 ms-1">پلتفرم:</span>
           {(
             [
-              { key: 'all', label: 'همه پلتفرم‌ها' },
+              { key: 'all', label: 'همه' },
               { key: 'ponisha', label: 'پونیشا' },
               { key: 'karlancer', label: 'کارلانسر' },
               { key: 'parskoders', label: 'پارس‌کدرز' },
@@ -373,9 +377,9 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             <button
               key={item.key}
               onClick={() => setSelectedPlatform(item.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                 selectedPlatform === item.key
-                  ? 'bg-slate-800 text-emerald-400 border border-slate-700'
+                  ? 'bg-slate-800 text-emerald-300 border border-slate-700/80 font-bold'
                   : 'text-slate-400 bg-slate-900/60 hover:text-slate-200 border border-slate-800/80'
               }`}
             >
@@ -386,8 +390,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
       </div>
 
       {/* Category Filter Pills */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-slate-400 ml-2">دسته‌بندی دقیق:</span>
+      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+        <span className="text-[11px] text-slate-400 ms-1">دسته‌بندی:</span>
         {[
           { key: 'all' as CategoryKey, label: 'همه دسته‌ها' },
           ...ALL_CATEGORIES.filter((c) => c.key !== 'other').map((c) => ({
@@ -398,10 +402,10 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           <button
             key={cat.key}
             onClick={() => setSelectedCategory(cat.key)}
-            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+            className={`px-2.5 py-0.5 text-[11px] rounded-md transition-colors ${
               selectedCategory === cat.key
                 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 font-semibold'
-                : 'text-slate-400 bg-slate-900 hover:text-slate-200 border border-slate-800'
+                : 'text-slate-400 bg-slate-900/60 hover:text-slate-200 border border-slate-800/80'
             }`}
           >
             {cat.label}
@@ -410,10 +414,10 @@ export const JobHunter: React.FC<JobHunterProps> = ({
       </div>
 
       {/* Jobs List */}
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-3.5">
         {filteredJobs.length === 0 ? (
-          <div className="py-16 text-center border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
-            <p className="text-sm text-slate-400">هیچ پروژه‌ای مطابق این ترکیب فیلتر یافت نشد.</p>
+          <div className="py-14 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
+            <p className="text-sm text-slate-400">هیچ پروژه‌ای مطابق فیلترهای انتخابی یافت نشد.</p>
             <button
               onClick={() => {
                 setSearchQuery('');
@@ -421,7 +425,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 setSelectedCategory('all');
                 setRelevanceFilter('relevant');
               }}
-              className="mt-3 text-xs text-emerald-400 hover:underline"
+              className="mt-2 text-xs text-emerald-400 hover:underline"
             >
               بازنشانی فیلترها
             </button>
@@ -432,12 +436,12 @@ export const JobHunter: React.FC<JobHunterProps> = ({
             return (
               <div
                 key={job.id}
-                className={`group border rounded-xl p-5 transition-all space-y-3.5 ${
+                className={`group border rounded-2xl p-4 sm:p-5 transition-all space-y-3 ${
                   isProtected
-                    ? 'border-indigo-500/45 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/25'
+                    ? 'border-indigo-500/40 bg-gradient-to-br from-[#0c1424] via-slate-900 to-[#101a2e]'
                     : job.relevanceTier === 'prime'
-                      ? 'border-emerald-500/30 bg-slate-900/80 hover:border-emerald-500/55'
-                      : 'border-slate-800 bg-slate-900/70 hover:border-slate-700'
+                      ? 'border-emerald-500/35 bg-gradient-to-br from-slate-900 via-slate-900 to-[#091a18] hover:border-emerald-500/60'
+                      : 'border-slate-800/90 bg-slate-900/80 hover:border-slate-700'
                 }`}
               >
                 {/* Top metadata bar */}
@@ -455,16 +459,20 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                       </span>
                     )}
                     <span className="font-semibold text-slate-200">{job.platform}</span>
-                    <span>·</span>
+                    <span className="text-slate-600">·</span>
                     <span className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
                       <Clock className="h-3 w-3" />
                       {job.postedTime}
                     </span>
-                    <span className="hidden sm:inline">·</span>
-                    <span className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400">
-                      <UserCheck className="h-3 w-3" />
-                      {job.clientName}
-                    </span>
+                    {job.clientName && (
+                      <>
+                        <span className="text-slate-600 hidden sm:inline">·</span>
+                        <span className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400">
+                          <UserCheck className="h-3 w-3" />
+                          {job.clientName}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -527,26 +535,26 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                     </span>
                   ))}
                   {job.proposalsCount > 0 && (
-                    <span className="mr-auto font-mono text-[11px] text-slate-400">
-                      {job.proposalsCount.toLocaleString('fa-IR')} پیشنهاد ثبت‌شده
+                    <span className="me-auto font-mono text-[11px] text-slate-500">
+                      {job.proposalsCount.toLocaleString('fa-IR')} پیشنهاد
                     </span>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-slate-800/80">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800/80">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => onSelectJobForAnalysis(job)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                      className="btn h-8 px-2.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
                     >
                       <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-                      <span>تحلیل و استراتژی برد</span>
+                      <span>تحلیل هوشمند</span>
                     </button>
 
                     <button
                       onClick={() => onSelectJobForProposal(job)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                      className="btn h-8 px-2.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
                     >
                       <FileText className="h-3.5 w-3.5 text-amber-400" />
                       <span>پروپوزال برنده</span>
@@ -559,7 +567,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                         href={job.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-lg text-xs font-medium transition-colors"
+                        className="btn btn-ghost h-8 px-2.5 text-xs border border-slate-800 hover:border-slate-700"
                       >
                         <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
                         <span>آگهی اصلی</span>
@@ -568,9 +576,10 @@ export const JobHunter: React.FC<JobHunterProps> = ({
 
                     <button
                       onClick={() => onSelectJobForCoding(job)}
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold rounded-lg text-xs shadow-md transition-all active:scale-95"
+                      className="btn btn-primary h-8 px-3.5 text-xs"
                     >
-                      <span>🏛️ استودیو تحویل و مستندات فنی</span>
+                      <Terminal className="h-3.5 w-3.5" />
+                      <span>استودیو تحویل کد</span>
                     </button>
                   </div>
                 </div>
@@ -591,10 +600,10 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white">
-                    گاوصندوق ثبت و استخراج دائمی پروژه (بدون حذف در اسکن خودکار)
+                    ثبت و استخراج دائمی پروژه
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    هر پروژه‌ای که از این بخش اضافه شود برای همیشه در حافظه اختصاصی سنجاق می‌ماند
+                    پروژه‌های ثبت‌شده در گاوصندوق دائمی ذخیره شده و هرگز در اسکن‌های خودکار حذف نمی‌شوند
                   </p>
                 </div>
               </div>
@@ -612,7 +621,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 onClick={() => setModalTab('url')}
                 className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'url'
-                    ? 'border-emerald-500 text-emerald-400 bg-slate-900'
+                    ? 'border-emerald-500 text-emerald-400 bg-slate-900 font-bold'
                     : 'border-transparent text-slate-400'
                 }`}
               >
@@ -623,7 +632,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 onClick={() => setModalTab('html')}
                 className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'html'
-                    ? 'border-emerald-500 text-emerald-400 bg-slate-900'
+                    ? 'border-emerald-500 text-emerald-400 bg-slate-900 font-bold'
                     : 'border-transparent text-slate-400'
                 }`}
               >
@@ -634,7 +643,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                 onClick={() => setModalTab('manual')}
                 className={`flex items-center gap-2 px-4 py-2.5 font-medium rounded-t-lg border-b-2 -mb-[1px] whitespace-nowrap ${
                   modalTab === 'manual'
-                    ? 'border-emerald-500 text-emerald-400 bg-slate-900'
+                    ? 'border-emerald-500 text-emerald-400 bg-slate-900 font-bold'
                     : 'border-transparent text-slate-400'
                 }`}
               >
@@ -650,40 +659,26 @@ export const JobHunter: React.FC<JobHunterProps> = ({
                     required
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://telegram.me/s/ponisha_ir"
+                    placeholder="https://ponisha.ir/project/... یا کانال تلگرام"
                     dir="ltr"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { label: 'فید زنده پونیشا (با بودجه)', url: 'https://telegram.me/s/ponisha_ir' },
-                      { label: 'پارس‌کدرز صفحه ۲', url: 'https://parscoders.com/project/only-available?page=2' },
-                      { label: 'کارلانسر صفحه ۱', url: 'https://www.karlancer.com/search' },
-                    ].map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        onClick={() => setUrlInput(item.url)}
-                        className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
-                      >
-                        {item.label}
-                      </button>
-                    ))}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="submit"
+                      disabled={isUrlScraping}
+                      className="btn btn-primary h-9 px-4 text-xs"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isUrlScraping ? 'animate-spin' : ''}`} />
+                      <span>{isUrlScraping ? 'در حال استخراج...' : 'استخراج و ثبت در گاوصندوق'}</span>
+                    </button>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={isUrlScraping || !urlInput.trim()}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isUrlScraping ? 'animate-spin' : ''}`} />
-                    <span>{isUrlScraping ? 'در حال استخراج و ذخیره دائمی...' : 'استخراج و افزودن دائمی'}</span>
-                  </button>
                   {urlScrapeResult && (
                     <div
-                      className={`p-3.5 rounded-xl text-xs ${
+                      className={`p-3 rounded-xl text-xs border ${
                         urlScrapeResult.success
-                          ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                          : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                          ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
+                          : 'bg-rose-950/40 border-rose-800 text-rose-200'
                       }`}
                     >
                       {urlScrapeResult.message}
@@ -694,107 +689,110 @@ export const JobHunter: React.FC<JobHunterProps> = ({
 
               {modalTab === 'html' && (
                 <form onSubmit={handleScrapeHtml} className="space-y-4">
-                  <select
-                    value={htmlPlatform}
-                    onChange={(e) => setHtmlPlatform(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
-                  >
-                    <option value="ponisha">پونیشا (Ponisha)</option>
-                    <option value="karlancer">کارلانسر (Karlancer)</option>
-                    <option value="parscoders">پارس‌کدرز (Parscoders)</option>
-                  </select>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-slate-400">پلتفرم هدف سورس:</span>
+                    <select
+                      value={htmlPlatform}
+                      onChange={(e) => setHtmlPlatform(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white"
+                    >
+                      <option value="ponisha">پونیشا</option>
+                      <option value="karlancer">کارلانسر</option>
+                      <option value="parscoders">پارس‌کدرز</option>
+                    </select>
+                  </div>
                   <textarea
-                    required
                     rows={6}
+                    required
                     value={htmlInput}
                     onChange={(e) => setHtmlInput(e.target.value)}
-                    placeholder="سورس HTML صفحه را اینجا پیست کنید..."
+                    placeholder="سورس HTML صفحه لیست پروژه‌ها را اینجا پیست کنید..."
                     dir="ltr"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                   />
-                  <button
-                    type="submit"
-                    disabled={isHtmlScraping || !htmlInput.trim()}
-                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
-                  >
-                    تجزیه آنی و ذخیره دائمی در گاوصندوق
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="submit"
+                      disabled={isHtmlScraping}
+                      className="btn btn-primary h-9 px-4 text-xs"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isHtmlScraping ? 'animate-spin' : ''}`} />
+                      <span>{isHtmlScraping ? 'در حال پردازش...' : 'استخراج از HTML'}</span>
+                    </button>
+                  </div>
                   {htmlScrapeResult && (
                     <div
-                      className={`p-3.5 rounded-xl text-xs flex items-center gap-2 ${
+                      className={`p-3 rounded-xl text-xs border ${
                         htmlScrapeResult.success
-                          ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                          : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                          ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
+                          : 'bg-rose-950/40 border-rose-800 text-rose-200'
                       }`}
                     >
-                      {htmlScrapeResult.success ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                      <span>{htmlScrapeResult.message}</span>
+                      {htmlScrapeResult.message}
                     </div>
                   )}
                 </form>
               )}
 
               {modalTab === 'manual' && (
-                <form onSubmit={handleCreateManualJob} className="space-y-4">
+                <form onSubmit={handleCreateManualJob} className="space-y-3.5">
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">عنوان پروژه:</label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">عنوان پروژه</label>
                     <input
                       type="text"
                       required
                       value={manualTitle}
                       onChange={(e) => setManualTitle(e.target.value)}
-                      placeholder="مثال: طراحی سیستم اتوماسیون پردازش فاکتور با هوش مصنوعی"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
+                      placeholder="مثلاً: طراحی بک‌اند ربات تلگرام با پایتون..."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-300 mb-1">پلتفرم:</label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">بودجه پیشنهادی (تومان)</label>
+                      <input
+                        type="number"
+                        required
+                        value={manualBudget}
+                        onChange={(e) => setManualBudget(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">پلتفرم / منبع</label>
                       <select
                         value={manualPlatform}
                         onChange={(e) => setManualPlatform(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                       >
                         <option value="پونیشا">پونیشا</option>
                         <option value="کارلانسر">کارلانسر</option>
                         <option value="پارس‌کدرز">پارس‌کدرز</option>
-                        <option value="بین‌المللی / مستقیم">بین‌المللی / مستقیم</option>
+                        <option value="کارفرمای مستقیم">کارفرمای مستقیم / تلگرام</option>
                       </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-300 mb-1">بودجه (تومان):</label>
-                      <input
-                        type="number"
-                        value={manualBudget}
-                        onChange={(e) => setManualBudget(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200"
-                      />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-300 mb-1">شرح کامل پروژه کارفرما:</label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">شرح جزئیات پروژه</label>
                     <textarea
+                      rows={4}
                       required
-                      rows={5}
                       value={manualDesc}
                       onChange={(e) => setManualDesc(e.target.value)}
-                      placeholder="شرح کامل نیازمندی‌های کارفرما را اینجا بنویسید یا پیست کنید تا موتور معماری و تحویل روی آن کار کند..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
+                      placeholder="توضیحات و نیازمندی‌های اعلام‌شده توسط کارفرما..."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
-                  <div className="flex justify-end gap-2 pt-2">
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                     <button
                       type="button"
                       onClick={() => setShowAddModal(false)}
-                      className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs"
+                      className="btn btn-ghost h-9 px-3.5 text-xs"
                     >
                       انصراف
                     </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs"
-                    >
-                      ذخیره دائمی و رفتن به تحلیل
+                    <button type="submit" className="btn btn-primary h-9 px-4 text-xs">
+                      ثبت نهایی در گاوصندوق دائمی
                     </button>
                   </div>
                 </form>
