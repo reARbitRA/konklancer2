@@ -1,31 +1,13 @@
 {
-  "phase": "finished",
-  "job_status": "success",
-  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/40190478150",
-  "finished_at": "2026-10-25T11:52:14+00:00",
-  "projects_this_run": 309,
-  "by_category": {
-    "video": 27,
-    "other": 58,
-    "graphic": 25,
-    "writing": 44,
-    "data": 18,
-    "docs": 18,
-    "dev": 64,
-    "marketing": 17,
-    "automation": 16,
-    "translation": 8,
-    "image": 3,
-    "audio": 5,
-    "uiux": 6
+  "phase": "started",
+  "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/40212563085",
+  "started_at": "2026-10-25T16:37:32+00:00",
+  "request": {
+    "platforms": "parscoders,ponisha,karlancer",
+    "pages": 4,
+    "delay": 2,
+    "telegram": 1
   },
-  "by_source": {
-    "parscoders": 94,
-    "ponisha": 80,
-    "karlancer": 96,
-    "telegram:ponisha_ir": 20,
-    "telegram:workarc": 19
-  },
-  "diagnostics": "=== parscoders.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (444347 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\nDisallow: /admin/\nDisallow: /login/\nDisallow: /logout/\nDisallow: /register/\nDisallow: /reset-password/\nDisallow: /cellphone/register\nDisallow: /connect-*\nDisallow: /dashboard/\nDisallow: /conversation/\nDisallow: /api/\nDisallow: /anonymous-project/\n\nSitemap: https://parscoders.com/sitema\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=UTF-8\nx-frame-options: SAMEORIGIN\nx-content-type-options: nosniff\nx-xss-protection: 1; mode=block\n\n=== ponisha.ir ===\nrobots.txt -> 404\nصفحه اصلی -> 200 (612784 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"minimum-scale=1, initial-scale=1, width=device-width, shrink-to-fit=no, user-scalable=no, viewport-fit=cover\" data-next-head=\"\"/><title data-next-head=\"\">صفحه مورد نظر ی\nسربرگ‌ها:\nHTTP/2 200 \nx-nextjs-cache: HIT\nx-powered-by: Next.js\ncontent-type: text/html; charset=utf-8\nx-envoy-upstream-service-time: 21\nserver: istio-envoy\n\n=== www.karlancer.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (502625 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\n\nDisallow: /panel/\nDisallow: /404\nDisallow: /500\nDisallow: /freelancer?q=*\nDisallow: /edu/search?q=*\nDisallow: /search?q=*\nDisallow: /services?q=*\nDisallow: /worksample?q=*\nDisallow: /api/file/workdiary/*\nDisallow: /external-payment/*\nDisallow: /external-charge/*\n\nAllow: /api/file*\n\n#S\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=utf-8\nx-frame-options: DENY\nx-l: front\n\n=== t.me ===\nrobots.txt -> 404\nصفحه اصلی -> 302 (0 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<html>\n<head><title>404 Not Found</title></head>\n<body>\n<center><h1>404 Not Found</h1></center>\n<hr><center>nginx/1.30.1</center>\n</body>\n</html>\n\nسربرگ‌ها:\nHTTP/2 302 \nserver: nginx/1.30.1\ncontent-type: text/html; charset=UTF-8\n\n[parscoders] صفحه 1: 25 پروژه\n[parscoders] صفحه 2: 24 پروژه\n[parscoders] صفحه 3: 22 پروژه\n[parscoders] صفحه 4: 23 پروژه\n[ponisha] صفحه 1: 20 پروژه\n[ponisha] صفحه 2: 20 پروژه\n[ponisha] صفحه 3: 20 پروژه\n[ponisha] صفحه 4: 20 پروژه\n[karlancer] صفحه 1: 24 پروژه\n[karlancer] صفحه 2: 24 پروژه\n[karlancer] صفحه 3: 24 پروژه\n[karlancer] صفحه 4: 24 پروژه\nدسته‌ها: سایر: 53 · توسعه وب، پلتفرم و نرم‌افزار: 52 · کپی‌رایتینگ، محتوا و مقاله‌نویسی: 39 · ویدیو و انیمیشن: 24 · گرافیک، لوگو و بروشور: 23 · مستندات فنی، طرح توجیهی و اسناد: 17 · داده، اکسل پیشرفته و تحلیل: 16 · مارکتینگ، سئو و شبکه‌های اجتماعی: 13 · اتوماسیون، ربات و اسکرپینگ: 12 · ترجمه تخصصی و زیرنویس: 8 · صدا و گویندگی: 5 · رابط کاربری و طراحی سایت: 5 · ویرایش و روتوش تصویر: 3\n270 مورد خوانده شد؛ 270 پس از فیلتر؛ 270 مورد جدید در scanner/out/projects.jsonl\n=== جمع‌بندی صفحه‌ها ===\n270\nکانال‌های فعال برای اسکن: ['ponisha_ir', 'workarc']\n@ponisha_ir: 20 پیام\n@workarc: 19 پیام\n39 مورد خوانده شد؛ 39 پس از فیلتر؛ 39 مورد جدید در scanner/out/projects.jsonl\n[parscoders] ذخیره شد: parscoders.html.gz (614384 کاراکتر → 57028 بایت فشرده)\n[ponisha] ذخیره شد: ponisha.html.gz (231398 کاراکتر → 27769 بایت فشرده)\n[karlancer] ذخیره شد: karlancer.html.gz (496462 کاراکتر → 36159 بایت فشرده)\n[project-only-available] ذخیره شد: project-only-available.html.gz (614384 کاراکتر → 57040 بایت فشرده)\n[telegram-ponisha_ir] ذخیره شد: telegram-ponisha_ir.html.gz (129159 کاراکتر → 19735 بایت فشرده)\n[telegram-workarc] ذخیره شد: telegram-workarc.html.gz (135668 کاراکتر → 20040 بایت فشرده)\n[telegram-freelancer_projects] ذخیره شد: telegram-freelancer_projects.html.gz (102539 کاراکتر → 10520 بایت فشرده)\n7 نمونه ذخیره شد. فهرست: scanner/out/live-captures/manifest.json\n[tg:ponisha_ir p1] +20 rows (before=26107)\n[tg:ponisha_ir p2] +20 rows (before=26087)\n[tg:ponisha_ir p3] +19 rows (before=26067)\n[tg:ponisha_ir p4] +20 rows (before=26047)\n[tg:ponisha_ir p5] +20 rows (before=26027)\n[tg:ponisha_ir p6] +20 rows (before=26007)\n[tg:workarc p1] +17 rows (before=308)\n[tg:workarc p2] +15 rows (before=281)\n[parscoders] https://parscoders.com/project/only-available -> +3 rows\n[parscoders] https://parscoders.com/project/only-available?page=2 -> +1 rows\n[parscoders] https://parscoders.com/project/only-available?page=3 -> +3 rows\n[parscoders] https://parscoders.com/project/only-available?page=4 -> +10 rows\n[parscoders] https://parscoders.com/project/service/programming -> +3 rows\n[parscoders] https://parscoders.com/project/service/artificial-intelligence -> +3 rows\n[parscoders] https://parscoders.com/project/service/content-creation -> +3 rows\n[karlancer] https://www.karlancer.com/search -> +24 rows\n[karlancer] https://www.karlancer.com/search?page=2 -> +23 rows\n[ponisha] https://ponisha.ir/search/projects -> +18 rows\nSaved 800 clean multi-page rows to scanner/cloud-feed.jsonl\nSupabase batch 1: HTTP 201 (100 rows)\nSupabase batch 2: HTTP 201 (100 rows)\nSupabase batch 3: HTTP 201 (100 rows)\nSupabase batch 4: HTTP 201 (100 rows)\n",
-  "note": "فید واقعی از اجرای اسکنر روی رانر گیت‌هاب؛ هیچ داده‌ی ساختگی در آن نیست."
+  "projects_in_feed": 0,
+  "note": "اسکن واقعی روی رانر گیت‌هاب؛ این فایل خودش نشان می‌دهد اجرا شروع شده است."
 }
