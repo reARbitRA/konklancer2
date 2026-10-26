@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
-import { RefreshCw, X, WifiOff, Radar, Settings, Terminal, Workflow, Sparkles } from 'lucide-react';
-import { Header } from './components/Header';
+import { RefreshCw, X, WifiOff, Radar, Settings, Terminal, Workflow, Sparkles, Cpu } from 'lucide-react';
+import { BrutalHeader } from './components/layout/BrutalHeader';
+import { BrutalSidebar } from './components/layout/BrutalSidebar';
 import { StatusBar, MobileNav } from './components/StatusBar';
 import { CommandPalette, PaletteAction } from './components/CommandPalette';
 import { JobHunter } from './components/JobHunter';
@@ -20,11 +22,7 @@ import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
 import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
 import { subscribeVaultChanges, readStoredCustomLLM } from './utils/customLLMClient';
-import {
-  loadInitialFeedUnified,
-  runDirectTabletLiveScan,
-  syncCloudFeedDirectFromGitHub,
-} from './services/standaloneFeed';
+import { loadInitialFeedUnified, runDirectTabletLiveScan, syncCloudFeedDirectFromGitHub } from './services/standaloneFeed';
 
 const MANUAL_VAULT_STORAGE_KEY = 'konklancer_manual_jobs_v2';
 
@@ -34,19 +32,11 @@ function readPermanentManualVault(): FreelanceJob[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-
 function writePermanentManualVault(list: FreelanceJob[]): void {
-  try {
-    localStorage.setItem(MANUAL_VAULT_STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    // ignore storage errors
-  }
+  try { localStorage.setItem(MANUAL_VAULT_STORAGE_KEY, JSON.stringify(list)); } catch {}
 }
-
 function isValidFreelanceJob(data: any): data is FreelanceJob {
   if (!data || typeof data !== 'object') return false;
   if (typeof data.id !== 'string' || !data.id.trim()) return false;
@@ -58,8 +48,6 @@ function isValidFreelanceJob(data: any): data is FreelanceJob {
   if (!Array.isArray(data.tags)) return false;
   return true;
 }
-
-/** همیشه دسته‌بندی وزن‌دار جدید و تناسب کاری را دقیق محاسبه می‌کند */
 function enrichJob(job: FreelanceJob): FreelanceJob {
   const det = detectCategory(job.title, job.description, (job.tags || []).join(' '));
   const categoryKey = det.key;
@@ -75,86 +63,189 @@ function enrichJob(job: FreelanceJob): FreelanceJob {
     relevanceReason: rel.reason,
   };
 }
-
-/**
- * ادغام تضمین‌شده بدون پاک‌شدن پروژه‌های دستی و سنجاق‌شده:
- * ۱. تمام پروژه‌های گاوصندوق دائمی (konklancer_manual_jobs_v2 + isManual + pinned) همیشه در صدر حفظ می‌شوند.
- * ۲. پروژه‌های دارای تحلیل، پروپوزال، فایل تحویلی یا وضعیت تغییریافته دست‌نخورده می‌مانند.
- */
-export function mergeFeedJobs(
-  current: FreelanceJob[],
-  incoming: FreelanceJob[],
-  seed: FreelanceJob[] = [],
-): FreelanceJob[] {
+export function mergeFeedJobs(current: FreelanceJob[], incoming: FreelanceJob[], seed: FreelanceJob[] = []): FreelanceJob[] {
   const permanentMap = new Map<string, FreelanceJob>();
   const userTouchedMap = new Map<string, FreelanceJob>();
-
-  for (const vJob of readPermanentManualVault()) {
-    permanentMap.set(vJob.id, enrichJob({ ...vJob, pinned: true }));
-  }
-
+  for (const vJob of readPermanentManualVault()) { permanentMap.set(vJob.id, enrichJob({ ...vJob, pinned: true })); }
   for (const job of current) {
-    if (job.isManual || job.pinned || job.id.startsWith('custom-') || job.id.startsWith('manual-')) {
-      permanentMap.set(job.id, enrichJob({ ...job, pinned: true }));
-      continue;
-    }
-    const isTouched =
-      job.status !== 'new' ||
-      Boolean(job.aiAnalysis) ||
-      Boolean(job.proposal) ||
-      Boolean(job.generatedFiles) ||
-      Boolean(job.solutionCode);
-    if (isTouched) {
-      userTouchedMap.set(job.id, job);
-    }
+    if (job.isManual || job.pinned || job.id.startsWith('custom-') || job.id.startsWith('manual-')) { permanentMap.set(job.id, enrichJob({ ...job, pinned: true })); continue; }
+    const isTouched = job.status !== 'new' || Boolean(job.aiAnalysis) || Boolean(job.proposal) || Boolean(job.generatedFiles) || Boolean(job.solutionCode);
+    if (isTouched) userTouchedMap.set(job.id, job);
   }
-
-  // همگام‌سازی خودکار گاوصندوق دائمی روی دیسک
-  if (permanentMap.size > 0) {
-    writePermanentManualVault([...permanentMap.values()]);
-  }
-
-  const incomingIds = new Set(incoming.map((j) => j.id));
+  if (permanentMap.size > 0) writePermanentManualVault([...permanentMap.values()]);
+  const incomingIds = new Set(incoming.map(j=>j.id));
   const mergedIncoming: FreelanceJob[] = [];
-
   for (const job of incoming) {
-    if (permanentMap.has(job.id)) continue; // نسخه دائمی در صدر قرار می‌گیرد
+    if (permanentMap.has(job.id)) continue;
     const prev = userTouchedMap.get(job.id);
-    if (!prev) {
-      mergedIncoming.push(enrichJob(job));
-    } else {
-      mergedIncoming.push(
-        enrichJob({
-          ...job,
-          status: prev.status,
-          aiAnalysis: prev.aiAnalysis,
-          proposal: prev.proposal,
-          proposedPrice: prev.proposedPrice,
-          generatedFiles: prev.generatedFiles,
-          solutionCode: prev.solutionCode,
-          executiveSummary: prev.executiveSummary,
-          blueprintMode: prev.blueprintMode,
-          repoUrl: prev.repoUrl,
-          completedAt: prev.completedAt,
-          priority: prev.priority ?? job.priority,
-        }),
-      );
-    }
+    if (!prev) mergedIncoming.push(enrichJob(job));
+    else mergedIncoming.push(enrichJob({ ...job, status: prev.status, aiAnalysis: prev.aiAnalysis, proposal: prev.proposal, proposedPrice: prev.proposedPrice, generatedFiles: prev.generatedFiles, solutionCode: prev.solutionCode, executiveSummary: prev.executiveSummary, blueprintMode: prev.blueprintMode, repoUrl: prev.repoUrl, completedAt: prev.completedAt, priority: prev.priority ?? job.priority }));
   }
-
-  const preservedOffFeed = [...userTouchedMap.values()].filter(
-    (j) => !incomingIds.has(j.id) && !permanentMap.has(j.id),
-  );
+  const preservedOffFeed = [...userTouchedMap.values()].filter(j=> !incomingIds.has(j.id) && !permanentMap.has(j.id));
   const usedIds = new Set([...permanentMap.keys(), ...incomingIds, ...userTouchedMap.keys()]);
-  const seeded = seed.filter((j) => !usedIds.has(j.id)).map(enrichJob);
-
+  const seeded = seed.filter(j=> !usedIds.has(j.id)).map(enrichJob);
   return [...permanentMap.values(), ...mergedIncoming, ...preservedOffFeed, ...seeded];
 }
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<'hunter' | 'coder' | 'pipeline' | 'autopilot'>('hunter');
+function useRouteTab(): 'hunter' | 'coder' | 'pipeline' | 'autopilot' {
+  const loc = useLocation();
+  const path = loc.pathname;
+  if (path.startsWith('/studio') || path.startsWith('/coder')) return 'coder';
+  if (path.startsWith('/pipeline')) return 'pipeline';
+  if (path.startsWith('/ops') || path.startsWith('/autopilot')) return 'autopilot';
+  return 'hunter';
+}
 
-  const [jobs, setJobs] = useState<FreelanceJob[]>(() => {
+const Layout: React.FC<{
+  jobs: FreelanceJob[];
+  feed: { source: FeedSource; scannedAt: string | null; scannedProjects: number };
+  settings: UserSettings;
+  logs: ActivityLogItem[];
+  isScanning: boolean;
+  scanStatusText: string | null;
+  socketConnected: boolean;
+  totalEarningsToday: number;
+  activeJobsCount: number;
+  onOpenSettings: ()=>void;
+  onOpenCommandPalette: ()=>void;
+  onQuickScan: ()=>void;
+  onSyncCloudFeed: ()=>void;
+  cloudBusy: boolean;
+  cloudEnabled: boolean;
+  handleSelectAnalysis: (job: FreelanceJob)=>void;
+  handleSelectProposal: (job: FreelanceJob)=>void;
+  handleSelectCoding: (job: FreelanceJob)=>void;
+  handleAddManual: (job: Partial<FreelanceJob>)=>void;
+  handleTogglePin: (id:string)=>void;
+  handleDeleteManual: (id:string)=>void;
+  handleMoveStatus: (id:string, s:FreelanceJob['status'])=>void;
+  handleUpdatePriority: (id:string, p:PriorityLevel)=>void;
+  handleUpdateSettings: (p:Partial<UserSettings>)=>void;
+  aiAvailable: boolean;
+  selectedJobForCoding: FreelanceJob | null;
+  onUpdateJob: (j:FreelanceJob)=>void;
+  onUpdateJobFiles: (id:string, files:Record<string,string>)=>void;
+  onOpenGitHubPush: (job:FreelanceJob, files:Record<string,string>)=>void;
+  onUpdateJobRepoUrl: (id:string, url:string)=>void;
+  githubToken: string;
+  dailyEarningsGoal: number;
+}> = (props) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeTab = useRouteTab();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // auto collapse on mobile
+  useEffect(()=>{
+    const mql = window.matchMedia('(max-width: 1024px)');
+    const handler = ()=>{ if(mql.matches) setSidebarCollapsed(true); };
+    handler();
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#FFFBF0] text-[#0a0a0a] flex flex-col">
+      <BrutalHeader
+        onOpenSettings={props.onOpenSettings}
+        onOpenCommandPalette={props.onOpenCommandPalette}
+        onQuickScan={props.onQuickScan}
+        isScanning={props.isScanning}
+        scanStatusText={props.scanStatusText}
+        totalEarningsToday={props.totalEarningsToday}
+        activeJobsCount={props.activeJobsCount}
+        socketConnected={props.socketConnected}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={()=>setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
+      <div className="flex flex-1 max-w-[1600px] w-full mx-auto">
+        <BrutalSidebar collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(!sidebarCollapsed)} jobs={props.jobs} feed={props.feed} onOpenSettings={props.onOpenSettings} />
+
+        <main className="flex-1 min-w-0 p-3 lg:p-5 pb-20 lg:pb-5">
+          <Routes>
+            <Route path="/" element={<Navigate to="/hunt" replace />} />
+            <Route path="/hunt" element={
+              <>
+                <FeedStatusBar
+                  source={props.feed.source}
+                  scannedAt={props.feed.scannedAt}
+                  scannedProjects={props.feed.scannedProjects}
+                  jobCount={props.jobs.filter(j=> j.isManual || j.pinned || j.relevanceTier !== 'junk').length}
+                  isScanning={props.isScanning}
+                  onScan={props.onQuickScan}
+                  cloudEnabled={props.cloudEnabled}
+                  cloudBusy={props.cloudBusy || props.isScanning}
+                  onCloudScan={props.onQuickScan}
+                  onSyncFeed={props.onSyncCloudFeed}
+                />
+                <div className="mt-4">
+                  <JobHunter
+                    jobs={props.jobs}
+                    onSelectJobForAnalysis={props.handleSelectAnalysis}
+                    onSelectJobForProposal={props.handleSelectProposal}
+                    onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }}
+                    onAddNewManualJob={props.handleAddManual}
+                    onTogglePinJob={props.handleTogglePin}
+                    onDeleteManualJob={props.handleDeleteManual}
+                  />
+                </div>
+              </>
+            } />
+            <Route path="/pipeline" element={
+              <PipelineBoard
+                jobs={props.jobs}
+                onSelectJobForAnalysis={props.handleSelectAnalysis}
+                onSelectJobForProposal={props.handleSelectProposal}
+                onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }}
+                onMoveJobStatus={props.handleMoveStatus}
+                onUpdatePriority={props.handleUpdatePriority}
+                dailyEarningsGoal={props.dailyEarningsGoal}
+              />
+            } />
+            <Route path="/studio" element={
+              <CodeWorkspace
+                job={props.selectedJobForCoding}
+                aiAvailable={props.aiAvailable}
+                onOpenSettings={props.onOpenSettings}
+                githubToken={props.githubToken}
+                onUpdateJob={props.onUpdateJob}
+                onOpenGitHubPush={props.onOpenGitHubPush}
+                onUpdateJobFiles={props.onUpdateJobFiles}
+                onUpdateJobRepoUrl={props.onUpdateJobRepoUrl}
+              />
+            } />
+            <Route path="/ops" element={
+              <AutoPilotPanel
+                logs={props.logs}
+                settings={props.settings}
+                jobs={props.jobs}
+                onUpdateSettings={props.handleUpdateSettings}
+                onTriggerManualScan={props.onQuickScan}
+                isScanning={props.isScanning}
+              />
+            } />
+            <Route path="*" element={<Navigate to="/hunt" replace />} />
+          </Routes>
+        </main>
+      </div>
+
+      <StatusBar
+        socketConnected={props.socketConnected}
+        feedSource={props.feed.source}
+        jobCount={props.jobs.length}
+        activeTab={activeTab}
+        onOpenSettings={props.onOpenSettings}
+        onOpenCommandPalette={props.onOpenCommandPalette}
+      />
+      <MobileNav activeTab={activeTab} setActiveTab={(tab)=> {
+        const map: Record<string,string> = { hunter:'/hunt', coder:'/studio', pipeline:'/pipeline', autopilot:'/ops' };
+        navigate(map[tab] || '/hunt');
+      }} activeJobsCount={props.activeJobsCount} />
+    </div>
+  );
+};
+
+export default function App() {
+  const [jobs, setJobs] = useState<FreelanceJob[]>(()=>{
     const manualVault = readPermanentManualVault().map(enrichJob);
     const saved = localStorage.getItem('freelanceflow_jobs');
     if (!saved) return manualVault;
@@ -162,633 +253,256 @@ export default function App() {
       const parsed: FreelanceJob[] = JSON.parse(saved);
       const list = Array.isArray(parsed) ? parsed.map(enrichJob) : [];
       return mergeFeedJobs(manualVault, list, []);
-    } catch {
-      return manualVault;
-    }
+    } catch { return manualVault; }
   });
 
-  const [feed, setFeed] = useState<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>({
-    source: 'unknown',
-    scannedAt: null,
-    scannedProjects: 0,
-  });
-
-  const [aiAvailable, setAiAvailable] = useState<boolean>(() => hasConfiguredBrowserKey());
-
-  const [settings, setSettings] = useState<UserSettings>(() => {
-    const defaults: UserSettings = {
-      githubToken: '',
-      githubUseSSH: false,
-      githubSSHKey: '',
-      defaultDiscountRate: 18,
-      autoBidThreshold: 85,
-      cyborgMode: true,
-      preferredTone: 'friendly_expert',
-      dailyEarningsGoal: 5000000,
-    };
+  const [feed, setFeed] = useState<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>({ source: 'unknown', scannedAt: null, scannedProjects: 0 });
+  const [aiAvailable, setAiAvailable] = useState<boolean>(()=> hasConfiguredBrowserKey());
+  const [settings, setSettings] = useState<UserSettings>(()=>{
+    const defaults: UserSettings = { githubToken:'', githubUseSSH:false, githubSSHKey:'', defaultDiscountRate:18, autoBidThreshold:85, cyborgMode:true, preferredTone:'friendly_expert', dailyEarningsGoal:5000000 };
     let parsed: Partial<UserSettings> = {};
     let standaloneCustomLLM: UserSettings['customLLM'] | undefined;
     try {
-      const saved =
-        localStorage.getItem('konklancer_settings') ||
-        localStorage.getItem('freelanceflow_settings');
+      const saved = localStorage.getItem('konklancer_settings') || localStorage.getItem('freelanceflow_settings');
       if (saved) parsed = JSON.parse(saved);
       const savedCustom = localStorage.getItem('freelanceflow_custom_llm');
       if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
-    } catch {
-      // ignore invalid json
-    }
+    } catch {}
     const { githubToken: legacyToken, ...rest } = parsed as any;
     const sessionToken = sessionStorage.getItem('freelanceflow_github_token') || '';
-    if (legacyToken && !sessionToken) {
-      sessionStorage.setItem('freelanceflow_github_token', legacyToken);
-    }
-    return {
-      ...defaults,
-      ...rest,
-      ...(rest.customLLM || standaloneCustomLLM ? { customLLM: rest.customLLM || standaloneCustomLLM } : {}),
-      githubToken: sessionToken || legacyToken || '',
-    };
+    if (legacyToken && !sessionToken) sessionStorage.setItem('freelanceflow_github_token', legacyToken);
+    return { ...defaults, ...rest, ...(rest.customLLM || standaloneCustomLLM ? { customLLM: rest.customLLM || standaloneCustomLLM } : {}), githubToken: sessionToken || legacyToken || '' };
   });
 
-  useEffect(() => {
-    const unsub = subscribeVaultChanges(() => {
-      setAiAvailable(hasConfiguredBrowserKey());
-    });
-    return unsub;
-  }, []);
-
-  const [logs, setLogs] = useState<ActivityLogItem[]>([
-    {
-      id: 'log-1',
-      timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      type: 'scan',
-      message: 'موتور v3 کونک‌لنسر (اسکن عمیق چندصفحه‌ای + گاوصندوق دائمی + استودیو ۳ مرحله‌ای تحویل) آماده است.',
-    },
-  ]);
-
+  useEffect(()=>{ const unsub = subscribeVaultChanges(()=> setAiAvailable(hasConfiguredBrowserKey())); return unsub; }, []);
+  const [logs, setLogs] = useState<ActivityLogItem[]>([{ id:'log-1', timestamp: new Date().toLocaleTimeString('fa-IR', { hour:'2-digit', minute:'2-digit' }), type:'scan', message:'موتور v4 نئو-بروتالیست (اسکن عمیق + گاوصندوق دائمی + استودیو ۳ مرحله‌ای) آماده است.' }]);
   const socketRef = useRef<Socket | null>(null);
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
   const [socketError, setSocketError] = useState<string | null>(null);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
-
   const [selectedJobForAnalysis, setSelectedJobForAnalysis] = useState<FreelanceJob | null>(null);
   const [selectedJobForProposal, setSelectedJobForProposal] = useState<FreelanceJob | null>(null);
   const [selectedJobForCodingId, setSelectedJobForCodingId] = useState<string | null>(null);
-  const [gitHubPushState, setGitHubPushState] = useState<{
-    job: FreelanceJob | null;
-    files: Record<string, string>;
-  }>({ job: null, files: {} });
+  const [gitHubPushState, setGitHubPushState] = useState<{ job: FreelanceJob | null; files: Record<string,string> }>({ job: null, files: {} });
   const [jobToInit, setJobToInit] = useState<FreelanceJob | null>(null);
-
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatusText, setScanStatusText] = useState<string | null>(null);
-  const [cloudInfo, setCloudInfo] = useState<{ enabled: boolean; repo?: string; status?: any }>({ enabled: true });
+  const [cloudInfo, setCloudInfo] = useState<{ enabled:boolean; repo?:string; status?:any }>({ enabled: true });
   const [cloudBusy, setCloudBusy] = useState(false);
+  const selectedJobForCoding = jobs.find(j=> j.id===selectedJobForCodingId) || null;
 
-  const selectedJobForCoding = jobs.find((j) => j.id === selectedJobForCodingId) || null;
+  useEffect(()=>{ try{ localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs)); const protectedJobs = jobs.filter(j=> j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-')); writePermanentManualVault(protectedJobs); } catch{} }, [jobs]);
+  useEffect(()=>{ try{ const { githubToken, ...persisted } = settings; if(githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken); const serialized=JSON.stringify(persisted); localStorage.setItem('konklancer_settings', serialized); localStorage.setItem('freelanceflow_settings', serialized); } catch{} }, [settings]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs));
-      const protectedJobs = jobs.filter(
-        (j) => j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-'),
-      );
-      writePermanentManualVault(protectedJobs);
-    } catch {
-      // ignore storage errors
-    }
-  }, [jobs]);
-
-  useEffect(() => {
-    try {
-      const { githubToken, ...persisted } = settings;
-      if (githubToken) {
-        sessionStorage.setItem('freelanceflow_github_token', githubToken);
-      }
-      const serialized = JSON.stringify(persisted);
-      localStorage.setItem('konklancer_settings', serialized);
-      localStorage.setItem('freelanceflow_settings', serialized);
-    } catch {
-      // ignore storage errors
-    }
-  }, [settings]);
-
-  const refreshCloudStatus = useCallback(async () => {
-    setCloudInfo({ enabled: true, repo: 'reARbitRA/konklancer2' });
-    return { enabled: true };
-  }, []);
-
-  const refreshFeed = useCallback(async (): Promise<void> => {
+  const refreshCloudStatus = useCallback(async ()=>{ setCloudInfo({ enabled:true, repo:'reARbitRA/konklancer2' }); return { enabled:true }; }, []);
+  const refreshFeed = useCallback(async (): Promise<void> =>{
     try {
       const data = await loadInitialFeedUnified();
-      const incoming: FreelanceJob[] = Array.isArray(data?.jobs)
-        ? data.jobs.filter(isValidFreelanceJob)
-        : [];
-      setFeed({
-        source: 'scanner',
-        scannedAt: data?.scannedAt ?? null,
-        scannedProjects: typeof data?.scannedProjects === 'number' ? data.scannedProjects : incoming.length,
-      });
-      if (incoming.length > 0) {
-        setJobs((prev) => mergeFeedJobs(prev, incoming, []));
-      }
-    } catch (err) {
-      console.warn('[feed] بارگذاری فید ناموفق بود:', err);
-      setFeed((prev) => ({ ...prev, source: 'unknown' }));
-    }
+      const incoming: FreelanceJob[] = Array.isArray(data?.jobs) ? data.jobs.filter(isValidFreelanceJob) : [];
+      setFeed({ source:'scanner', scannedAt: data?.scannedAt ?? null, scannedProjects: typeof data?.scannedProjects === 'number' ? data.scannedProjects : incoming.length });
+      if (incoming.length>0) setJobs(prev=> mergeFeedJobs(prev, incoming, []));
+    } catch (err){ console.warn('[feed] failed', err); setFeed(prev=>({...prev, source:'unknown' })); }
   }, []);
 
-  useEffect(() => {
-    refreshCloudStatus();
-    refreshFeed();
-  }, [refreshCloudStatus, refreshFeed]);
+  useEffect(()=>{ refreshCloudStatus(); refreshFeed(); }, [refreshCloudStatus, refreshFeed]);
 
-  const jobsRef = useRef(jobs);
-  useEffect(() => {
-    jobsRef.current = jobs;
-  }, [jobs]);
-
-  const addLog = (message: string, type: ActivityLogItem['type'] = 'scan') => {
-    const newLog: ActivityLogItem = {
-      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      type,
-      message,
-    };
-    setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
+  const jobsRef = useRef(jobs); useEffect(()=>{ jobsRef.current=jobs; }, [jobs]);
+  const addLog = (message:string, type:ActivityLogItem['type']='scan')=>{
+    const newLog: ActivityLogItem = { id:`log-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, timestamp: new Date().toLocaleTimeString('fa-IR', { hour:'2-digit', minute:'2-digit' }), type, message };
+    setLogs(prev=> [newLog, ...prev.slice(0,49)]);
   };
 
-  const handleSyncCloudFeed = useCallback(async () => {
+  const handleSyncCloudFeed = useCallback(async ()=>{
     setCloudBusy(true);
     try {
       const result = await syncCloudFeedDirectFromGitHub(settings.githubToken);
       addLog(result.message, 'scan');
-      if (result.jobs && result.jobs.length > 0) {
-        setJobs((prev) => mergeFeedJobs(prev, result.jobs, []));
-        setFeed({
-          source: 'scanner',
-          scannedAt: result.scannedAt ?? new Date().toISOString(),
-          scannedProjects: result.total ?? result.jobs.length,
-        });
+      if (result.jobs && result.jobs.length>0) {
+        setJobs(prev=> mergeFeedJobs(prev, result.jobs, []));
+        setFeed({ source:'scanner', scannedAt: result.scannedAt ?? new Date().toISOString(), scannedProjects: result.total ?? result.jobs.length });
       }
-    } catch (err: any) {
-      addLog(`همگام‌سازی فید ناموفق بود: ${err?.message ?? err}`, 'scan');
-    } finally {
-      setCloudBusy(false);
-    }
+    } catch(err:any){ addLog(`همگام‌سازی ناموفق: ${err?.message ?? err}`, 'scan'); } finally{ setCloudBusy(false); }
   }, [settings.githubToken]);
 
-  const handleQuickScan = useCallback(async () => {
-    setIsScanning(true);
-    setScanStatusText('شروع اسکن عمیق چندصفحه‌ای...');
+  const handleQuickScan = useCallback(async ()=>{
+    setIsScanning(true); setScanStatusText('شروع اسکن عمیق چندصفحه‌ای...');
     try {
-      const out = await runDirectTabletLiveScan((msg) => {
-        setScanStatusText(msg);
-        addLog(msg, 'scan');
-      });
-      setJobs((prev) => mergeFeedJobs(prev, out.jobs, []));
-      setFeed({
-        source: 'scanner',
-        scannedAt: out.scannedAt ?? new Date().toISOString(),
-        scannedProjects: out.total,
-      });
-      addLog(`اسکن عمیق تکمیل شد: ${out.added.toLocaleString('fa-IR')} مورد جدید (${out.summary})`, 'scan');
-    } catch (err: any) {
-      addLog(`خطا در اسکن عمیق: ${err?.message || err}`, 'scan');
-    } finally {
-      setIsScanning(false);
-      setScanStatusText(null);
-    }
+      const out = await runDirectTabletLiveScan((msg)=>{ setScanStatusText(msg); addLog(msg,'scan'); });
+      setJobs(prev=> mergeFeedJobs(prev, out.jobs, []));
+      setFeed({ source:'scanner', scannedAt: out.scannedAt ?? new Date().toISOString(), scannedProjects: out.total });
+      addLog(`اسکن تکمیل: ${out.added.toLocaleString('fa-IR')} مورد جدید (${out.summary})`, 'scan');
+    } catch(err:any){ addLog(`خطا در اسکن: ${err?.message || err}`, 'scan'); } finally{ setIsScanning(false); setScanStatusText(null); }
   }, []);
 
-  useEffect(() => {
-    if (isStandaloneClientMode() || isNativeAndroidApp()) {
-      setSocketConnected(true);
-      setSocketError(null);
-      return;
-    }
-    const socket: Socket = io({
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 3,
-      timeout: 6000,
-    });
-    socket.on('connect', () => {
-      setSocketConnected(true);
-      setSocketError(null);
-      setIsReconnecting(false);
-    });
-    socket.on('disconnect', () => setSocketConnected(false));
-    socket.on('connect_error', () => {
-      setSocketConnected(false);
-      setIsReconnecting(false);
-    });
-    socketRef.current = socket;
-    return () => {
-      socket.disconnect();
-    };
+  useEffect(()=>{
+    if (isStandaloneClientMode() || isNativeAndroidApp()){ setSocketConnected(true); setSocketError(null); return; }
+    const socket: Socket = io({ transports:['websocket','polling'], reconnection:true, reconnectionAttempts:3, timeout:6000 });
+    socket.on('connect', ()=>{ setSocketConnected(true); setSocketError(null); setIsReconnecting(false); });
+    socket.on('disconnect', ()=> setSocketConnected(false));
+    socket.on('connect_error', ()=>{ setSocketConnected(false); setIsReconnecting(false); });
+    socketRef.current=socket;
+    return ()=>{ socket.disconnect(); };
   }, []);
 
-  const handleManualReconnect = () => {
-    setIsReconnecting(true);
-    socketRef.current?.connect();
-  };
+  const handleManualReconnect = ()=>{ setIsReconnecting(true); socketRef.current?.connect(); };
 
-  // Updaters
-  const handleFullJobUpdate = (updatedJob: FreelanceJob) => {
-    setJobs((prev) => prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
+  const handleFullJobUpdate = (updatedJob: FreelanceJob)=> setJobs(prev=> prev.map(j=> j.id===updatedJob.id ? updatedJob : j));
+  const handleUpdateAnalysis = (jobId:string, analysis:AIAnalysis)=>{ setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, aiAnalysis: analysis } : j)); addLog(`تحلیل AI برای ${jobId} با امتیاز ${analysis.automatabilityScore}٪ ثبت شد.`, 'bid'); };
+  const handleSaveProposalToJob = (jobId:string, proposal:string, price:number)=>{ setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, proposal, proposedPrice: price, status: j.status==='new' ? 'bidded' : j.status } : j)); addLog(`پیشنهاد ${price.toLocaleString('fa-IR')} تومان ثبت شد.`, 'bid'); };
+  const handleUpdateJobFiles = (jobId:string, files:Record<string,string>)=>{
+    setJobs(prev=> prev.map(j=>{ if(j.id===jobId){ const updated={ ...j, generatedFiles: files, solutionCode: files, status:'in_progress' as const }; setJobToInit(updated); return updated; } return j; }));
+    addLog(`پکیج تحویلی پروژه ${jobId} ذخیره شد.`, 'code');
   };
-
-  const handleUpdateAnalysis = (jobId: string, analysis: AIAnalysis) => {
-    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, aiAnalysis: analysis } : j)));
-    addLog(`تحلیل هوش مصنوعی برای پروژه "${jobId}" با امتیاز ${analysis.automatabilityScore}٪ ثبت شد.`, 'bid');
+  const handleCompleteJob = (jobId:string, repoUrl:string)=>{
+    const todayIso=new Date().toISOString().split('T')[0];
+    setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, repoUrl, status:'completed', completedAt: j.completedAt || todayIso } : j));
+    addLog(`پروژه ${jobId} نهایی شد.`, 'payment');
   };
-
-  const handleSaveProposalToJob = (jobId: string, proposal: string, price: number) => {
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === jobId
-          ? {
-              ...j,
-              proposal,
-              proposedPrice: price,
-              status: j.status === 'new' ? 'bidded' : j.status,
-            }
-          : j,
-      ),
-    );
-    addLog(`پیشنهاد قیمت ${price.toLocaleString('fa-IR')} تومان در پایپ‌لاین ثبت گردید.`, 'bid');
+  const handleMoveJobStatus = (jobId:string, newStatus:FreelanceJob['status'])=>{
+    const todayIso=new Date().toISOString().split('T')[0];
+    setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, status: newStatus, ...(newStatus==='completed' && !j.completedAt ? { completedAt: todayIso } : {}) } : j));
   };
-
-  const handleUpdateJobFiles = (jobId: string, files: Record<string, string>) => {
-    setJobs((prev) =>
-      prev.map((j) => {
-        if (j.id === jobId) {
-          const updatedJob = { ...j, generatedFiles: files, solutionCode: files, status: 'in_progress' as const };
-          setJobToInit(updatedJob);
-          return updatedJob;
-        }
-        return j;
-      }),
-    );
-    addLog(`پکیج مستندات فنی و فایل‌های تحویلی پروژه "${jobId}" تولید و ذخیره شد.`, 'code');
-  };
-
-  const handleCompleteJob = (jobId: string, repoUrl: string) => {
-    const todayIso = new Date().toISOString().split('T')[0];
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === jobId
-          ? {
-              ...j,
-              repoUrl,
-              status: 'completed',
-              completedAt: j.completedAt || todayIso,
-            }
-          : j,
-      ),
-    );
-    addLog(`پروژه "${jobId}" نهایی شد.`, 'payment');
-  };
-
-  const handleMoveJobStatus = (jobId: string, newStatus: FreelanceJob['status']) => {
-    const todayIso = new Date().toISOString().split('T')[0];
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === jobId
-          ? {
-              ...j,
-              status: newStatus,
-              ...(newStatus === 'completed' && !j.completedAt ? { completedAt: todayIso } : {}),
-            }
-          : j,
-      ),
-    );
-  };
-
-  const handleUpdateJobRepoUrl = (jobId: string, repoUrl: string) => {
-    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, repoUrl } : j)));
-  };
-
-  const handleUpdatePriority = (jobId: string, newPriority: PriorityLevel) => {
-    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, priority: newPriority } : j)));
-  };
-
-  const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>) => {
+  const handleUpdateJobRepoUrl = (jobId:string, repoUrl:string)=> setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, repoUrl } : j));
+  const handleUpdatePriority = (jobId:string, newPriority:PriorityLevel)=> setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, priority: newPriority } : j));
+  const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>)=>{
     const fullJob = newJob as FreelanceJob;
     const categoryKey = detectCategory(fullJob.title, fullJob.description).key;
-    // Only call the AI categorizer when the user didn't provide a tag and only
-    // when a key is configured — otherwise every manual add fires an un-awaited
-    // LLM request and can cause a 429 storm.
     const hasApiKey = Boolean(readStoredCustomLLM()?.apiKey?.trim());
-    const categorizedTag =
-      fullJob.categorizedTag ||
-      (hasApiKey
-        ? await categorizeJobWithGemini(fullJob.title, fullJob.description)
-        : categoryLabel(categoryKey));
-    const priority: PriorityLevel =
-      fullJob.priority ||
-      (fullJob.budget >= 6000000 ? 'High' : fullJob.budget >= 4000000 ? 'Medium' : 'Low');
-
-    const enrichedJob: FreelanceJob = enrichJob({
-      ...fullJob,
-      isManual: true,
-      pinned: true,
-      categoryKey,
-      category: categoryLabel(categoryKey),
-      categorizedTag,
-      priority,
-      tags: Array.from(new Set([...(fullJob.tags || []), categorizedTag])),
-    });
-
-    const existingVault = readPermanentManualVault().filter((v) => v.id !== enrichedJob.id);
+    const categorizedTag = fullJob.categorizedTag || (hasApiKey ? await categorizeJobWithGemini(fullJob.title, fullJob.description) : categoryLabel(categoryKey));
+    const priority: PriorityLevel = fullJob.priority || (fullJob.budget >=6000000?'High': fullJob.budget>=4000000?'Medium':'Low');
+    const enrichedJob: FreelanceJob = enrichJob({ ...fullJob, isManual:true, pinned:true, categoryKey, category: categoryLabel(categoryKey), categorizedTag, priority, tags: Array.from(new Set([...(fullJob.tags||[]), categorizedTag])) });
+    const existingVault = readPermanentManualVault().filter(v=> v.id!==enrichedJob.id);
     writePermanentManualVault([enrichedJob, ...existingVault]);
-
-    setJobs((prev) => [enrichedJob, ...prev.filter((p) => p.id !== enrichedJob.id)]);
-    addLog(`پروژه "${enrichedJob.title}" در گاوصندوق دائمی ثبت شد و هرگز در اسکن‌ها پاک نخواهد شد.`, 'scan');
+    setJobs(prev=> [enrichedJob, ...prev.filter(p=> p.id!==enrichedJob.id)]);
+    addLog(`پروژه "${enrichedJob.title}" در گاوصندوق دائمی ثبت شد.`, 'scan');
   };
-
-  const handleTogglePinJob = (jobId: string) => {
-    setJobs((prev) => {
-      const next = prev.map((j) => {
-        if (j.id !== jobId) return j;
+  const handleTogglePinJob = (jobId:string)=>{
+    setJobs(prev=>{
+      const next = prev.map(j=>{
+        if(j.id!==jobId) return j;
         const willProtect = !(j.isManual || j.pinned);
         return { ...j, pinned: willProtect, isManual: willProtect ? j.isManual : false };
       });
-      const protectedJobs = next.filter((j) => j.isManual || j.pinned);
-      writePermanentManualVault(protectedJobs);
+      writePermanentManualVault(next.filter(j=> j.isManual || j.pinned));
       return next;
     });
   };
-
-  const handleDeleteManualJob = (jobId: string) => {
-    const remainingVault = readPermanentManualVault().filter((v) => v.id !== jobId);
-    writePermanentManualVault(remainingVault);
-    setJobs((prev) => prev.filter((j) => j.id !== jobId));
-    addLog('پروژه از گاوصندوق دائمی حذف شد.', 'scan');
+  const handleDeleteManualJob = (jobId:string)=>{
+    writePermanentManualVault(readPermanentManualVault().filter(v=> v.id!==jobId));
+    setJobs(prev=> prev.filter(j=> j.id!==jobId));
+    addLog('پروژه از گاوصندوق حذف شد.', 'scan');
   };
 
-  const completedJobs = jobs.filter((j) => j.status === 'completed');
-  const totalEarningsToday = completedJobs.reduce(
-    (acc, j) => acc + (j.proposedPrice || j.budget || 0),
-    0,
-  );
-  const activeJobsCount = jobs.filter((j) => j.status !== 'completed' && j.status !== 'new').length;
+  const completedJobs = jobs.filter(j=> j.status==='completed');
+  const totalEarningsToday = completedJobs.reduce((a,j)=> a+(j.proposedPrice||j.budget||0),0);
+  const activeJobsCount = jobs.filter(j=> j.status!=='completed' && j.status!=='new').length;
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        setIsCommandPaletteOpen((v) => !v);
-      }
+  useEffect(()=>{
+    const onKeyDown = (e:KeyboardEvent)=>{
+      if((e.ctrlKey||e.metaKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); setIsCommandPaletteOpen(v=>!v); }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown); return ()=> window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const paletteActions: PaletteAction[] = useMemo(
-    () => [
-      {
-        id: 'scan',
-        label: 'اجرای اسکن زنده و شکار پروژه‌ها',
-        hint: 'اسکن چندصفحه‌ای پونیشا، پارس‌کدرز و کارلانسر',
-        icon: Radar,
-        run: () => handleQuickScan(),
-      },
-      {
-        id: 'settings',
-        label: 'تنظیمات و مدیریت گاوصندوق کلیدهای API',
-        hint: 'افزودن و تغییر کلیدهای OpenRouter، Gemini و مدل‌ها',
-        icon: Settings,
-        run: () => setIsSettingsOpen(true),
-      },
-      {
-        id: 'tab-hunter',
-        label: 'رفتن به رادار شکار پروژه‌ها',
-        hint: 'فهرست، فیلترهای هوشمند و اولویت‌بندی',
-        icon: Radar,
-        run: () => setActiveTab('hunter'),
-      },
-      {
-        id: 'tab-coder',
-        label: 'رفتن به استودیو تحویل کد و مستندات',
-        hint: 'موتور ۳ مرحله‌ای معماری، کد و تضمین کیفیت ARBITER',
-        icon: Terminal,
-        run: () => setActiveTab('coder'),
-      },
-      {
-        id: 'tab-pipeline',
-        label: 'رفتن به تابلوی پایپ‌لاین و درآمد',
-        hint: 'کانبان وضعیت پروژه‌ها و نمودار درآمد ۷ روزه',
-        icon: Workflow,
-        run: () => setActiveTab('pipeline'),
-      },
-      {
-        id: 'tab-autopilot',
-        label: 'رفتن به مرکز کنترل و رادار سایبورگ',
-        hint: 'لاگ زنده و اتوماسیون پیشنهاددهی',
-        icon: Sparkles,
-        run: () => setActiveTab('autopilot'),
-      },
-    ],
-    [handleQuickScan],
-  );
+  // Inner component to access navigate
+  const InnerApp = ()=>{
+    const navigate = useNavigate();
+    const paletteActions: PaletteAction[] = useMemo(()=>[
+      { id:'scan', label:'اجرای اسکن زنده', hint:'اسکن چندصفحه‌ای', icon: Radar, run: ()=> handleQuickScan() },
+      { id:'settings', label:'تنظیمات گاوصندوق', hint:'مدیریت کلیدها', icon: Settings, run: ()=> setIsSettingsOpen(true) },
+      { id:'tab-hunter', label:'رادار شکار', hint:'فهرست پروژه‌ها', icon: Radar, run: ()=> navigate('/hunt') },
+      { id:'tab-coder', label:'استودیو تحویل', hint:'۳ مرحله‌ای', icon: Terminal, run: ()=> navigate('/studio') },
+      { id:'tab-pipeline', label:'پایپ‌لاین', hint:'کانبان و درآمد', icon: Workflow, run: ()=> navigate('/pipeline') },
+      { id:'tab-autopilot', label:'مرکز سایبورگ', hint:'اتوماسیون', icon: Sparkles, run: ()=> navigate('/ops') },
+    ], [handleQuickScan, navigate]);
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onQuickScan={handleQuickScan}
-        isScanning={isScanning}
-        scanStatusText={scanStatusText}
-        totalEarningsToday={totalEarningsToday}
-        activeJobsCount={activeJobsCount}
-        socketConnected={socketConnected}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-      />
-
-      {socketError && (
-        <div className="bg-red-950/80 border-b border-red-800/80 text-red-200 px-4 py-2.5 text-xs">
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+    return (
+      <>
+        {socketError && (
+          <div className="bg-[#FF3B30] border-b-[3px] border-black text-white px-4 py-2 text-xs font-bold flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><WifiOff className="w-4 h-4" /> {socketError}</div>
             <div className="flex items-center gap-2">
-              <WifiOff className="h-4 w-4 text-red-400 shrink-0" />
-              <span className="font-medium">{socketError}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleManualReconnect}
-                disabled={isReconnecting}
-                className="flex items-center gap-1.5 px-3 py-1 bg-red-900/60 text-red-100 border border-red-700/60 rounded text-[11px]"
-              >
-                <RefreshCw className={`h-3 w-3 ${isReconnecting ? 'animate-spin' : ''}`} />
-                <span>تلاش مجدد</span>
-              </button>
-              <button onClick={() => setSocketError(null)} className="text-red-400 hover:text-red-200 p-1">
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <button onClick={handleManualReconnect} disabled={isReconnecting} className="px-3 py-1 bg-white text-black border-[2px] border-black font-black text-[11px] flex items-center gap-1"><RefreshCw className={`w-3 h-3 ${isReconnecting?'animate-spin':''}`} /> تلاش مجدد</button>
+              <button onClick={()=>setSocketError(null)} className="w-7 h-7 bg-black text-white border border-white flex items-center justify-center"><X className="w-4 h-4" /></button>
             </div>
           </div>
-        </div>
-      )}
-
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 pb-24 sm:p-6 md:pb-8 lg:p-8">
-        {activeTab === 'hunter' && (
-          <FeedStatusBar
-            source={feed.source}
-            scannedAt={feed.scannedAt}
-            scannedProjects={feed.scannedProjects}
-            jobCount={jobs.filter((j) => j.isManual || j.pinned || j.relevanceTier !== 'junk').length}
-            isScanning={isScanning}
-            onScan={handleQuickScan}
-            cloudEnabled={cloudInfo.enabled}
-            cloudBusy={cloudBusy || isScanning}
-            onCloudScan={handleQuickScan}
-            onSyncFeed={handleSyncCloudFeed}
-          />
         )}
 
-        {activeTab === 'hunter' && (
-          <JobHunter
-            jobs={jobs}
-            onSelectJobForAnalysis={(job) => setSelectedJobForAnalysis(job)}
-            onSelectJobForProposal={(job) => setSelectedJobForProposal(job)}
-            onSelectJobForCoding={(job) => {
-              setSelectedJobForCodingId(job.id);
-              setActiveTab('coder');
-            }}
-            onAddNewManualJob={handleAddNewManualJob}
-            onTogglePinJob={handleTogglePinJob}
-            onDeleteManualJob={handleDeleteManualJob}
-          />
-        )}
-
-        {activeTab === 'coder' && (
-          <CodeWorkspace
-            job={selectedJobForCoding}
-            aiAvailable={aiAvailable}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            githubToken={settings.githubToken}
-            onUpdateJob={handleFullJobUpdate}
-            onOpenGitHubPush={(job, files) => {
-              setGitHubPushState({ job, files });
-            }}
-            onUpdateJobFiles={handleUpdateJobFiles}
-            onUpdateJobRepoUrl={handleUpdateJobRepoUrl}
-          />
-        )}
-
-        {activeTab === 'pipeline' && (
-          <PipelineBoard
-            jobs={jobs}
-            onSelectJobForAnalysis={(job) => setSelectedJobForAnalysis(job)}
-            onSelectJobForProposal={(job) => setSelectedJobForProposal(job)}
-            onSelectJobForCoding={(job) => {
-              setSelectedJobForCodingId(job.id);
-              setActiveTab('coder');
-            }}
-            onMoveJobStatus={handleMoveJobStatus}
-            onUpdatePriority={handleUpdatePriority}
-            dailyEarningsGoal={settings.dailyEarningsGoal}
-          />
-        )}
+        <Layout
+          jobs={jobs}
+          feed={feed}
+          settings={settings}
+          logs={logs}
+          isScanning={isScanning}
+          scanStatusText={scanStatusText}
+          socketConnected={socketConnected}
+          totalEarningsToday={totalEarningsToday}
+          activeJobsCount={activeJobsCount}
+          onOpenSettings={()=>setIsSettingsOpen(true)}
+          onOpenCommandPalette={()=>setIsCommandPaletteOpen(true)}
+          onQuickScan={handleQuickScan}
+          onSyncCloudFeed={handleSyncCloudFeed}
+          cloudBusy={cloudBusy}
+          cloudEnabled={cloudInfo.enabled}
+          handleSelectAnalysis={(job)=> setSelectedJobForAnalysis(job)}
+          handleSelectProposal={(job)=> setSelectedJobForProposal(job)}
+          handleSelectCoding={(job)=> setSelectedJobForCodingId(job.id)}
+          handleAddManual={handleAddNewManualJob}
+          handleTogglePin={handleTogglePinJob}
+          handleDeleteManual={handleDeleteManualJob}
+          handleMoveStatus={handleMoveJobStatus}
+          handleUpdatePriority={handleUpdatePriority}
+          handleUpdateSettings={(ns)=> setSettings({ ...settings, ...ns })}
+          aiAvailable={aiAvailable}
+          selectedJobForCoding={selectedJobForCoding}
+          onUpdateJob={handleFullJobUpdate}
+          onUpdateJobFiles={handleUpdateJobFiles}
+          onOpenGitHubPush={(job,files)=> setGitHubPushState({job,files})}
+          onUpdateJobRepoUrl={handleUpdateJobRepoUrl}
+          githubToken={settings.githubToken}
+          dailyEarningsGoal={settings.dailyEarningsGoal}
+        />
 
         {jobToInit && (
-          <GitHubWorkflowManager
-            job={jobToInit}
-            githubToken={settings.githubToken}
-            onRepoCreated={(repoUrl) => {
-              setJobs((prev) => prev.map((j) => (j.id === jobToInit.id ? { ...j, repoUrl } : j)));
-              setJobToInit(null);
-            }}
-            autoStart={false}
-          />
+          <div className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center">
+            <div className="bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_#000] max-w-2xl w-full p-4">
+              <GitHubWorkflowManager job={jobToInit} githubToken={settings.githubToken} onRepoCreated={(repoUrl)=>{ setJobs(prev=> prev.map(j=> j.id===jobToInit.id ? { ...j, repoUrl } : j)); setJobToInit(null); }} autoStart={false} />
+              <button onClick={()=>setJobToInit(null)} className="mt-3 brutal-btn w-full">بستن</button>
+            </div>
+          </div>
         )}
 
-        {activeTab === 'autopilot' && (
-          <AutoPilotPanel
-            logs={logs}
-            settings={settings}
-            jobs={jobs}
-            onUpdateSettings={(newSettings) => setSettings({ ...settings, ...newSettings })}
-            onTriggerManualScan={handleQuickScan}
-            isScanning={isScanning}
+        {selectedJobForAnalysis && (
+          <AIEvaluatorModal
+            job={selectedJobForAnalysis}
+            onClose={()=> setSelectedJobForAnalysis(null)}
+            onProceedToProposal={setSelectedJobForProposal}
+            onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
+            onUpdateAnalysis={handleUpdateAnalysis}
           />
         )}
-      </main>
+        {selectedJobForProposal && (
+          <ProposalStudioModal
+            job={selectedJobForProposal}
+            onClose={()=> setSelectedJobForProposal(null)}
+            onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
+            onSaveProposalToJob={handleSaveProposalToJob}
+          />
+        )}
+        {gitHubPushState.job && (
+          <GitHubDispatcher job={gitHubPushState.job} files={gitHubPushState.files} githubToken={settings.githubToken} onClose={()=> setGitHubPushState({job:null, files:{}})} onCompleteJob={handleCompleteJob} />
+        )}
+        {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} settings={settings} onClose={()=> setIsSettingsOpen(false)} onSave={(ns)=> setSettings(ns)} />}
+        <CommandPalette open={isCommandPaletteOpen} onClose={()=> setIsCommandPaletteOpen(false)} jobs={jobs} actions={paletteActions} onSelectJob={setSelectedJobForAnalysis} />
+      </>
+    );
+  };
 
-      {selectedJobForAnalysis && (
-        <AIEvaluatorModal
-          job={selectedJobForAnalysis}
-          onClose={() => setSelectedJobForAnalysis(null)}
-          onProceedToProposal={(job) => setSelectedJobForProposal(job)}
-          onProceedToCoding={(job) => {
-            setSelectedJobForCodingId(job.id);
-            setActiveTab('coder');
-          }}
-          onUpdateAnalysis={handleUpdateAnalysis}
-        />
-      )}
-
-      {selectedJobForProposal && (
-        <ProposalStudioModal
-          job={selectedJobForProposal}
-          onClose={() => setSelectedJobForProposal(null)}
-          onProceedToCoding={(job) => {
-            setSelectedJobForCodingId(job.id);
-            setActiveTab('coder');
-          }}
-          onSaveProposalToJob={handleSaveProposalToJob}
-        />
-      )}
-
-      {gitHubPushState.job && (
-        <GitHubDispatcher
-          job={gitHubPushState.job}
-          files={gitHubPushState.files}
-          githubToken={settings.githubToken}
-          onClose={() => setGitHubPushState({ job: null, files: {} })}
-          onCompleteJob={handleCompleteJob}
-        />
-      )}
-
-      {isSettingsOpen && (
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          settings={settings}
-          onClose={() => setIsSettingsOpen(false)}
-          onSave={(newSettings) => setSettings(newSettings)}
-        />
-      )}
-
-      <StatusBar
-        socketConnected={socketConnected}
-        feedSource={feed.source}
-        jobCount={jobs.length}
-        activeTab={activeTab}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-      />
-
-      <MobileNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        activeJobsCount={activeJobsCount}
-      />
-
-      <CommandPalette
-        open={isCommandPaletteOpen}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        jobs={jobs}
-        actions={paletteActions}
-        onSelectJob={(job) => {
-          setSelectedJobForAnalysis(job);
-        }}
-      />
-    </div>
+  return (
+    <HashRouter>
+      <InnerApp />
+    </HashRouter>
   );
 }
