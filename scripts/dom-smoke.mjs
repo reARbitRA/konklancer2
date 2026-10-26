@@ -32,6 +32,43 @@ window.scrollTo = () => {};
 window.HTMLElement.prototype.scrollIntoView = () => {};
 window.navigator.clipboard = { writeText: async () => {} };
 window.URL.createObjectURL = () => 'blob:x';
+// Seed one job that already owns a multi-folder deliverable package, so the
+// studio workspace (file tree, syntax-highlighted editor, project search) can be
+// exercised against real data instead of being asserted blind.
+const SEED_JOB_ID = 'seed-studio-job';
+window.localStorage.setItem('freelanceflow_jobs', JSON.stringify([{
+  id: SEED_JOB_ID,
+  platform: 'پونیشا',
+  platformKey: 'ponisha',
+  title: 'پروژه آزمایشی استودیو برای تست درخت فایل و ادیتور',
+  clientName: 'کارفرمای آزمایشی',
+  clientRating: 4.5,
+  clientReviews: 10,
+  budget: 12000000,
+  budgetFormatted: '۱۲٬۰۰۰٬۰۰۰ تومان',
+  deadline: '۷ روز',
+  postedTime: '۱۰ دقیقه پیش',
+  category: 'توسعه نرم‌افزار',
+  categoryKey: 'development',
+  tags: ['python'],
+  description: 'توضیح آزمایشی',
+  proposalsCount: 3,
+  avgBid: 9000000,
+  status: 'in_progress',
+  blueprintMode: 'software_mvp',
+  solutionCode: {
+    'README.md': '# پروژه آزمایشی\n\nمستندات نمونه.\n',
+    'src/main.py': 'def main():\n    print("hello")\n',
+    'src/utils/helper.py': 'def add(a, b):\n    return a + b\n',
+    'web/index.html': '<div id="app"></div>\n',
+  },
+  generatedFiles: {
+    'README.md': '# پروژه آزمایشی\n\nمستندات نمونه.\n',
+    'src/main.py': 'def main():\n    print("hello")\n',
+    'src/utils/helper.py': 'def add(a, b):\n    return a + b\n',
+    'web/index.html': '<div id="app"></div>\n',
+  },
+}]));
 window.eval(fs.readFileSync(path.join(dist, 'assets', jsFile), 'utf8'));
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -54,6 +91,17 @@ const clickByText = (sel, text) => {
   if (!el) throw new Error(`no ${sel} containing "${text}"`);
   el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
   return el;
+};
+// React may replace the DOM node between lookup and dispatch (async socket
+// updates), in which case the click is silently lost. Re-click until the
+// expected state appears instead of trusting a single dispatch.
+const clickUntil = async (text, predicate, label, tries = 6) => {
+  for (let i = 0; i < tries; i += 1) {
+    try { clickByText('button', text); } catch { /* button not there yet */ }
+    const ok = await waitFor(predicate, label, 6000).then(() => true).catch(() => false);
+    if (ok) return true;
+  }
+  return false;
 };
 const fa2en = (s) => s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 const budgets = () => $$('.job-brutal').map(c => {
@@ -90,9 +138,8 @@ let bAsc = budgets().filter(v => v !== null);
 check('price sort toggled (asc)', bAsc.every((v, i) => i === 0 || v >= bAsc[i-1]), `top=${bAsc.slice(0,3).join(',')}`);
 
 // 1b) relevance filter "همه" + price desc must surface the absolute max budget (1e9)
-clickByText('button', 'همه (');
 // rendering 1000+ cards takes >1s in jsdom → wait on the condition, not a timer
-await waitFor(() => $$('.job-brutal').length >= 1000, '"همه" full feed render', 30000).catch(() => {});
+await clickUntil('همه (', () => $$('.job-brutal').length >= 1000, '"همه" full feed render');
 const allCards = $$('.job-brutal').length;
 check('"همه" relevance filter shows full feed', allCards >= 1000, `${allCards} cards`);
 
@@ -294,6 +341,108 @@ auditRenderedDesign('route-studio');
 await go('#/ops');
 check('route /ops renders', /سایبورگ|اتوماسیون|اسکن/.test($('#root').textContent));
 auditRenderedDesign('route-ops');
+
+// 8) CODE WORKSPACE — file tree, highlighted editor, project-wide search
+// (the seeded job already owns a nested deliverable package)
+await go('#/hunt');
+await waitFor(() => $$('.job-brutal').length > 0, 'hunt cards for studio');
+const seededCard = $$('.job-brutal').find(c => (c.textContent || '').includes('پروژه آزمایشی استودیو'));
+check('seeded studio job renders as a card', !!seededCard);
+if (seededCard) {
+  const studioBtn = [...seededCard.querySelectorAll('button')].find(b => (b.textContent || '').includes('استودیو'));
+  check('job card exposes a studio action', !!studioBtn);
+  if (studioBtn) {
+    studioBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await waitFor(() => !!$('[data-testid="code-editor"]') || !!$('[data-testid="markdown-view"]'), 'code workspace', 20000);
+  }
+}
+
+const treeTitle = (p) => $(`[title="${p}"]`);
+check('file tree renders nested folder', !!treeTitle('src'));
+check('file tree renders nested file', !!treeTitle('src/utils/helper.py'));
+check('file tree renders root file', !!treeTitle('README.md'));
+
+// the .md file is selected by default → markdown renderer must be visible
+check('markdown files open in the rendered document view', !!$('[data-testid="markdown-view"]'));
+
+// open a code file so the highlighted editor is the visible surface
+treeTitle('src/main.py')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await sleep(900);
+const editorHost = $('[data-testid="code-editor"]');
+check('syntax-highlighted editor is mounted', !!editorHost);
+if (editorHost) {
+  const highlighted = editorHost.querySelectorAll('.code-surface span[class^="tok-"]');
+  check('editor paints syntax tokens', highlighted.length > 0, `${highlighted.length} tokens`);
+  check('editor renders a line-number gutter', !!editorHost.querySelector('.code-gutter'));
+  const gutterLines = editorHost.querySelectorAll('.code-gutter > div > div');
+  check('gutter line count matches file', gutterLines.length >= 2, `${gutterLines.length} lines`);
+  const ta = editorHost.querySelector('textarea');
+  check('editor is editable (textarea layer present)', !!ta && !ta.readOnly);
+}
+
+// open a nested file from the tree and check the header + content follow
+const nestedRow = treeTitle('src/utils/helper.py');
+if (nestedRow) {
+  nestedRow.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(900);
+  const body = $('#root').textContent || '';
+  check('opening a tree file loads its content', /helper\.py/.test(body));
+  const tokens = $$('[data-testid="code-editor"] .code-surface span[class^="tok-"]').length;
+  check('nested file is highlighted', tokens > 0, `${tokens} tokens`);
+}
+
+// project-wide search
+const searchBtn = $$('button').find(b => b.getAttribute('aria-label') === 'جست‌وجو در پروژه');
+check('project search toggle is present', !!searchBtn);
+if (searchBtn) {
+  searchBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(500);
+  const searchInput = $$('input').find(i => i.getAttribute('aria-label') === 'عبارت جست‌وجو');
+  check('project search input opens', !!searchInput);
+  if (searchInput) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(searchInput, 'return');
+    searchInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await sleep(900);
+    const hits = $('[data-testid="project-search-results"]');
+    check('project search finds matches across files', !!hits && /helper\.py/.test(hits.textContent || ''),
+          hits ? (hits.textContent || '').slice(0, 60) : 'no results panel');
+    const firstHit = hits?.querySelector('button');
+    if (firstHit) {
+      firstHit.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await sleep(700);
+      check('clicking a search hit opens that file', /helper\.py/.test($('#root').textContent || ''));
+    }
+    // clean up the query so later checks start clean
+    setter.call(searchInput, '');
+    searchInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await sleep(300);
+    searchBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(300);
+  }
+}
+
+// create a new file through the workspace UI
+const newFileBtn = $$('button').find(b => b.getAttribute('aria-label') === 'فایل جدید');
+check('new-file action is present', !!newFileBtn);
+if (newFileBtn) {
+  newFileBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(400);
+  const nameInput = $$('input').find(i => i.getAttribute('aria-label') === 'نام فایل جدید');
+  check('new-file form opens', !!nameInput);
+  if (nameInput) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(nameInput, 'docs/notes.md');
+    nameInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await sleep(200);
+    const createBtn = $$('button').find(b => b.getAttribute('aria-label') === 'ایجاد فایل');
+    createBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(900);
+    check('new file appears in the tree', !!treeTitle('docs/notes.md'));
+  }
+}
+
+auditRenderedDesign('route-studio-with-files');
 await go('#/hunt');
 await sleep(2000);
 const huntCards = $$('.job-brutal').length;

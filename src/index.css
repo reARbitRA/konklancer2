@@ -571,3 +571,57 @@
     background: var(--ink);
   }
 }
+
+/* ==========================================================================
+   CODE WORKSPACE — brutalist code surface
+   The editor keeps an ink-black canvas (a "terminal block" in the brutalist
+   language) while the chrome around it stays paper/ink. These classes are
+   required by components/workspace/{CodeEditor,highlight}.
+   ========================================================================== */
+@layer components {
+  .code-surface {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 20px;
+    tab-size: 2;
+    white-space: pre;
+    background: #0a0a0a;
+    color: #F5F5F0;
+  }
+  .code-input {
+    color: transparent;
+    caret-color: #FFDE03;
+    white-space: pre;
+    overflow: auto;
+  }
+  .code-input::selection { background: rgba(255, 222, 3, 0.28); }
+  .code-gutter {
+    background: #111111;
+    border-right: 2px solid #2a2a2a;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 20px;
+    color: #6b6b6b;
+  }
+  .code-gutter .code-gutter__active {
+    background: #FFDE03;
+    color: #0a0a0a;
+    font-weight: 800;
+  }
+
+  /* token colours — brutalist palette */
+  .tok-kw   { color: #FFDE03; font-weight: 700; }
+  .tok-str  { color: #00E599; }
+  .tok-num  { color: #FF8A65; }
+  .tok-com  { color: #6b6b6b; font-style: italic; }
+  .tok-fn   { color: #66B2FF; }
+  .tok-type { color: #C792EA; }
+  .tok-op   { color: #E8E6E0; }
+  .tok-var  { color: #F5F5F0; }
+  .tok-dec  { color: #FF4D00; }
+  .tok-key  { color: #66B2FF; }
+  .tok-tag  { color: #FF4D00; }
+  .tok-attr { color: #FFDE03; }
+  .tok-prop { color: #FFDE03; }
+  .tok-head { color: #FF4D00; font-weight: 800; }
+}
