@@ -16,6 +16,7 @@ import { ProposalStudioModal } from './components/ProposalStudioModal';
 import { GitHubDispatcher } from './components/GitHubDispatcher';
 import { GitHubWorkflowManager } from './components/GitHubWorkflowManager';
 import { SettingsModal } from './components/SettingsModal';
+import { BarChart3 } from 'lucide-react';
 import { FreelanceJob, AIAnalysis, ActivityLogItem, UserSettings, PriorityLevel } from './types';
 import { categorizeJobWithGemini } from './utils/geminiCategorizer';
 import { categoryLabel, detectCategory } from '../shared/taxonomy';
@@ -472,6 +473,7 @@ export default function App() {
       { id:'tab-coder', label:'استودیو تحویل', hint:'۳ مرحله‌ای', icon: Terminal, run: ()=> navigate('/studio') },
       { id:'tab-pipeline', label:'پایپ‌لاین', hint:'کانبان و درآمد', icon: Workflow, run: ()=> navigate('/pipeline') },
       { id:'tab-autopilot', label:'مرکز سایبورگ', hint:'اتوماسیون', icon: Sparkles, run: ()=> navigate('/ops') },
+      { id:'tab-analytics', label:'کارنامه‌ی پیشنهادها', hint:'نرخ برد و نتیجه‌ها', icon: BarChart3, run: ()=> navigate('/analytics') },
     ], [handleQuickScan, navigate]);
 
     return (

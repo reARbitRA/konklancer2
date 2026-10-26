@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { Sparkles, Radar, ShieldCheck, Activity, Clock, Coins, CheckCircle2, Terminal, Zap, TrendingUp, Cpu, Settings, AlertTriangle, Play, Pause } from 'lucide-react';
+import { Sparkles, Radar, ShieldCheck, Activity, Clock, Coins, CheckCircle2, Terminal, Zap, TrendingUp, Cpu, Settings, AlertTriangle, Play, Pause, RefreshCw } from 'lucide-react';
 import { ActivityLogItem, UserSettings, FreelanceJob } from '../types';
 import { BrutalCollapsible } from './brutalist/Collapsible';
 import { apiFetch } from '../utils/apiFetch';
@@ -14,16 +14,52 @@ interface AutoPilotPanelProps {
   isScanning: boolean;
 }
 
+interface SchedulerState {
+  enabled: boolean;
+  intervalMinutes: number;
+  running: boolean;
+  lastRunAt: string | null;
+  lastResult: 'ok' | 'error' | null;
+  lastError: string | null;
+  scans: number;
+}
+
 export const AutoPilotPanel: React.FC<AutoPilotPanelProps> = ({ logs, settings, jobs, onUpdateSettings, onTriggerManualScan, isScanning }) => {
-  const [engineActive, setEngineActive] = useState(true);
-  const [scanInterval, setScanInterval] = useState('2');
+  // وضعیت واقعی زمان‌بند از سرور (قبلاً فقط state محلی و بی‌اثر بود)
+  const [scheduler, setScheduler] = useState<SchedulerState | null>(null);
+  const [schedulerBusy, setSchedulerBusy] = useState(false);
+  const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<any>(null);
+  const engineActive = scheduler?.enabled ?? false;
+
+  const applyScheduler = async (patch: { enabled?: boolean; intervalMinutes?: number }) => {
+    setSchedulerBusy(true);
+    setSchedulerError(null);
+    try {
+      const res = await apiFetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data: any = await res.json();
+      if (!res.ok || data?.success === false) throw new Error(data?.error || `HTTP ${res.status}`);
+      setScheduler(data.scheduler);
+    } catch (err: any) {
+      setSchedulerError(err?.message || 'تنظیم زمان‌بند ناموفق بود');
+    } finally {
+      setSchedulerBusy(false);
+    }
+  };
 
   React.useEffect(() => {
     const setStandalone = () => setBridgeStatus('standalone');
     let cancelled = false;
     const timeout = setTimeout(()=>{ if(!cancelled) setStandalone(); }, 2500);
-    apiFetch('/api/bridge/status').then(r=>{ if(!r.ok) throw new Error(); return r.json(); }).then(d=>{ if(!cancelled) setBridgeStatus(d?.status||'online'); }).catch(()=>{ if(!cancelled) setStandalone(); }).finally(()=>{ if(!cancelled) clearTimeout(timeout); });
+    apiFetch('/api/bridge/status').then(r=>{ if(!r.ok) throw new Error(); return r.json(); }).then(d=>{
+      if(cancelled) return;
+      setBridgeStatus(d?.status||'online');
+      if (d?.status?.scheduler) setScheduler(d.status.scheduler);
+    }).catch(()=>{ if(!cancelled) setStandalone(); }).finally(()=>{ if(!cancelled) clearTimeout(timeout); });
     return ()=>{ cancelled=true; clearTimeout(timeout); };
   }, []);
 
@@ -71,12 +107,22 @@ export const AutoPilotPanel: React.FC<AutoPilotPanelProps> = ({ logs, settings, 
             <span className="text-[11px] font-black uppercase tracking-widest">موتور رصد</span>
             <span className={`px-2 py-1 border-[2px] border-black text-[10px] font-black ${engineActive?'bg-[#00E599]':'bg-[#FF3B30] text-white'}`}>{engineActive?'فعال':'متوقف'}</span>
           </div>
+          <div className="text-[10.5px] font-bold text-[#555] leading-5" data-testid="scheduler-state">
+            {scheduler
+              ? `زمان‌بند: هر ${scheduler.intervalMinutes.toLocaleString('fa-IR')} دقیقه · اجراهای این نشست: ${scheduler.scans.toLocaleString('fa-IR')}${scheduler.lastRunAt ? ` · آخرین: ${new Date(scheduler.lastRunAt).toLocaleTimeString('fa-IR')}` : ''}`
+              : 'در حال خواندن وضعیت زمان‌بند از سرور...'}
+          </div>
+          {schedulerError && <div className="border-[2px] border-black bg-[#FF3B30] px-2 py-1 text-[10.5px] font-bold text-white">{schedulerError}</div>}
           <h3 className="text-[13px] font-black">{settings.cyborgMode ? 'سایبورگ — تایید ۱ کلیک' : 'تمام خودکار'}</h3>
           <p className="text-[11px] leading-5 text-[#555] font-medium">{settings.cyborgMode ? 'ربات پروژه را پیدا کرده، پروپوزال و کد را می‌سازد و فقط تایید نهایی را از شما می‌گیرد.' : 'کلیه مراحل طبق ترشولد AI کاملاً اتوماتیک انجام می‌شود.'}</p>
           <div className="flex gap-2">
             <button onClick={()=>onUpdateSettings({ cyborgMode: !settings.cyborgMode })} className="flex-1 brutal-btn brutal-btn--sm bg-white text-[11px]">تغییر حالت</button>
-            <button onClick={()=>setEngineActive(!engineActive)} className={`px-3 py-2 border-[2.5px] border-black font-black text-[11px] flex items-center gap-1 ${engineActive?'bg-[#FF3B30] text-white':'bg-[#00E599] text-black'}`}>
-              {engineActive? <><Pause className="w-3.5 h-3.5" /> توقف</> : <><Play className="w-3.5 h-3.5" /> روشن</>}
+            <button
+              onClick={()=>void applyScheduler({ enabled: !engineActive })}
+              disabled={schedulerBusy}
+              aria-label={engineActive ? 'توقف زمان‌بند اسکن' : 'روشن‌کردن زمان‌بند اسکن'}
+              className={`px-3 py-2 border-[2.5px] border-black font-black text-[11px] flex items-center gap-1 disabled:opacity-50 ${engineActive?'bg-[#FF3B30] text-white':'bg-[#00E599] text-black'}`}>
+              {schedulerBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : engineActive? <><Pause className="w-3.5 h-3.5" /> توقف</> : <><Play className="w-3.5 h-3.5" /> روشن</>}
             </button>
           </div>
         </div>
@@ -93,8 +139,17 @@ export const AutoPilotPanel: React.FC<AutoPilotPanelProps> = ({ logs, settings, 
           </div>
           <div className="flex items-center justify-between text-[11px] font-bold">
             <span>فواصل رصد</span>
-            <select value={scanInterval} onChange={e=>setScanInterval(e.target.value)} className="brutal-select !h-[32px] !w-auto text-[11px]">
-              <option value="1">هر ۱ دقیقه</option><option value="2">هر ۲ دقیقه</option><option value="5">هر ۵ دقیقه</option>
+            <select
+              aria-label="فواصل رصد"
+              value={String(scheduler?.intervalMinutes ?? 30)}
+              disabled={schedulerBusy}
+              onChange={e=>void applyScheduler({ intervalMinutes: Number(e.target.value) })}
+              className="brutal-select !h-[32px] !w-auto text-[11px]">
+              <option value="1">هر ۱ دقیقه</option>
+              <option value="5">هر ۵ دقیقه</option>
+              <option value="15">هر ۱۵ دقیقه</option>
+              <option value="30">هر ۳۰ دقیقه</option>
+              <option value="60">هر ۶۰ دقیقه</option>
             </select>
           </div>
         </div>

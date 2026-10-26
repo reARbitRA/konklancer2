@@ -17,6 +17,7 @@
 | احراز هویت اختیاری API با `KONKLANCER_API_TOKEN` | SPEC-003 R5 | میدل‌ور `server/apiAuth.ts` روی `/api` (هدر `x-api-token` / `Bearer` / `?token=`) | فیلد «توکن API سرور» در تنظیمات؛ توکن با هدر فرستاده می‌شود | `server/bidRoutes.test.ts` («درخواست بدون توکن ۴۰۱ می‌گیرد») |
 | اعلان تلگرام برای پروژه‌های بالای آستانه | SPEC-004 R7 | `server/notifier.ts` + `GET /api/alerts/status`، ارسال پس از هر اسکن موفق | پنل «اعلان‌ها» در کارنامه با دلیل خاموش‌بودن | ۴ تست `outcomes.test.ts` + چک DOM «analytics explains telegram alert state» |
 | رندر مرورگری برای سایت‌های JS-محور | SPEC-007 (شکاف قبلی) | `render_html_with_browser` در اسکنر (Playwright، robots + محدودیت دامنه) | فلگ `--browser` روی `scan/probe/autodetect/autoscan` و env `KONKLANCER_BROWSER=1` | ۴ تست آفلاین `scanner/tests/test_browser_mode.py`؛ **اجرای واقعی مرورگر در این محیط تأیید نشد** (Playwright نصب نیست) |
+| زمان‌بند اسکن قابل کنترل از UI (توقف/فواصل رصد) — قبلاً state محلی و بی‌اثر بود | SPEC-004/007 §2.2 | `POST/GET /api/scheduler` + `POST /api/scheduler/run-now`، وضعیت در SQLite (`settings.scan_scheduler`) پایدار می‌ماند | دکمه‌ی توقف/روشن و انتخاب بازه در صفحه‌ی سایبورگ + نمایش آخرین اجرا | ۸ تست `server/scheduler.test.ts` + چک DOM «engine toggle changes real scheduled-scan state» + تأیید curl/SQLite |
 | ذخیره‌سازی مقاوم مرورگر (WebView اندروید) | — | `src/utils/safeStorage.ts` که قبلاً بی‌استفاده بود، اکنون در خواندن/نوشتن jobs و settings | — | `tsc` + اجرای کامل DOM smoke |
 
 ## ۲) قابلیت‌هایی که از قبل بودند و دوباره تأیید شدند
@@ -43,8 +44,8 @@
 ## ۴) چطور خودت تأیید کنی
 
 ```bash
-npm test            # ۹۴ تست Node (سرور + منطق مشترک)
-npm run test:dom    # ۸۱ چک DOM روی بیلد واقعی + سرور زنده
+npm test            # ۱۰۸ تست Node (سرور + منطق مشترک)
+npm run test:dom    # ۸۵ چک DOM روی بیلد واقعی + سرور زنده
 npm run lint        # tsc --noEmit
 python3 -m pytest -q scanner/tests   # ۵۸ تست اسکنر
 curl -s localhost:3000/api/health

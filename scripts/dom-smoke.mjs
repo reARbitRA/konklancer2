@@ -342,6 +342,29 @@ await go('#/ops');
 check('route /ops renders', /سایبورگ|اتوماسیون|اسکن/.test($('#root').textContent));
 auditRenderedDesign('route-ops');
 
+// scheduler panel must reflect real server state and actually toggle it
+await waitFor(() => !!$('[data-testid="scheduler-state"]') && /زمان‌بند/.test($('[data-testid="scheduler-state"]').textContent || ''), 'scheduler state', 15000).catch(() => {});
+const schedText = $('[data-testid="scheduler-state"]')?.textContent || '';
+check('ops panel shows live scheduler state from the server', /زمان‌بند/.test(schedText), schedText.slice(0, 60));
+const toggleBtn = $$('button').find(b => /توقف زمان‌بند اسکن|روشن‌کردن زمان‌بند اسکن/.test(b.getAttribute('aria-label') || ''));
+check('ops engine toggle is wired', !!toggleBtn);
+if (toggleBtn) {
+  const before = (await (await globalThis.fetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
+  toggleBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  let after = before;
+  for (let i = 0; i < 15 && after === before; i += 1) {
+    await sleep(400);
+    after = (await (await globalThis.fetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
+  }
+  check('engine toggle changes real scheduled-scan state', after !== before, `${before} → ${after}`);
+  // restore the original setting
+  await globalThis.fetch(`${BASE_URL}/api/scheduler`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled: before }),
+  });
+}
+
 // 8) CODE WORKSPACE — file tree, highlighted editor, project-wide search
 // (the seeded job already owns a nested deliverable package)
 await go('#/hunt');
@@ -458,7 +481,9 @@ const panelText = $('#root').textContent || '';
 check('analytics reports backend persistence (SQLite)', /konklancer\.db|SQLite/.test(panelText));
 check('analytics explains telegram alert state', /اعلان تلگرام/.test(panelText));
 const statsTable = $$('[data-testid^="stats-table-"]').length;
-check('analytics breakdown tables render', statsTable >= 1, `${statsTable} tables`);
+const emptyBreakdown = /هنوز داده‌ای در این دسته‌بندی نیست/.test($('#root').textContent || '');
+check('analytics breakdown shows tables or an honest empty state', statsTable >= 1 || emptyBreakdown,
+      `${statsTable} tables, emptyState=${emptyBreakdown}`);
 
 // outcome buttons must be driven by real API data: seed a bid through the API,
 // reload the page and confirm it appears with an actionable status row.
@@ -477,6 +502,8 @@ refreshBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => /پروژه تست کارنامه/.test($('#root').textContent || ''), 'seeded bid in analytics', 25000)
   .catch(() => {});
 check('seeded bid appears in the analytics list', /پروژه تست کارنامه/.test($('#root').textContent || ''));
+check('breakdown tables appear once bid data exists', $$('[data-testid^="stats-table-"]').length >= 1,
+      `${$$('[data-testid^="stats-table-"]').length} tables`);
 const wonBtn = $$('button').find(b => (b.textContent || '').trim() === 'برنده');
 check('outcome action buttons render', !!wonBtn);
 if (wonBtn) {

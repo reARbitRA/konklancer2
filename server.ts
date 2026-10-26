@@ -11,6 +11,7 @@ import { ALL_CATEGORIES, categoryLabel, categoryPromptList } from './shared/taxo
 import { fetchAndParseUrl, parseHtmlProjects } from './server/urlScraper';
 import { getBidStore } from './server/store';
 import { registerBidRoutes } from './server/bidRoutes';
+import { ScanScheduler } from './server/scheduler';
 import { createApiTokenGuard, describeApiAuth, readApiToken } from './server/apiAuth';
 import { notifyNotableJobs, readAlertConfig } from './server/notifier';
 import {
@@ -488,12 +489,31 @@ async function performScan(): Promise<ScanOutcome> {
   return { ok: true, added: fresh.length, total: projects.length, scannedAt, message, output: run.output };
 }
 
-// اسکن دوره‌ای اختیاری برای استفاده شخصی (پیش‌فرض: خاموش)
-if (SCAN_CONFIG.intervalMinutes > 0) {
-  setInterval(() => {
-    performScan().catch((err) => console.warn('[scanner] scheduled scan failed:', err?.message ?? err));
-  }, SCAN_CONFIG.intervalMinutes * 60_000);
+// ── زمان‌بند اسکن دوره‌ای (از UI کنترل می‌شود؛ پیش‌فرض از .env) ──────────
+const SCHEDULER_KEY = 'scan_scheduler';
+function readPersistedScheduler(): { enabled?: boolean; intervalMinutes?: number } {
+  try {
+    const raw = getBidStore().getSetting(SCHEDULER_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : undefined,
+      intervalMinutes: Number.isFinite(Number(parsed?.intervalMinutes)) ? Number(parsed.intervalMinutes) : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
+const persistedScheduler = readPersistedScheduler();
+const scanScheduler = new ScanScheduler({
+  scan: () => performScan(),
+  log: (message) => emitBridgeLog(message),
+  persist: (state) => getBidStore().setSetting(SCHEDULER_KEY, JSON.stringify(state)),
+  initial: {
+    enabled: persistedScheduler.enabled ?? SCAN_CONFIG.intervalMinutes > 0,
+    intervalMinutes: persistedScheduler.intervalMinutes ?? (SCAN_CONFIG.intervalMinutes > 0 ? SCAN_CONFIG.intervalMinutes : 30),
+  },
+});
 
 
 
@@ -807,6 +827,7 @@ app.get('/api/bridge/status', (_req: Request, res: Response) => {
         .filter((target) => !target.enabled)
         .map((target) => ({ name: target.name, reason: target.reason, kind: target.kind })),
       clientsCount: io.engine.clientsCount,
+      scheduler: scanScheduler.getState(),
     },
   });
 });
@@ -1173,6 +1194,30 @@ registerBidRoutes(app, {
   log: (message, type) => emitBridgeLog(message, type),
   emit: (event, payload) => io.emit(event, payload),
   alertSentCount: () => alertSent.size,
+});
+
+// کنترل زمان‌بند اسکن از UI (SPEC-007 §2.2) — قبلاً فقط در بوت قابل تنظیم بود
+app.get('/api/scheduler', (_req: Request, res: Response) => {
+  res.json({ success: true, scheduler: scanScheduler.getState() });
+});
+
+app.post('/api/scheduler', (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const state = scanScheduler.configure({
+      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+      intervalMinutes: body.intervalMinutes === undefined ? undefined : Number(body.intervalMinutes),
+    });
+    io.emit('scheduler:changed', state);
+    return res.json({ success: true, scheduler: scanScheduler.getState() });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, code: 'INVALID_SCHEDULE', error: err?.message ?? 'تنظیم نامعتبر' });
+  }
+});
+
+app.post('/api/scheduler/run-now', async (_req: Request, res: Response) => {
+  const result = await scanScheduler.tick(true);
+  return res.json({ success: result !== 'error', result, scheduler: scanScheduler.getState() });
 });
 
 // Start Express server and connect Vite in development

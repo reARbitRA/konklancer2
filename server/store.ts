@@ -90,6 +90,10 @@ export class BidStore {
         bids_at_seen INTEGER,
         budget_text TEXT
       );
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_bids_status ON bids(status);
       CREATE INDEX IF NOT EXISTS idx_bids_project ON bids(project_id);
     `);
@@ -179,6 +183,18 @@ export class BidStore {
            budget_text = CASE WHEN projects_seen.budget_text = '' THEN excluded.budget_text ELSE projects_seen.budget_text END`,
       )
       .run(id, new Date().toISOString(), bidsAtSeen, String(budgetText ?? '').slice(0, 200));
+  }
+
+  /** تنظیمات ساده‌ی سرور (مثلاً وضعیت زمان‌بند اسکن). */
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db
+      .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(key, String(value));
   }
 
   countProjectsSeen(): number {
