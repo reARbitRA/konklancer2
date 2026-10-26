@@ -6,12 +6,11 @@ import { FreelanceJob, PlatformKey, CategoryKey } from '../types';
 import { ALL_CATEGORIES, categoryLabel, detectCategory } from '../../shared/taxonomy';
 import { evaluateProjectRelevance } from '../../shared/relevanceEngine';
 import { buildJobsFromRows, fetchHtmlSmart, parsePlatformHtmlClient } from '../services/standaloneFeed';
-import { BrutalCollapsible } from './brutalist/Collapsible';
+import {
+  SortBy, SortDir, SortConfig, DEFAULT_SORT, sortJobs as sortJobsPure, nextSortConfig, readStoredSort, writeStoredSort, parsePostedTimeMinutes, formatRelativeMinutes, SORT_OPTIONS,
+} from '../utils/jobSort';
 
 type RelevanceFilterMode = 'relevant' | 'prime' | 'saved' | 'all';
-type SortBy = 'default' | 'time' | 'price' | 'type';
-type SortDir = 'asc' | 'desc';
-type SortConfig = { by: SortBy; dir: SortDir };
 
 interface JobHunterProps {
   jobs: FreelanceJob[];
@@ -21,55 +20,6 @@ interface JobHunterProps {
   onAddNewManualJob: (job: Partial<FreelanceJob>) => Promise<void> | void;
   onTogglePinJob: (jobId: string) => void;
   onDeleteManualJob: (jobId: string) => void;
-}
-
-// ──────────────────────────────────────────────────────────────
-// SORT HELPERS — Time / Type / Price
-// ──────────────────────────────────────────────────────────────
-const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
-const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
-function faToEn(str: string): string {
-  return str.replace(/[۰-۹]/g, d => String(FA_DIGITS.indexOf(d))).replace(/[٠-٩]/g, d => String(AR_DIGITS.indexOf(d)));
-}
-function parsePostedTimeMinutes(postedTime: string, scrapedAt?: string): number {
-  const raw = faToEn(postedTime || '').trim().toLowerCase();
-  if (!raw) {
-    if (scrapedAt) {
-      const t = Date.parse(scrapedAt);
-      if (!Number.isNaN(t)) return Math.max(0, Math.round((Date.now() - t) / 60000));
-    }
-    return 999999;
-  }
-  if (raw.includes('هم‌اکنون') || raw.includes('همین حالا') || raw.includes('لحظاتی پیش') || raw === 'الان') return 0;
-  if (raw.includes('امروز')) return 5;
-  if (raw.includes('دیروز')) return 1440;
-  // e.g. "۲۷ دقیقه پیش" / "3 ساعت پیش" / "2 روز پیش"
-  const numMatch = raw.match(/(\d+(?:\.\d+)?)/);
-  const num = numMatch ? parseFloat(numMatch[1]) : 0;
-  if (raw.includes('ثانیه')) return Math.max(0, num / 60);
-  if (raw.includes('دقیقه')) return num;
-  if (raw.includes('ساعت')) return num * 60;
-  if (raw.includes('روز')) return num * 1440;
-  if (raw.includes('هفته')) return num * 10080;
-  if (raw.includes('ماه')) return num * 43200;
-  // fallback: try to parse absolute date like "1403/07/12"
-  if (scrapedAt) {
-    const t = Date.parse(scrapedAt);
-    if (!Number.isNaN(t)) return Math.max(0, Math.round((Date.now() - t) / 60000));
-  }
-  return 999999;
-}
-
-function getTypeRank(job: FreelanceJob): string {
-  // Sortable string: platformKey + categoryKey ensures stable grouping
-  return `${job.platformKey}__${job.categoryKey}__${job.categorizedTag || ''}`.toLowerCase();
-}
-
-function formatRelativeMinutes(mins: number): string {
-  if (mins < 1) return 'هم‌اکنون';
-  if (mins < 60) return `${Math.round(mins).toLocaleString('fa-IR')} دقیقه پیش`;
-  if (mins < 1440) return `${Math.round(mins / 60).toLocaleString('fa-IR')} ساعت پیش`;
-  return `${Math.round(mins / 1440).toLocaleString('fa-IR')} روز پیش`;
 }
 
 export const JobHunter: React.FC<JobHunterProps> = ({
@@ -98,22 +48,18 @@ export const JobHunter: React.FC<JobHunterProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // ── SORTING SYSTEM ──
-  const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
-    try {
-      const saved = localStorage.getItem('konklancer_sort_v1');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return { by: 'default', dir: 'desc' };
-  });
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() =>
+    readStoredSort(typeof window !== 'undefined' ? window.localStorage : null),
+  );
 
-  const setSort = (by: SortBy, dir?: SortDir) => {
-    setSortConfig(prev => {
-      const nextDir = dir ?? (prev.by === by ? (prev.dir === 'asc' ? 'desc' : 'asc') : 'desc');
-      const next = { by, dir: nextDir };
-      try { localStorage.setItem('konklancer_sort_v1', JSON.stringify(next)); } catch {}
-      return next;
-    });
+  const applySort = (next: SortConfig) => {
+    setSortConfig(next);
+    if (typeof window !== 'undefined') writeStoredSort(window.localStorage, next);
   };
+
+  const setSort = (by: SortBy) => applySort(nextSortConfig(sortConfig, by));
+  const toggleDir = () => applySort({ ...sortConfig, dir: sortConfig.dir === 'asc' ? 'desc' : 'asc' });
+  const resetSort = () => applySort(DEFAULT_SORT);
 
   const enrichedJobs = jobs.map((job) => {
     if (job.relevanceTier) return job;
@@ -138,27 +84,8 @@ export const JobHunter: React.FC<JobHunterProps> = ({
     return matchesSearch && matchesPlatform && matchesCategory;
   }), [enrichedJobs, relevanceFilter, searchQuery, selectedPlatform, selectedCategory]);
 
-  // ── SORTED JOBS ──
-  const sortedJobs = useMemo(() => {
-    if (sortConfig.by === 'default') return filteredJobs;
-    const arr = [...filteredJobs];
-    arr.sort((a, b) => {
-      let cmp = 0;
-      if (sortConfig.by === 'time') {
-        const ta = parsePostedTimeMinutes(a.postedTime, a.scrapedAt);
-        const tb = parsePostedTimeMinutes(b.postedTime, b.scrapedAt);
-        cmp = ta - tb; // smaller = newer
-      } else if (sortConfig.by === 'price') {
-        cmp = (a.budget || 0) - (b.budget || 0);
-      } else if (sortConfig.by === 'type') {
-        const ra = getTypeRank(a);
-        const rb = getTypeRank(b);
-        cmp = ra.localeCompare(rb, 'fa');
-      }
-      return sortConfig.dir === 'asc' ? cmp : -cmp;
-    });
-    return arr;
-  }, [filteredJobs, sortConfig]);
+  // ── SORTED JOBS (pure engine, unit-tested in server/jobSort.test.ts) ──
+  const sortedJobs = useMemo(() => sortJobsPure(filteredJobs, sortConfig), [filteredJobs, sortConfig]);
 
   const handleCopyId = async (id: string) => {
     try { await navigator.clipboard.writeText(id); } catch { const ta = document.createElement('textarea'); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
@@ -250,7 +177,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           <div className="flex items-center gap-1.5">
             <span className="hidden sm:inline text-[10px] font-mono bg-black text-white px-2 py-1 border border-black">FRONTEND SORT ● BACKEND SAFE</span>
             {sortConfig.by !== 'default' && (
-              <button onClick={() => setSort('default')} className="px-2 py-1 bg-white border-[2px] border-black text-[11px] font-black hover:bg-black hover:text-white">بازنشانی</button>
+              <button onClick={resetSort} className="px-2 py-1 bg-white border-[2px] border-black text-[11px] font-black hover:bg-black hover:text-white">بازنشانی</button>
             )}
           </div>
         </div>
@@ -262,7 +189,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           >
             <div>
               <div className="flex items-center gap-2 text-[12px] font-black"><Clock className="w-4 h-4" /> زمان انتشار</div>
-              <div className="text-[11px] opacity-70 font-medium mt-0.5">جدیدترین → قدیمی‌ترین</div>
+              <div className="text-[11px] opacity-70 font-medium mt-0.5">{sortConfig.by === 'time' ? (sortConfig.dir === 'desc' ? 'جدیدترین → قدیمی‌ترین' : 'قدیمی‌ترین → جدیدترین') : 'جدیدترین ↔ قدیمی‌ترین'}</div>
             </div>
             <div className={`w-8 h-8 border-[2px] flex items-center justify-center shrink-0 ${sortConfig.by === 'time' ? 'bg-[#FFDE03] text-black border-white' : 'bg-white border-black'}`}>
               {sortConfig.by === 'time' ? (sortConfig.dir === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />) : <Calendar className="w-4 h-4" />}
@@ -275,7 +202,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           >
             <div>
               <div className="flex items-center gap-2 text-[12px] font-black"><Tag className="w-4 h-4" /> نوع / دسته‌بندی</div>
-              <div className="text-[11px] opacity-70 font-medium mt-0.5">پلتفرم + دسته (الفبا)</div>
+              <div className="text-[11px] opacity-70 font-medium mt-0.5">{sortConfig.by === 'type' ? (sortConfig.dir === 'desc' ? 'ی → آ' : 'آ → ی') : 'پلتفرم + دسته (الفبا)'}</div>
             </div>
             <div className={`w-8 h-8 border-[2px] flex items-center justify-center shrink-0 ${sortConfig.by === 'type' ? 'bg-white text-black border-white' : 'bg-white border-black'}`}>
               {sortConfig.by === 'type' ? (sortConfig.dir === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />) : <Layers className="w-4 h-4" />}
@@ -288,7 +215,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
           >
             <div>
               <div className="flex items-center gap-2 text-[12px] font-black"><DollarSign className="w-4 h-4" /> قیمت / بودجه</div>
-              <div className="text-[11px] opacity-70 font-medium mt-0.5">کم → زیاد / زیاد → کم</div>
+              <div className="text-[11px] opacity-70 font-medium mt-0.5">{sortConfig.by === 'price' ? (sortConfig.dir === 'desc' ? 'گران‌ترین → ارزان‌ترین' : 'ارزان‌ترین → گران‌ترین') : 'کم ↔ زیاد'}</div>
             </div>
             <div className={`w-8 h-8 border-[2px] flex items-center justify-center shrink-0 ${sortConfig.by === 'price' ? 'bg-black text-white border-white' : 'bg-white border-black'}`}>
               {sortConfig.by === 'price' ? (sortConfig.dir === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />) : <TrendingUp className="w-4 h-4" />}
@@ -299,8 +226,10 @@ export const JobHunter: React.FC<JobHunterProps> = ({
         <div className="px-3 pb-3 bg-white flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 text-[11px] font-bold">
             <span className="px-2 py-1 bg-black text-white border border-black">جهت:</span>
-            <button onClick={() => setSortConfig(s => ({ ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' }))} className="px-3 py-1 bg-white border-[2px] border-black hover:bg-black hover:text-white flex items-center gap-1">
-              {sortConfig.dir === 'desc' ? <><ArrowDown className="w-3.5 h-3.5" /> نزولی (زیاد → کم)</> : <><ArrowUp className="w-3.5 h-3.5" /> صعودی (کم → زیاد)</>}
+            <button onClick={toggleDir} className="px-3 py-1 bg-white border-[2px] border-black hover:bg-black hover:text-white flex items-center gap-1">
+              {sortConfig.dir === 'desc'
+                ? <><ArrowDown className="w-3.5 h-3.5" /> {sortConfig.by === 'time' ? 'جدیدترین → قدیمی‌ترین' : sortConfig.by === 'price' ? 'گران‌ترین → ارزان‌ترین' : 'نزولی (ی → آ)'}</>
+                : <><ArrowUp className="w-3.5 h-3.5" /> {sortConfig.by === 'time' ? 'قدیمی‌ترین → جدیدترین' : sortConfig.by === 'price' ? 'ارزان‌ترین → گران‌ترین' : 'صعودی (آ → ی)'}</>}
             </button>
           </div>
           <div className="flex items-center gap-1 mr-auto">
