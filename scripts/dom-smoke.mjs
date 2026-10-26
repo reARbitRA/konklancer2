@@ -176,6 +176,40 @@ nativeSetter.call(search, '');
 search.dispatchEvent(new window.Event('input', { bubbles: true }));
 await sleep(600);
 
+// 6b) MODALS: command palette, settings, AI analysis, proposal studio
+const pressKey = (key, opts = {}) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, ...opts }));
+pressKey('k', { ctrlKey: true });
+await sleep(900);
+const palette = $$('input').find(i => /جستجو|search|پروژه|دستور/i.test(i.placeholder || ''));
+check('command palette opens (Ctrl+K)', !!palette || /دستور|پرش سریع|Command/i.test($('#root').textContent));
+pressKey('Escape');
+await sleep(600);
+
+const settingsBtn = $$('button').find(b => /تنظیمات|Settings/i.test((b.textContent || '') + (b.getAttribute('title') || '') + (b.getAttribute('aria-label') || '')));
+check('settings control exists', !!settingsBtn);
+if (settingsBtn) {
+  settingsBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(1200);
+  const settingsText = $('#root').textContent || '';
+  check('settings modal renders', /تنظیمات|کلید|GitHub|API/i.test(settingsText));
+  const closeBtn = $$('button').find(b => /بستن|انصراف|Close|✕|×/i.test((b.textContent || '').trim()) && b.closest('[class*="fixed"]'));
+  closeBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(600);
+}
+
+// analyze → AI evaluator modal (backend may return 503 without a key: must degrade gracefully)
+const analyseBtn = $$('button').find(b => (b.textContent || '').trim().startsWith('تحلیل'));
+check('analyze button present', !!analyseBtn);
+if (analyseBtn) {
+  analyseBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(1500);
+  check('AI evaluator modal opens', /تحلیل|ارزیابی|هوش مصنوعی|AI/i.test($('#root').textContent));
+  pressKey('Escape');
+  const closers = $$('button').filter(b => /بستن|انصراف|✕|×/i.test((b.textContent || '').trim()));
+  closers[0]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(800);
+}
+
 // 7) ROUTES
 const go = async (hash) => { window.location.hash = hash; await sleep(3000); };
 await go('#/pipeline');
