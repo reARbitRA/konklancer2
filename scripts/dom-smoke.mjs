@@ -37,9 +37,16 @@ window.eval(fs.readFileSync(path.join(dist, 'assets', jsFile), 'utf8'));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const $ = (sel) => window.document.querySelector(sel);
 const $$ = (sel) => [...window.document.querySelectorAll(sel)];
-const waitFor = async (fn, label, timeout = 8000) => {
+// NOTE: rendering ~800 cards in jsdom blocks the event loop for several seconds,
+// so timer-driven polling can overshoot the deadline while the check would in
+// fact succeed. Always re-check once after unblocking before failing.
+const waitFor = async (fn, label, timeout = 30000) => {
   const t0 = Date.now();
-  while (Date.now() - t0 < timeout) { try { if (fn()) return true; } catch {} await sleep(120); }
+  while (Date.now() - t0 < timeout) {
+    try { if (fn()) return true; } catch {}
+    await sleep(150);
+  }
+  try { if (fn()) return true; } catch {}
   throw new Error('timeout waiting for ' + label);
 };
 const clickByText = (sel, text) => {
@@ -72,21 +79,22 @@ check('sort panel rendered', !!$$('button').find(b => (b.textContent||'').includ
 
 // 1) PRICE SORT (desc → priciest first)
 clickByText('button', 'قیمت / بودجه');
-await sleep(700);
+await waitFor(() => { const v = budgets().filter(x => x !== null); return v.length > 1 && v[0] === Math.max(...v); }, 'price desc order', 30000).catch(() => {});
 let b = budgets().filter(v => v !== null);
 check('price sort applied (desc)', b.length > 1 && b.every((v, i) => i === 0 || v <= b[i-1]), `top=${b.slice(0,3).join(',')}`);
 
 // toggle direction → asc
 clickByText('button', 'قیمت / بودجه');
-await sleep(700);
+await waitFor(() => { const v = budgets().filter(x => x !== null); return v.length > 1 && v[0] === Math.min(...v); }, 'price asc order', 30000).catch(() => {});
 let bAsc = budgets().filter(v => v !== null);
 check('price sort toggled (asc)', bAsc.every((v, i) => i === 0 || v >= bAsc[i-1]), `top=${bAsc.slice(0,3).join(',')}`);
 
 // 1b) relevance filter "همه" + price desc must surface the absolute max budget (1e9)
 clickByText('button', 'همه (');
-await sleep(900);
+// rendering 1000+ cards takes >1s in jsdom → wait on the condition, not a timer
+await waitFor(() => $$('.job-brutal').length >= 1000, '"همه" full feed render', 30000).catch(() => {});
 const allCards = $$('.job-brutal').length;
-check('"همه" relevance filter shows full feed', allCards >= 900, `${allCards} cards`);
+check('"همه" relevance filter shows full feed', allCards >= 1000, `${allCards} cards`);
 
 // force price DESC via the direction toggle (label starts with the "desc" side)
 const dirs = () => $$('button').find(b => /^(نزولی|صعودی)|^(جدیدترین|قدیمی‌ترین|گران‌ترین|ارزان‌ترین)/.test((b.textContent || '').trim()));
@@ -111,12 +119,12 @@ await sleep(700);
 
 // 2) TIME SORT (desc → newest first)
 clickByText('button', 'زمان انتشار');
-await sleep(700);
+await waitFor(() => { const v = ages().filter(x => x !== null); return v.length > 0 && v[0] === Math.min(...v); }, 'time newest-first order', 30000).catch(() => {});
 let a = ages().filter(v => v !== null);
 check('time sort applied (newest first)', a.length > 0 && a.every((v, i) => i === 0 || v >= a[i-1]), `top=${a.slice(0,3).map(x=>x.toFixed(0)+'m').join(',')}`);
 
 clickByText('button', 'زمان انتشار');
-await sleep(700);
+await waitFor(() => { const v = ages().filter(x => x !== null); return v.length > 0 && v[0] === Math.max(...v); }, 'time oldest-first order', 30000).catch(() => {});
 let aAsc = ages().filter(v => v !== null);
 check('time sort toggled (oldest first)', aAsc.every((v, i) => i === 0 || v <= aAsc[i-1]), `top=${aAsc.slice(0,3).map(x=>x.toFixed(0)+'m').join(',')}`);
 
