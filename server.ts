@@ -1118,10 +1118,12 @@ async function startServer() {
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
+    // Prevent HMR port collision when Express runs on Vite's default HMR port (24678)
+    const hmrPort = PORT === 24678 ? 24679 : 24678;
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: false,
+        hmr: { port: hmrPort, host: '0.0.0.0' },
         watch: null,
         // Allow any host (including AI Studio preview domains)
         allowedHosts: true,
