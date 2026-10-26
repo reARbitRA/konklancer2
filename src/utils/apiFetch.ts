@@ -4,6 +4,8 @@
  * اگر `KONKLANCER_API_TOKEN` روی سرور تنظیم شده باشد، همه‌ی درخواست‌های API
  * باید توکن داشته باشند. توکن در تنظیمات (و در localStorage) نگه‌داری می‌شود.
  */
+import { getAuthAccessToken } from '../services/authToken';
+
 export const API_TOKEN_STORAGE_KEY = 'konklancer_api_token';
 
 export function readApiToken(): string {
@@ -24,10 +26,22 @@ export function writeApiToken(token: string): void {
   }
 }
 
-/** هدرهای پایه‌ی API همراه توکن (در صورت وجود). */
+/**
+ * هدرهای پایه‌ی API همراه توکن‌ها.
+ *
+ * دو راه احراز هویت پشتیبانی می‌شوند:
+ * 1. `x-api-token` — توکن محلی سرور (`KONKLANCER_API_TOKEN`)
+ * 2. `Authorization: Bearer <supabase jwt>` — نشست ورود کاربر
+ * هر کدام که موجود باشد فرستاده می‌شود؛ هر دو هم می‌توانند باشند.
+ */
 export function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = readApiToken();
-  return { ...extra, ...(token ? { 'x-api-token': token } : {}) };
+  const jwt = getAuthAccessToken();
+  return {
+    ...extra,
+    ...(token ? { 'x-api-token': token } : {}),
+    ...(jwt ? { authorization: `Bearer ${jwt}` } : {}),
+  };
 }
 
 /** fetch روی مسیرهای داخلی با توکن. مسیرهای خارجی (http…) دست‌نخورده می‌مانند. */

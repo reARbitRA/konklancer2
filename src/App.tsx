@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { RefreshCw, X, WifiOff, Radar, Settings, Terminal, Workflow, Sparkles, Cpu } from 'lucide-react';
 import { BrutalHeader } from './components/layout/BrutalHeader';
@@ -11,6 +11,8 @@ import { CodeWorkspace } from './components/CodeWorkspace';
 import { PipelineBoard } from './components/PipelineBoard';
 import { AutoPilotPanel } from './components/AutoPilotPanel';
 import { OutcomeAnalytics } from './components/OutcomeAnalytics';
+import { AccountPage } from './components/auth/AccountPage';
+import { LoginScreen } from './components/auth/LoginScreen';
 import { AIEvaluatorModal } from './components/AIEvaluatorModal';
 import { ProposalStudioModal } from './components/ProposalStudioModal';
 import { GitHubDispatcher } from './components/GitHubDispatcher';
@@ -86,6 +88,17 @@ export function mergeFeedJobs(current: FreelanceJob[], incoming: FreelanceJob[],
   const usedIds = new Set([...permanentMap.keys(), ...incomingIds, ...userTouchedMap.keys()]);
   const seeded = seed.filter(j=> !usedIds.has(j.id)).map(enrichJob);
   return [...permanentMap.values(), ...mergedIncoming, ...preservedOffFeed, ...seeded];
+}
+
+/** مسیرهای احراز هویت: /login فرم ورود، /account جزئیات نشست. */
+function AuthPage() {
+  const location = useLocation();
+  if (location.pathname.startsWith('/account')) return <AccountPage />;
+  return (
+    <div className="mx-auto w-full max-w-[560px] px-3 py-6">
+      <LoginScreen onGuestContinue={() => window.history.back()} />
+    </div>
+  );
 }
 
 function useRouteTab(): 'hunter' | 'coder' | 'pipeline' | 'autopilot' | 'analytics' {
@@ -216,6 +229,8 @@ const Layout: React.FC<{
               />
             } />
             <Route path="/analytics" element={<OutcomeAnalytics />} />
+            <Route path="/login" element={<AuthPage />} />
+            <Route path="/account" element={<AuthPage />} />
             <Route path="/ops" element={
               <AutoPilotPanel
                 logs={props.logs}
@@ -226,7 +241,20 @@ const Layout: React.FC<{
                 isScanning={props.isScanning}
               />
             } />
-            <Route path="*" element={<Navigate to="/hunt" replace />} />
+            <Route
+              path="*"
+              element={
+                <div className="mx-auto max-w-[520px] px-4 py-10 text-center">
+                  <div className="border-[3px] border-[#0a0a0a] bg-white p-5 shadow-[6px_6px_0px_0px_#000]">
+                    <h2 className="text-[16px] font-black">صفحه پیدا نشد</h2>
+                    <p className="mt-1 text-[11.5px] font-bold text-[#555]">مسیر درخواستی وجود ندارد.</p>
+                    <Link to="/hunt" className="mt-3 inline-block border-[2.5px] border-[#0a0a0a] bg-[#FFDE03] px-3 py-1.5 text-[12px] font-black">
+                      بازگشت به شکار
+                    </Link>
+                  </div>
+                </div>
+              }
+            />
           </Routes>
         </main>
       </div>

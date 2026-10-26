@@ -526,6 +526,57 @@ if (seeded?.id) {
   await globalThis.fetch(`${BASE_URL}/api/bids/${seeded.id}`, { method: 'DELETE' });
 }
 
+// 9) AUTH — Supabase session surface (Google / GitHub / Telegram)
+// The sandbox has no network route to *.supabase.co, so the honest expectation
+// is "unknown", never a fake success. What must hold: the chip renders, the menu
+// opens, /login lists all three providers, /account reports live status, and the
+// server exposes its dual-auth configuration.
+await go('#/hunt');
+await waitFor(() => !!$('[data-testid="account-chip"]'), 'account chip', 15000).catch(() => {});
+const chip = $('[data-testid="account-chip"]');
+check('header renders the account chip', !!chip);
+if (chip) {
+  chip.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await waitFor(() => !!$('[data-testid="account-menu"]'), 'account menu', 8000).catch(() => {});
+  const menu = $('[data-testid="account-menu"]');
+  check('account chip opens a dropdown menu', !!menu, menu ? '' : 'menu never mounted');
+  if (menu) {
+    const menuText = menu.textContent || '';
+    check('menu offers a sign-in entry point', /ورود|ثبت‌نام/.test(menuText), menuText.slice(0, 40));
+    chip.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(300);
+  }
+}
+
+await go('#/login');
+await sleep(1200);
+const loginText = $('#root').textContent || '';
+check('route /login renders the auth screen', /ورود|Google|Telegram/i.test(loginText));
+check('/login lists Google, GitHub and Telegram', /Google/.test(loginText) && /GitHub/.test(loginText) && /Telegram/.test(loginText),
+      loginText.slice(0, 80));
+check('/login shows a provider status honestly (never a fake success)', /آماده|تنظیم نشده|نامشخص|در حال بررسی/.test(loginText));
+const oauthButtons = $$('button').filter(b => /^ورود با (Google|GitHub|Telegram)$/.test(b.getAttribute('aria-label') || ''));
+check('/login renders a username/password-free OAuth button per provider',
+      oauthButtons.map(b => b.getAttribute('aria-label')).join('|') === 'ورود با Google|ورود با GitHub',
+      oauthButtons.map(b => b.getAttribute('aria-label')).join('|'));
+const telegramZone = $('[data-testid="telegram-widget"]');
+const telegramHint = /نام ربات تلگرام تنظیم نشده|TELEGRAM_BOT_TOKEN/.test(loginText);
+check('telegram row is wired (embedded widget, or an honest configuration hint)',
+      Boolean(telegramZone) || telegramHint, telegramZone ? 'widget mounted' : 'config hint shown');
+check('every login button is reachable without runtime JS errors', errors.length === 0, errors.slice(0, 2).join(' | '));
+auditRenderedDesign('route-login');
+
+await go('#/account');
+await sleep(1200);
+const accountText = $('#root').textContent || '';
+check('route /account renders', /حساب|PROVIDERS|SESSION|ورود/.test(accountText));
+check('/account explains the human dashboard setup steps', /داشبورد|Dashboard|Providers/.test(accountText));
+auditRenderedDesign('route-account');
+
+const authConfig = await (await globalThis.fetch(`${BASE_URL}/api/auth/config`)).json().catch(() => null);
+check('/api/auth/config reports dual auth (api token + supabase jwt)', !!authConfig?.supabaseJwt?.enabled,
+      JSON.stringify(authConfig?.supabaseJwt ?? null).slice(0, 80));
+
 await go('#/hunt');
 await sleep(1500);
 

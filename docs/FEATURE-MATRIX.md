@@ -18,6 +18,8 @@
 | اعلان تلگرام برای پروژه‌های بالای آستانه | SPEC-004 R7 | `server/notifier.ts` + `GET /api/alerts/status`، ارسال پس از هر اسکن موفق | پنل «اعلان‌ها» در کارنامه با دلیل خاموش‌بودن | ۴ تست `outcomes.test.ts` + چک DOM «analytics explains telegram alert state» |
 | رندر مرورگری برای سایت‌های JS-محور | SPEC-007 (شکاف قبلی) | `render_html_with_browser` در اسکنر (Playwright، robots + محدودیت دامنه) | فلگ `--browser` روی `scan/probe/autodetect/autoscan` و env `KONKLANCER_BROWSER=1` | ۴ تست آفلاین `scanner/tests/test_browser_mode.py`؛ **اجرای واقعی مرورگر در این محیط تأیید نشد** (Playwright نصب نیست) |
 | زمان‌بند اسکن قابل کنترل از UI (توقف/فواصل رصد) — قبلاً state محلی و بی‌اثر بود | SPEC-004/007 §2.2 | `POST/GET /api/scheduler` + `POST /api/scheduler/run-now`، وضعیت در SQLite (`settings.scan_scheduler`) پایدار می‌ماند | دکمه‌ی توقف/روشن و انتخاب بازه در صفحه‌ی سایبورگ + نمایش آخرین اجرا | ۸ تست `server/scheduler.test.ts` + چک DOM «engine toggle changes real scheduled-scan state» + تأیید curl/SQLite |
+| ورود کاربر با **Google / GitHub / Telegram** روی Supabase Auth | AUTH-001 (درخواست کاربر) | پروژه‌ی Supabase `rwuyuhjkitcnekpwmoml`؛ جدول‌های `profiles` + `telegram_links` با RLS؛ Edge Function `telegram-auth` v2؛ مسیر هم‌ارز `GET/POST /api/auth/telegram` روی سرور Node | چیپ حساب در هدر، مودال ورود، مسیرهای `/login` و `/account`، گیت اختیاری با `VITE_AUTH_REQUIRED` | ۳۱ تست Node (`server/authClient.test.ts` + `server/telegramAuth.test.ts` + `server/supabaseJwt.test.ts`) + ۱۰ چک DOM جدید؛ **ورود واقعی OAuth/Telegram در این سندباکس تأیید نشد** چون هیچ مسیر شبکه‌ای به `*.supabase.co` نیست و client_id/secret هنوز در داشبورد ست نشده |
+| احراز هویت دوگانه‌ی API: توکن محلی **یا** JWT سوپابیس | AUTH-002 | میدل‌ور `server/supabaseJwt.ts` پیش از `createApiTokenGuard`؛ `GET /api/auth/config` برای وضعیت | `apiFetch` توکن نشست را به‌صورت `Authorization: Bearer` می‌فرستد | ۱۵ تست (شامل HTTP واقعی: بدون توکن ۴۰۱، با JWT ۲۰۰، توکن بد ۴۰۱ با هدر `x-konklancer-jwt`) |
 | ذخیره‌سازی مقاوم مرورگر (WebView اندروید) | — | `src/utils/safeStorage.ts` که قبلاً بی‌استفاده بود، اکنون در خواندن/نوشتن jobs و settings | — | `tsc` + اجرای کامل DOM smoke |
 
 ## ۲) قابلیت‌هایی که از قبل بودند و دوباره تأیید شدند
@@ -41,24 +43,31 @@
 | `GET /download/KonkLancer-Studio.apk` | فایل نیست | اندپوینت صادقانه ۴۰۴ می‌دهد؛ ساخت APK به Android SDK/Gradle نیاز دارد (`npm run android:apk`) که در این محیط نیست. هیچ دکمه‌ای در UI به آن لینک نیست. |
 | `freelance_pro_engine.py` (اسکریپت قدیمی با auto-bid) | حذف نشده | سؤال باز SPEC-006 D4؛ اجرا نمی‌شود و در `npm start` دخالتی ندارد. حذفش تصمیم مالک است. |
 | ارسال پیشنهاد به پلتفرم‌ها | عمداً پیاده نشده | خارج از دامنه‌ی ایمنی پروژه (README بند اول). |
+| فعال‌سازی providerهای Google/GitHub | نیاز به کار انسانی | API قابل‌دسترس Supabase (و کانکتور) فقط toggle/expiry را تغییر می‌دهد و فیلد `client_id`/`secret` را نمی‌پذیرد؛ باید در Dashboard → Authentication → Providers وارد شود. UI این وضعیت را صادقانه «تنظیم نشده» نشان می‌دهد و دکمه‌ی موفقیت جعلی ندارد. |
+| ویجت تلگرام | نیاز به BotFather | `TELEGRAM_BOT_TOKEN` (secret پروژه) و نام کاربری ربات لازم است؛ تا آن زمان مسیر `/api/auth/telegram` صادقانه `configured:false` + `missing` برمی‌گرداند. |
+| دور واقعی OAuth (رفت‌وبرگشت مرورگر) | تأیید نشده | سندباکس به `*.supabase.co` شبکه ندارد؛ فقط توابع خالص و مسیرهای HTTP محلی تست شده‌اند. دامنه‌ی پیش‌نمایش هم باید به Redirect allow list اضافه شود. |
 
 ## ۴) چطور خودت تأیید کنی
 
 یک دستور برای همه‌چیز (به‌جز اسکنر پایتون):
 
 ```bash
-npm run verify      # lint + ۱۰۸ تست Node + ۸۵ چک DOM روی سرور زنده
+npm run verify      # lint + ۱۳۹ تست Node + ۱۰۱ چک DOM روی سرور زنده
 ```
 
 جزئیات:
 
 ```bash
-npm test            # ۱۰۸ تست Node (سرور + منطق مشترک)
-npm run test:dom    # ۸۵ چک DOM روی بیلد واقعی + سرور زنده
+npm test            # ۱۳۹ تست Node (سرور + منطق مشترک)
+npm run test:dom    # ۱۰۱ چک DOM روی بیلد واقعی + سرور زنده
 npm run lint        # tsc --noEmit
 python3 -m pytest -q scanner/tests   # ۵۸ تست اسکنر
 curl -s localhost:3000/api/health
 curl -s -X POST localhost:3000/api/bids -H 'content-type: application/json' \
   -d '{"projectId":"p1","platform":"ponisha","title":"نمونه","budgetBid":5000000}'
 curl -s localhost:3000/api/stats
+curl -s localhost:3000/api/auth/config          # وضعیت احراز هویت دوگانه
+curl -s localhost:3000/api/auth/telegram        # پیکربندی ورود تلگرام (configured/missing)
 ```
+
+مسیر کامل راه‌اندازی و تأیید ورود: `docs/AUTH.md`.

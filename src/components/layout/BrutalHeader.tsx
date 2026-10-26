@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Radar, Terminal, Workflow, Cpu, Settings, Search, Command, Zap, Layers, Sparkles, TrendingUp, Menu, X, ChevronDown } from 'lucide-react';
 import { LiveModelSwitcher } from '../LiveModelSwitcher';
+import { AccountMenu } from '../auth/AccountMenu';
 
 interface BrutalHeaderProps {
   onOpenSettings: () => void;
@@ -119,6 +120,9 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
 
           {/* Actions */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Account / Supabase auth (Google · GitHub · Telegram) */}
+            <AccountMenu />
+
             {/* Live API-key / model switcher (restored feature) */}
             <div className="hidden md:block">
               <LiveModelSwitcher onOpenFullSettings={onOpenSettings} />

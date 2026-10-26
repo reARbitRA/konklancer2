@@ -13,6 +13,8 @@ import { getBidStore } from './server/store';
 import { registerBidRoutes } from './server/bidRoutes';
 import { ScanScheduler } from './server/scheduler';
 import { createApiTokenGuard, describeApiAuth, readApiToken } from './server/apiAuth';
+import { extractBearerJwt, verifySupabaseJwt } from './server/supabaseJwt';
+import { createTelegramAuthHandler } from './server/telegramAuth';
 import { notifyNotableJobs, readAlertConfig } from './server/notifier';
 import {
   buildFeed,
@@ -57,9 +59,49 @@ app.use(express.json({ limit: '10mb' }));
 // درخواست‌های /api به هدر x-api-token نیاز دارند. بدون آن، رفتار قبلی حفظ می‌شود.
 const API_TOKEN = readApiToken(process.env);
 const sendApiTokenHeader = (res: Response) => res.setHeader('x-api-auth', API_TOKEN ? 'required' : 'off');
+const tokenGuard = createApiTokenGuard(API_TOKEN);
+/**
+ * راه دوم احراز هویت: توکن Supabase (Bearer JWT).
+ * اگر توکن معتبر باشد، حتی وقتی `KONKLANCER_API_TOKEN` تنظیم شده هم عبور می‌کند
+ * تا کاربرها بتوانند با حساب Google/GitHub/Telegram لاگین کنند و از همان نشست
+ * API را صدا بزنند. هدر `x-konklancer-user` شناسه‌ی کاربر را برای لاگ/UI می‌فرستد.
+ */
 app.use('/api', (req: Request, res: Response, next) => {
   sendApiTokenHeader(res);
-  return createApiTokenGuard(API_TOKEN)(req, res, next);
+  const jwt = extractBearerJwt(req.headers.authorization);
+  if (jwt) {
+    const result = verifySupabaseJwt(jwt);
+    if (result.ok) {
+      res.setHeader('x-konklancer-user', result.claims.sub);
+      (req as Request & { user?: { id: string; email?: string; provider?: string } }).user = {
+        id: result.claims.sub,
+        email: result.claims.email,
+        provider: result.claims.app_metadata?.provider ?? result.claims.user_metadata?.user_name,
+      };
+      return next();
+    }
+    res.setHeader('x-konklancer-jwt', result.reason);
+  }
+  return tokenGuard(req, res, next);
+});
+
+// ورود تلگرام (سرور خودمیزبان؛ هم‌ارز Edge Function `telegram-auth`).
+// GET وضعیت پیکربندی، POST بررسی امضای ویجت و صدور token_hash.
+app.get('/api/auth/telegram', createTelegramAuthHandler());
+app.post('/api/auth/telegram', createTelegramAuthHandler());
+
+/** احراز هویت آماری برای UI: کدام راه‌ها فعال‌اند. */
+app.get('/api/auth/config', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    apiToken: describeApiAuth(API_TOKEN),
+    supabaseJwt: {
+      enabled: true,
+      signatureChecked: Boolean((process.env.SUPABASE_JWT_SECRET ?? '').trim()),
+      trustUnsigned: process.env.KONKLANCER_TRUST_SUPABASE_JWT === 'true',
+      header: 'authorization',
+    },
+  });
 });
 
 app.get('/api/health', (_req: Request, res: Response) => {
