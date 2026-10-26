@@ -1,19 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Copy, 
-  Check, 
-  Sparkles, 
-  X, 
-  Coins, 
-  Clock, 
-  Send,
-  Code2,
-  ThumbsUp
+import {
+  FileText, Copy, Check, Sparkles, X, Coins, Clock, Send, Code2, ThumbsUp, RefreshCw, AlertTriangle, ArrowLeft,
 } from 'lucide-react';
 import { FreelanceJob } from '../types';
 import { generateProposalDirect } from '../services/browserLLM';
 import { safeCopyText } from '../utils/safeClipboard';
+import { BrutalModal } from './brutalist/Modal';
 
 interface ProposalStudioModalProps {
   job: FreelanceJob | null;
@@ -22,11 +14,14 @@ interface ProposalStudioModalProps {
   onSaveProposalToJob: (jobId: string, proposal: string, price: number) => void;
 }
 
+const TONES = [
+  { key: 'friendly_expert', label: 'صمیمی و ارشد', desc: 'بیشترین جلب اعتماد', icon: ThumbsUp },
+  { key: 'direct_urgent', label: 'صریح و فوری', desc: 'تحویل تا چند ساعت', icon: Clock },
+  { key: 'technical_detailed', label: 'فنی و ساختاریافته', desc: 'کتابخانه‌ها و تست', icon: Code2 },
+] as const;
+
 export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
-  job,
-  onClose,
-  onProceedToCoding,
-  onSaveProposalToJob,
+  job, onClose, onProceedToCoding, onSaveProposalToJob,
 }) => {
   const [tone, setTone] = useState<'friendly_expert' | 'direct_urgent' | 'technical_detailed'>('friendly_expert');
   const [customPrice, setCustomPrice] = useState<number>(0);
@@ -83,172 +78,135 @@ export const ProposalStudioModal: React.FC<ProposalStudioModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden my-8">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
-              <FileText className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">استودیو نگارش پیشنهاد متقاعدکننده (ضد کلیشه)</h2>
-              <p className="text-[11px] text-slate-400 font-mono">پروژه: {job.title.slice(0, 45)}...</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            <X className="h-4 w-4" />
+    <BrutalModal
+      title="استودیو نگارش پیشنهاد متقاعدکننده"
+      subtitle={`${job.platform} · ${job.title.slice(0, 40)}`}
+      icon={FileText}
+      onClose={onClose}
+      size="lg"
+      variant="accent"
+      meta={
+        <span className="hidden sm:inline-flex px-2 py-1 bg-[#0a0a0a] text-[#FFDE03] border-[2px] border-[#0a0a0a] text-[10px] font-black">
+          ANTI-CLICHÉ
+        </span>
+      }
+      footer={
+        <>
+          <button onClick={onClose} className="brutal-btn brutal-btn--sm">
+            <X className="w-3.5 h-3.5" /> انصراف
           </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-6 space-y-5">
-          {/* Tone Selector Tabs */}
-          <div className="space-y-2">
-            <label className="text-xs text-slate-400 block">انتخاب سبک و لحن روانشناسی:</label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { key: 'friendly_expert', label: 'صمیمی و ارشد (پیش‌فرض)', desc: 'بیشترین جلب اعتماد' },
-                { key: 'direct_urgent', label: 'صریح و تحویل فوری', desc: 'تاکید بر انجام تا چند ساعت' },
-                { key: 'technical_detailed', label: 'فنی و ساختاریافته', desc: 'اشاره به کتابخانه‌ها و تست' },
-              ].map((item) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={handleCopy} className="brutal-btn brutal-btn--sm">
+              <Copy className="w-3.5 h-3.5" /> کپی متن
+            </button>
+            <button onClick={handleSaveAndAdvance} className="brutal-btn brutal-btn--sm brutal-btn--mint gap-1">
+              <Code2 className="w-3.5 h-3.5" /> ثبت پیشنهاد و شروع کدنویسی <ArrowLeft className="w-3 h-3" />
+            </button>
+          </div>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {/* Tone selector */}
+        <div>
+          <label className="block text-[11px] font-black uppercase tracking-wide mb-1.5">انتخاب سبک و لحن روانشناسی</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {TONES.map((item) => {
+              const active = tone === item.key;
+              return (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => {
-                    const newTone = item.key as any;
-                    setTone(newTone);
-                    generateProposal(newTone, customPrice);
-                  }}
-                  className={`p-3 rounded-lg border text-right transition-all ${
-                    tone === item.key
-                      ? 'bg-slate-800 border-amber-500/60 text-white shadow-sm'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  onClick={() => { const t = item.key as any; setTone(t); generateProposal(t, customPrice); }}
+                  className={`p-2.5 border-[2.5px] border-[#0a0a0a] text-right transition-all ${
+                    active ? 'bg-[#0a0a0a] text-white shadow-[3px_3px_0px_0px_#000]' : 'bg-white hover:bg-[#FFFBF0]'
                   }`}
                 >
-                  <span className="block text-xs font-semibold">{item.label}</span>
-                  <span className="block text-[10px] text-slate-400 mt-0.5">{item.desc}</span>
+                  <span className="flex items-center gap-1.5 text-[12px] font-black">
+                    <item.icon className="w-3.5 h-3.5" /> {item.label}
+                  </span>
+                  <span className={`block text-[10px] mt-0.5 font-medium ${active ? 'opacity-80' : 'text-[#4a4a4a]'}`}>{item.desc}</span>
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Pricing & Duration Controls */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950 border border-slate-800 rounded-xl">
-            <div>
-              <label className="block text-[11px] text-slate-400 mb-1">مبلغ پیشنهادی شما (تومان):</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(parseInt(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500 tabular-nums"
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 mt-1 block">
-                بودجه کارفرما: {job.budgetFormatted}
-              </span>
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-slate-400 mb-1">زمان تحویل:</label>
-              <input
-                type="text"
-                value={deliveryTime}
-                onChange={(e) => setDeliveryTime(e.target.value)}
-                placeholder="مثال: ۴ ساعت یا ۱ روز"
-                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-              />
-              <span className="text-[10px] text-emerald-400/90 mt-1 block">
-                تحویل سریع = ۸۰٪ افزایش شانس برنده شدن
-              </span>
-            </div>
-          </div>
-
-          {/* Proposal Text Field */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                <span>متن نهایی پیشنهاد (آماده ارسال در سایت فریلنسری):</span>
-              </label>
-
-              <button
-                onClick={() => generateProposal(tone, customPrice)}
-                disabled={loading}
-                className="text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
-              >
-                {loading ? 'در حال بازنویسی...' : 'بازنویسی مجدد ↻'}
-              </button>
-            </div>
-
-            <div className="relative">
-              <textarea
-                rows={6}
-                value={proposalText}
-                onChange={(e) => setProposalText(e.target.value)}
-                placeholder="متن پروپوزال توسط هوش مصنوعی در حال نگارش است..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 leading-relaxed focus:outline-none focus:border-amber-500/60 font-sans"
-              />
-
-              <button
-                onClick={handleCopy}
-                className="absolute left-3 bottom-3 flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md text-[11px] border border-slate-700 transition-colors"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-3 w-3 text-emerald-400" />
-                    <span className="text-emerald-300">کپی شد!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3 w-3" />
-                    <span>کپی برای چت کارفرما</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {error && (
-              <p className="text-xs text-red-400">{error}</p>
-            )}
-
-            <p className="text-[11px] text-slate-400">
-              💡 این متن را مستقیماً داخل کادر پیشنهاد در سایت {job.platform} پیست کنید و ارسال نمایید.
-            </p>
+              );
+            })}
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-800 bg-slate-900/90">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs text-slate-400 hover:text-white"
-          >
-            انصراف
-          </button>
+        {/* Price + delivery */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-[#FFFBF0] border-[2.5px] border-[#0a0a0a]">
+          <div>
+            <label className="block text-[11px] font-black mb-1 flex items-center gap-1"><Coins className="w-3.5 h-3.5" /> مبلغ پیشنهادی (تومان)</label>
+            <input
+              type="number"
+              value={customPrice}
+              onChange={(e) => setCustomPrice(parseInt(e.target.value) || 0)}
+              className="w-full bg-white border-[2px] border-[#0a0a0a] px-2.5 py-1.5 text-[12px] font-mono font-black focus:outline-none focus:border-[#0066FF] tabular-nums"
+            />
+            <span className="text-[10px] font-bold text-[#4a4a4a] mt-1 block">بودجه کارفرما: {job.budgetFormatted}</span>
+          </div>
+          <div>
+            <label className="block text-[11px] font-black mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> زمان تحویل</label>
+            <input
+              type="text"
+              value={deliveryTime}
+              onChange={(e) => setDeliveryTime(e.target.value)}
+              placeholder="مثال: ۴ ساعت یا ۱ روز"
+              className="w-full bg-white border-[2px] border-[#0a0a0a] px-2.5 py-1.5 text-[12px] font-bold focus:outline-none focus:border-[#0066FF]"
+            />
+            <span className="text-[10px] font-bold text-[#00875A] mt-1 block">تحویل سریع = ۸۰٪ افزایش شانس برد</span>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-2">
+        {/* Proposal text */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <label className="text-[11px] font-black uppercase tracking-wide flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> متن نهایی پیشنهاد
+            </label>
+            <button
+              onClick={() => generateProposal(tone, customPrice)}
+              disabled={loading}
+              className="brutal-btn brutal-btn--sm !h-[26px] !text-[10px]"
+            >
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> {loading ? 'در حال بازنویسی…' : 'بازنویسی مجدد'}
+            </button>
+          </div>
+
+          <div className="relative">
+            <textarea
+              rows={7}
+              value={proposalText}
+              onChange={(e) => setProposalText(e.target.value)}
+              placeholder={loading ? 'متن پروپوزال توسط هوش مصنوعی در حال نگارش است…' : 'متن پروپوزال اینجا نمایش داده می‌شود…'}
+              className="w-full bg-white border-[2.5px] border-[#0a0a0a] p-3 pb-11 text-[12px] leading-7 text-[#1a1a1a] focus:outline-none focus:border-[#0066FF] font-sans"
+            />
             <button
               onClick={handleCopy}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium"
+              className={`absolute left-2 bottom-2 flex items-center gap-1 px-2.5 py-1 border-[2px] border-[#0a0a0a] text-[11px] font-black transition-colors ${
+                copied ? 'bg-[#00E599]' : 'bg-white hover:bg-[#FFDE03]'
+              }`}
             >
-              کپی متن
-            </button>
-
-            <button
-              onClick={handleSaveAndAdvance}
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-lg text-xs shadow-md transition-all active:scale-95"
-            >
-              <Code2 className="h-3.5 w-3.5" />
-              <span>ثبت پیشنهاد و شروع کدنویسی</span>
+              {copied ? <><Check className="w-3 h-3" /> کپی شد!</> : <><Copy className="w-3 h-3" /> کپی برای چت کارفرما</>}
             </button>
           </div>
+
+          {error && (
+            <div className="mt-2 p-2 bg-[#FF3B30] text-white border-[2px] border-[#0a0a0a] text-[11px] font-bold flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" /> {error}
+            </div>
+          )}
+
+          <p className="mt-2 text-[11px] font-bold text-[#4a4a4a] flex items-start gap-1">
+            <Send className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            این متن را مستقیماً داخل کادر پیشنهاد در سایت {job.platform} پیست و ارسال کنید.
+          </p>
+          {!hasGenerated && !loading && (
+            <p className="mt-1 text-[10px] font-bold text-[#8a6d00] bg-[#FFDE03]/40 border-[2px] border-[#0a0a0a] px-2 py-1 inline-block">
+              هنوز پیشنهادی تولید نشده — یک لحن را انتخاب کنید یا «بازنویسی مجدد» را بزنید.
+            </p>
+          )}
         </div>
       </div>
-    </div>
+    </BrutalModal>
   );
 };

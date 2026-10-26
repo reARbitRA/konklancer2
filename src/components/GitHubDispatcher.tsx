@@ -330,40 +330,38 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
   if (!job) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden my-8">
+    <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="انتشار در گیت‌هاب">
+      <div className="w-full max-w-3xl bg-white border-[3px] border-[#0a0a0a] shadow-[8px_8px_0px_0px_#000] overflow-hidden my-4 sm:my-8 flex flex-col max-h-[calc(100vh-2rem)]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90">
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b-[3px] border-[#0a0a0a] bg-[#0a0a0a] text-[#FFFBF0]">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+            <div className="w-8 h-8 shrink-0 flex items-center justify-center bg-[#00E599] border-[2px] border-[#0a0a0a] text-[#0a0a0a]">
               <FolderGit2 className="h-4 w-4" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>انتشار مستقیم در گیت‌هاب با Octokit</span>
-              </h2>
-              <p className="text-[11px] text-slate-400 font-mono">پروژه: {job.title.slice(0, 45)}...</p>
+            <div className="min-w-0">
+              <h2 className="text-[13px] font-black tracking-wide uppercase leading-5">انتشار مستقیم در گیت‌هاب</h2>
+              <p className="text-[11px] font-mono opacity-70 truncate">پروژه: {job.title.slice(0, 45)}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            className="w-8 h-8 shrink-0 bg-white text-[#0a0a0a] border-[2px] border-[#0a0a0a] flex items-center justify-center hover:bg-[#FFDE03] transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto brutal-scroll flex-1">
           {/* Job summary badge */}
-          <div className="flex items-center justify-between p-3.5 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+          <div className="flex items-center justify-between p-3.5 bg-[#FFFBF0] border-[2px] border-[#0a0a0a]  text-xs">
             <div className="space-y-0.5">
-              <span className="font-semibold text-white block">{job.title}</span>
-              <span className="text-[11px] text-slate-400">کارفرما: {job.clientName} ({job.platform})</span>
+              <span className="font-semibold text-[#0a0a0a] block">{job.title}</span>
+              <span className="text-[11px] text-[#4a4a4a]">کارفرما: {job.clientName} ({job.platform})</span>
             </div>
             <div className="text-left font-mono">
-              <span className="text-emerald-400 font-bold block tabular-nums">{job.budgetFormatted}</span>
-              <span className="text-[10px] text-slate-500">{Object.keys(files).length} فایل آماده ارسال</span>
+              <span className="text-[#00875A] font-bold block tabular-nums">{job.budgetFormatted}</span>
+              <span className="text-[10px] text-[#6b6b6b]">{Object.keys(files).length} فایل آماده ارسال</span>
             </div>
           </div>
 
@@ -371,17 +369,17 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
             /* Octokit Form */
             <div className="space-y-4">
               {/* GitHub Token Field */}
-              <div className="space-y-1.5 p-3.5 bg-slate-950 border border-slate-800 rounded-xl">
+              <div className="space-y-1.5 p-3.5 bg-[#FFFBF0] border-[2px] border-[#0a0a0a] ">
                 <div className="flex items-center justify-between text-xs">
-                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <Key className="h-3.5 w-3.5 text-emerald-400" />
+                  <label className="font-semibold text-[#1a1a1a] flex items-center gap-1.5">
+                    <Key className="h-3.5 w-3.5 text-[#00875A]" />
                     <span>توکن گیت‌هاب (GitHub Personal Access Token):</span>
                   </label>
                   <a
                     href="https://github.com/settings/tokens/new?scopes=repo&description=FreelanceFlow-AI"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1"
+                    className="text-[11px] text-[#00875A] hover:underline flex items-center gap-1"
                   >
                     <span>دریافت توکن از گیت‌هاب</span>
                     <ExternalLink className="h-3 w-3" />
@@ -396,7 +394,7 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                     placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxx"
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 pr-24 text-xs font-mono text-emerald-400 dir-ltr text-left focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border-[2px] border-[#0a0a0a]  px-3 py-2 pr-24 text-xs font-mono text-[#00875A] dir-ltr text-left focus:outline-none focus:border-[#0066FF]"
                   />
                   <button
                     type="button"
@@ -406,7 +404,7 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                           (document.activeElement as HTMLInputElement),
                       )
                     }
-                    className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                    className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-[#00875A] bg-white hover:bg-[#FFDE03] border-[2px] border-[#0a0a0a] "
                   >
                     پِست
                   </button>
@@ -414,12 +412,12 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
 
                 {/* Verified user badge or loading status */}
                 {authenticatedUser ? (
-                  <div className="flex items-center justify-between pt-1.5 text-xs text-emerald-400">
+                  <div className="flex items-center justify-between pt-1.5 text-xs text-[#00875A]">
                     <div className="flex items-center gap-2">
                       <img
                         src={authenticatedUser.avatar_url}
                         alt={authenticatedUser.login}
-                        className="h-5 w-5 rounded-full border border-emerald-500/40"
+                        className="h-5 w-5 rounded-full border-[2px] border-[#0a0a0a]"
                       />
                       <span>
                         متصل به اکانت: <strong>@{authenticatedUser.login}</strong>
@@ -430,36 +428,36 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                     <button
                       type="button"
                       onClick={() => initializeOctokitAndFetchRepos(token.trim())}
-                      className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1"
+                      className="text-[10px] text-[#4a4a4a] hover:text-[#0a0a0a] flex items-center gap-1"
                     >
                       <RefreshCw className={`h-3 w-3 ${loadingRepos ? 'animate-spin' : ''}`} />
                       <span>بروزرسانی مخازن</span>
                     </button>
                   </div>
                 ) : verifyingToken ? (
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
-                    <div className="h-3 w-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="text-[11px] text-[#4a4a4a] flex items-center gap-1.5 pt-1">
+                    <div className="h-3 w-3 border-2 border-[2px] border-[#0a0a0a] border-t-transparent rounded-full animate-spin"></div>
                     <span>در حال اعتبارسنجی با Octokit و دریافت لیست مخازن...</span>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-slate-400 pt-1">
-                    توکن با دسترسی <code className="text-emerald-400 font-mono">repo</code> جهت ایجاد یا بروزرسانی مخازن الزامی است.
+                  <p className="text-[11px] text-[#4a4a4a] pt-1">
+                    توکن با دسترسی <code className="text-[#00875A] font-mono">repo</code> جهت ایجاد یا بروزرسانی مخازن الزامی است.
                   </p>
                 )}
               </div>
 
               {/* Repository Target Mode (Create New vs Select Existing) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-300 font-semibold">
+                <div className="flex items-center justify-between text-xs text-[#333333] font-semibold">
                   <span>مخزن مقصد در گیت‌هاب:</span>
-                  <div className="flex items-center gap-1 p-0.5 bg-slate-950 border border-slate-800 rounded-lg text-[11px]">
+                  <div className="flex items-center gap-1 p-0.5 bg-[#FFFBF0] border-[2px] border-[#0a0a0a]  text-[11px]">
                     <button
                       type="button"
                       onClick={() => setRepoMode('create_new')}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                      className={`flex items-center gap-1 px-2.5 py-1  transition-colors ${
                         repoMode === 'create_new'
-                          ? 'bg-slate-800 text-emerald-400 font-bold'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-white text-[#00875A] font-bold'
+                          : 'text-[#4a4a4a] hover:text-[#0a0a0a]'
                       }`}
                     >
                       <Plus className="h-3 w-3" />
@@ -470,10 +468,10 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                       type="button"
                       onClick={() => setRepoMode('select_existing')}
                       disabled={userRepos.length === 0}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors disabled:opacity-40 ${
+                      className={`flex items-center gap-1 px-2.5 py-1  transition-colors disabled:opacity-40 ${
                         repoMode === 'select_existing'
-                          ? 'bg-slate-800 text-emerald-400 font-bold'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-white text-[#00875A] font-bold'
+                          : 'text-[#4a4a4a] hover:text-[#0a0a0a]'
                       }`}
                     >
                       <List className="h-3 w-3" />
@@ -486,24 +484,24 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                   /* Create New Repo Inputs */
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2 space-y-1">
-                      <label className="block text-xs text-slate-400">نام مخزن جدید:</label>
+                      <label className="block text-xs text-[#4a4a4a]">نام مخزن جدید:</label>
                       <input
                         type="text"
                         value={repoName}
                         onChange={(e) => setRepoName(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 dir-ltr text-left focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-[#FFFBF0] border-[2px] border-[#0a0a0a]  px-3 py-2 text-xs font-mono text-[#00875A] dir-ltr text-left focus:outline-none focus:border-[#0066FF]"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="block text-xs text-slate-400">سطح دسترسی:</label>
+                      <label className="block text-xs text-[#4a4a4a]">سطح دسترسی:</label>
                       <button
                         type="button"
                         onClick={() => setIsPrivate(!isPrivate)}
-                        className={`w-full py-2 px-3 border rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                        className={`w-full py-2 px-3 border  text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                           isPrivate
-                            ? 'bg-slate-950 border-amber-500/50 text-amber-300'
-                            : 'bg-slate-950 border-slate-800 text-slate-300'
+                            ? 'bg-[#FFFBF0] border-[2px] border-[#0a0a0a] text-[#7a5c00]'
+                            : 'bg-[#FFFBF0] border-[2px] border-[#0a0a0a] text-[#333333]'
                         }`}
                       >
                         {isPrivate ? <Lock className="h-3.5 w-3.5" /> : <Globe className="h-3.5 w-3.5" />}
@@ -513,36 +511,36 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                   </div>
                 ) : (
                   /* Select Existing Repo from fetched list */
-                  <div className="space-y-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <div className="space-y-2 p-3 bg-[#FFFBF0] border-[2px] border-[#0a0a0a] ">
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1">
-                        <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+                        <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#6b6b6b]" />
                         <input
                           type="text"
                           value={repoSearchFilter}
                           onChange={(e) => setRepoSearchFilter(e.target.value)}
                           placeholder="جستجو در بین مخازن شما..."
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg pr-8 pl-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                          className="w-full bg-white border-[2px] border-[#0a0a0a]  pr-8 pl-3 py-1.5 text-xs text-[#1a1a1a] focus:outline-none focus:border-[#0066FF]"
                         />
                       </div>
                     </div>
 
-                    <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-slate-800/40">
+                    <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-[#0a0a0a]">
                       {filteredRepos.length === 0 ? (
-                        <p className="text-[11px] text-slate-500 py-3 text-center">مخزنی یافت نشد.</p>
+                        <p className="text-[11px] text-[#6b6b6b] py-3 text-center">مخزنی یافت نشد.</p>
                       ) : (
                         filteredRepos.map((r) => (
                           <div
                             key={r.id}
                             onClick={() => setSelectedExistingRepo(r.name)}
-                            className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                            className={`flex items-center justify-between p-2  cursor-pointer text-xs transition-colors ${
                               selectedExistingRepo === r.name
-                                ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
-                                : 'text-slate-300 hover:bg-slate-900'
+                                ? 'bg-[#00E599]/25 text-[#00875A] border-[2px] border-[#0a0a0a]'
+                                : 'text-[#333333] hover:bg-white'
                             }`}
                           >
                             <span className="font-mono">{r.name}</span>
-                            <span className="text-[10px] text-slate-500">{r.private ? 'Private' : 'Public'}</span>
+                            <span className="text-[10px] text-[#6b6b6b]">{r.private ? 'Private' : 'Public'}</span>
                           </div>
                         ))
                       )}
@@ -553,19 +551,19 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
 
               {/* Commit Message */}
               <div className="space-y-1">
-                <label className="block text-xs text-slate-300">پیام کامیت (Commit Message):</label>
+                <label className="block text-xs text-[#333333]">پیام کامیت (Commit Message):</label>
                 <input
                   type="text"
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 dir-ltr text-left focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#FFFBF0] border-[2px] border-[#0a0a0a]  px-3 py-2 text-xs font-mono text-[#333333] dir-ltr text-left focus:outline-none focus:border-[#0066FF]"
                 />
               </div>
 
               {/* Error Box */}
               {error && (
-                <div className="p-3 bg-red-950/30 border border-red-800/60 rounded-xl text-xs text-red-300 flex items-start gap-2">
-                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                <div className="p-3 bg-[#FF3B30]/15 border-[2px] border-[#0a0a0a]  text-xs text-[#C1121F] flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-[#C1121F] shrink-0 mt-0.5" />
                   <span className="leading-relaxed">{error}</span>
                 </div>
               )}
@@ -575,7 +573,7 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                 type="button"
                 onClick={pushCodeToGitHub}
                 disabled={loading || !token.trim()}
-                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-[#00E599] hover:bg-[#3DFFC0] text-[#0a0a0a] font-bold  text-xs shadow-[3px_3px_0px_0px_#000] transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <FolderGit2 className="h-4 w-4" />
                 <span>
@@ -587,24 +585,24 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
             </div>
           ) : (
             /* Post-Push Success and Delivery Message */
-            <div className="space-y-5 animate-in fade-in duration-200">
-              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-3">
-                <div className="flex items-center justify-between text-xs font-semibold text-emerald-300">
+            <div className="space-y-5 animate-brutal-in">
+              <div className="p-4 bg-[#00E599]/25 border-[2px] border-[#0a0a0a]  space-y-3">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#00875A]">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 className="h-4 w-4" />
                     <span>کدها با موفقیت توسط Octokit در مخزن ثبت و کامیت شدند!</span>
                   </span>
                   {authenticatedUser && (
-                    <span className="font-mono text-[11px] text-emerald-400">@{authenticatedUser.login}</span>
+                    <span className="font-mono text-[11px] text-[#00875A]">@{authenticatedUser.login}</span>
                   )}
                 </div>
 
-                <div className="flex items-center justify-between gap-2 p-2 bg-slate-950 border border-slate-800 rounded-lg">
+                <div className="flex items-center justify-between gap-2 p-2 bg-[#FFFBF0] border-[2px] border-[#0a0a0a] ">
                   <a
                     href={repoUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-mono text-xs text-sky-400 hover:underline dir-ltr truncate flex items-center gap-1"
+                    className="font-mono text-xs text-[#0066FF] hover:underline dir-ltr truncate flex items-center gap-1"
                   >
                     <span>{repoUrl}</span>
                     <ExternalLink className="h-3 w-3 shrink-0" />
@@ -612,9 +610,9 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
 
                   <button
                     onClick={handleCopyLink}
-                    className="flex items-center gap-1 px-3 py-1 bg-slate-850 hover:bg-slate-800 text-slate-200 rounded text-[11px] shrink-0"
+                    className="flex items-center gap-1 px-3 py-1 bg-[#FFFBF0] hover:bg-white text-[#1a1a1a]  text-[11px] shrink-0"
                   >
-                    {copiedLink ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    {copiedLink ? <Check className="h-3 w-3 text-[#00875A]" /> : <Copy className="h-3 w-3" />}
                     <span>{copiedLink ? 'کپی شد' : 'کپی لینک'}</span>
                   </button>
                 </div>
@@ -623,14 +621,14 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
               {/* Delivery Message to Employer */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                    <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                  <label className="text-xs text-[#333333] font-semibold flex items-center gap-1.5">
+                    <MessageSquare className="h-3.5 w-3.5 text-[#00875A]" />
                     <span>متن پیام تحویل برای چت کارفرما (در پونیشا / کارلانسر / پارسکدرز):</span>
                   </label>
 
                   <button
                     onClick={handleCopyMessage}
-                    className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1"
+                    className="text-[11px] text-[#00875A] hover:underline flex items-center gap-1"
                   >
                     {copiedMsg ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                     <span>{copiedMsg ? 'کپی شد!' : 'کپی پیام تحویل'}</span>
@@ -641,10 +639,10 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
                   rows={6}
                   value={deliveryMessage}
                   onChange={(e) => setDeliveryMessage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs text-slate-200 leading-relaxed focus:outline-none focus:border-emerald-500 font-sans"
+                  className="w-full bg-[#FFFBF0] border-[2px] border-[#0a0a0a]  p-3.5 text-xs text-[#1a1a1a] leading-relaxed focus:outline-none focus:border-[#0066FF] font-sans"
                 />
 
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[#4a4a4a]">
                   💡 این پیام را در چت پروژه برای کارفرما ارسال کنید تا پروژه را تست کرده و تسویه حساب را تایید کند.
                 </p>
               </div>
@@ -653,10 +651,10 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-800 bg-slate-900/90">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t-[3px] border-[#0a0a0a] bg-[#FFFBF0]">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs text-slate-400 hover:text-white"
+            className="brutal-btn brutal-btn--sm"
           >
             بستن
           </button>
@@ -664,7 +662,7 @@ export const GitHubDispatcher: React.FC<GitHubDispatcherProps> = ({
           {repoUrl && (
             <button
               onClick={handleFinishAndRelease}
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs shadow-md transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-5 py-2 bg-[#00E599] hover:bg-[#3DFFC0] text-[#0a0a0a] font-bold  text-xs shadow-[3px_3px_0px_0px_#000] transition-all active:scale-95"
             >
               <Check className="h-4 w-4" />
               <span>تکمیل پروژه و ثبت درآمد در پایپ‌لاین</span>

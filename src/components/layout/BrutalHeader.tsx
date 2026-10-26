@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Radar, Terminal, Workflow, Cpu, Settings, Search, Command, Zap, Layers, Sparkles, TrendingUp, Menu, X, ChevronDown } from 'lucide-react';
+import { LiveModelSwitcher } from '../LiveModelSwitcher';
 
 interface BrutalHeaderProps {
   onOpenSettings: () => void;
@@ -118,6 +119,11 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
 
           {/* Actions */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Live API-key / model switcher (restored feature) */}
+            <div className="hidden md:block">
+              <LiveModelSwitcher onOpenFullSettings={onOpenSettings} />
+            </div>
+
             <button
               onClick={onOpenCommandPalette}
               className="hidden sm:flex items-center gap-2 h-[42px] px-3 bg-white border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"

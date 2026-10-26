@@ -218,6 +218,65 @@ if (analyseBtn) {
   await sleep(800);
 }
 
+
+// 6b2) live model/key switcher must be mounted and openable
+const switcherBtn = $$('button').find(b => /افزودن کلید API|کلید|سوئیچر/.test((b.textContent || '') + (b.getAttribute('title') || '')) && (b.getAttribute('title') || '').includes('تعویض'));
+check('live model/key switcher is mounted in the header', !!switcherBtn);
+if (switcherBtn) {
+  switcherBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(900);
+  const panelText = $('#root').textContent || '';
+  check('model switcher panel opens', /سوئیچر زنده کلید و مدل|کلیدهای ذخیره‌شده|کلید جدید فوری/.test(panelText));
+  switcherBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(400);
+}
+
+// 6c) STYLE AUDIT — every opened dialog must be brutalist, with zero legacy tokens
+const LEGACY = /(?:^|\s)(?:bg|text|border|from|to|via|ring|divide)-(?:slate|indigo|emerald|sky|rose|zinc|neutral)-\d{2,3}|(?:^|\s)rounded-(?:sm|md|lg|xl|2xl)\b/;
+const auditRenderedDesign = (label) => {
+  const nodes = [...window.document.querySelectorAll('#root *')];
+  const bad = [];
+  for (const n of nodes) {
+    const cls = n.getAttribute('class') || '';
+    if (LEGACY.test(cls)) bad.push(`${n.tagName.toLowerCase()}.${cls.slice(0, 70)}`);
+  }
+  const hasInkBorder = nodes.some(n => /\bborder-\[3px\]/.test(n.getAttribute('class') || ''));
+  const hasHardShadow = nodes.some(n => /\bshadow-\[8px_8px_0px_0px_#000\]/.test(n.getAttribute('class') || ''));
+  check(`[${label}] rendered markup is brutalist (no legacy tokens)`, bad.length === 0, bad.slice(0, 2).join(' | '));
+  check(`[${label}] uses hard border + offset shadow`, hasInkBorder && hasHardShadow,
+        `border3px=${hasInkBorder} shadow=${hasHardShadow}`);
+};
+
+// Settings modal
+const settingsOpener = $$('button').find(b => /تنظیمات|Settings/i.test((b.textContent || '') + (b.getAttribute('title') || '') + (b.getAttribute('aria-label') || '')));
+if (settingsOpener) {
+  settingsOpener.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(1200);
+  auditRenderedDesign('settings');
+  pressKey('Escape');
+  await sleep(500);
+}
+
+// AI evaluator modal
+const analyseOpener = $$('button').find(b => (b.textContent || '').trim().startsWith('تحلیل'));
+if (analyseOpener) {
+  analyseOpener.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(1200);
+  auditRenderedDesign('ai-evaluator');
+  pressKey('Escape');
+  await sleep(500);
+}
+
+// Proposal studio modal
+const proposalOpener = $$('button').find(b => (b.textContent || '').trim().startsWith('پروپوزال'));
+if (proposalOpener) {
+  proposalOpener.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(1200);
+  auditRenderedDesign('proposal-studio');
+  pressKey('Escape');
+  await sleep(500);
+}
+
 // 7) ROUTES
 const go = async (hash) => { window.location.hash = hash; await sleep(3000); };
 await go('#/pipeline');
@@ -228,10 +287,13 @@ check('funnel collapsible present', !!funnelBtn);
 if (funnelBtn) { funnelBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await sleep(900); }
 check('funnel chart renders svg (d3)', $$('#root svg').length > 0, `${$$('#root svg').length} svg nodes`);
 check('kanban stages render', /شکارشده/.test($('#root').textContent) && /تسویه شده/.test($('#root').textContent));
+auditRenderedDesign('route-pipeline');
 await go('#/studio');
 check('route /studio renders', /استودیو|تحویل|کد/.test($('#root').textContent));
+auditRenderedDesign('route-studio');
 await go('#/ops');
 check('route /ops renders', /سایبورگ|اتوماسیون|اسکن/.test($('#root').textContent));
+auditRenderedDesign('route-ops');
 await go('#/hunt');
 await sleep(2000);
 const huntCards = $$('.job-brutal').length;
