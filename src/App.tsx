@@ -10,6 +10,7 @@ import { JobHunter } from './components/JobHunter';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { PipelineBoard } from './components/PipelineBoard';
 import { AutoPilotPanel } from './components/AutoPilotPanel';
+import { OutcomeAnalytics } from './components/OutcomeAnalytics';
 import { AIEvaluatorModal } from './components/AIEvaluatorModal';
 import { ProposalStudioModal } from './components/ProposalStudioModal';
 import { GitHubDispatcher } from './components/GitHubDispatcher';
@@ -23,19 +24,18 @@ import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
 import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
 import { subscribeVaultChanges, readStoredCustomLLM } from './utils/customLLMClient';
 import { loadInitialFeedUnified, runDirectTabletLiveScan, syncCloudFeedDirectFromGitHub } from './services/standaloneFeed';
+import { createBid, updateBid, writeApiTokenToStorage } from './services/outcomeApi';
+import { safeGetJSON, safeGetItem, safeSetJSON } from './utils/safeStorage';
+import { dueBidReminders, notificationPermission, readNotifiedIds, rememberNotifiedIds, requestNotificationPermission, showReminderNotification } from './utils/reminders';
 
 const MANUAL_VAULT_STORAGE_KEY = 'konklancer_manual_jobs_v2';
 
 function readPermanentManualVault(): FreelanceJob[] {
-  try {
-    const raw = localStorage.getItem(MANUAL_VAULT_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
+  const parsed = safeGetJSON<FreelanceJob[]>(MANUAL_VAULT_STORAGE_KEY, []);
+  return Array.isArray(parsed) ? parsed : [];
 }
 function writePermanentManualVault(list: FreelanceJob[]): void {
-  try { localStorage.setItem(MANUAL_VAULT_STORAGE_KEY, JSON.stringify(list)); } catch {}
+  safeSetJSON(MANUAL_VAULT_STORAGE_KEY, list);
 }
 function isValidFreelanceJob(data: any): data is FreelanceJob {
   if (!data || typeof data !== 'object') return false;
@@ -87,9 +87,10 @@ export function mergeFeedJobs(current: FreelanceJob[], incoming: FreelanceJob[],
   return [...permanentMap.values(), ...mergedIncoming, ...preservedOffFeed, ...seeded];
 }
 
-function useRouteTab(): 'hunter' | 'coder' | 'pipeline' | 'autopilot' {
+function useRouteTab(): 'hunter' | 'coder' | 'pipeline' | 'autopilot' | 'analytics' {
   const loc = useLocation();
   const path = loc.pathname;
+  if (path.startsWith('/analytics')) return 'analytics';
   if (path.startsWith('/studio') || path.startsWith('/coder')) return 'coder';
   if (path.startsWith('/pipeline')) return 'pipeline';
   if (path.startsWith('/ops') || path.startsWith('/autopilot')) return 'autopilot';
@@ -213,6 +214,7 @@ const Layout: React.FC<{
                 onUpdateJobRepoUrl={props.onUpdateJobRepoUrl}
               />
             } />
+            <Route path="/analytics" element={<OutcomeAnalytics />} />
             <Route path="/ops" element={
               <AutoPilotPanel
                 logs={props.logs}
@@ -237,7 +239,7 @@ const Layout: React.FC<{
         onOpenCommandPalette={props.onOpenCommandPalette}
       />
       <MobileNav activeTab={activeTab} setActiveTab={(tab)=> {
-        const map: Record<string,string> = { hunter:'/hunt', coder:'/studio', pipeline:'/pipeline', autopilot:'/ops' };
+        const map: Record<string,string> = { hunter:'/hunt', coder:'/studio', pipeline:'/pipeline', autopilot:'/ops', analytics:'/analytics' };
         navigate(map[tab] || '/hunt');
       }} activeJobsCount={props.activeJobsCount} />
     </div>
@@ -247,13 +249,10 @@ const Layout: React.FC<{
 export default function App() {
   const [jobs, setJobs] = useState<FreelanceJob[]>(()=>{
     const manualVault = readPermanentManualVault().map(enrichJob);
-    const saved = localStorage.getItem('freelanceflow_jobs');
-    if (!saved) return manualVault;
-    try {
-      const parsed: FreelanceJob[] = JSON.parse(saved);
-      const list = Array.isArray(parsed) ? parsed.map(enrichJob) : [];
-      return mergeFeedJobs(manualVault, list, []);
-    } catch { return manualVault; }
+    const saved = safeGetJSON<FreelanceJob[]>('freelanceflow_jobs', []);
+    if (!Array.isArray(saved) || saved.length === 0) return manualVault;
+    const list = saved.map(enrichJob);
+    return mergeFeedJobs(manualVault, list, []);
   });
 
   const [feed, setFeed] = useState<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>({ source: 'unknown', scannedAt: null, scannedProjects: 0 });
@@ -265,7 +264,7 @@ export default function App() {
     try {
       const saved = localStorage.getItem('konklancer_settings') || localStorage.getItem('freelanceflow_settings');
       if (saved) parsed = JSON.parse(saved);
-      const savedCustom = localStorage.getItem('freelanceflow_custom_llm');
+      const savedCustom = safeGetItem('freelanceflow_custom_llm');
       if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
     } catch {}
     const { githubToken: legacyToken, ...rest } = parsed as any;
@@ -293,8 +292,8 @@ export default function App() {
   const [cloudBusy, setCloudBusy] = useState(false);
   const selectedJobForCoding = jobs.find(j=> j.id===selectedJobForCodingId) || null;
 
-  useEffect(()=>{ try{ localStorage.setItem('freelanceflow_jobs', JSON.stringify(jobs)); const protectedJobs = jobs.filter(j=> j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-')); writePermanentManualVault(protectedJobs); } catch{} }, [jobs]);
-  useEffect(()=>{ try{ const { githubToken, ...persisted } = settings; if(githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken); const serialized=JSON.stringify(persisted); localStorage.setItem('konklancer_settings', serialized); localStorage.setItem('freelanceflow_settings', serialized); } catch{} }, [settings]);
+  useEffect(()=>{ try{ safeSetJSON('freelanceflow_jobs', jobs); const protectedJobs = jobs.filter(j=> j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-')); writePermanentManualVault(protectedJobs); } catch{} }, [jobs]);
+  useEffect(()=>{ try{ const { githubToken, ...persisted } = settings; if(githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken); safeSetJSON('konklancer_settings', persisted); safeSetJSON('freelanceflow_settings', persisted); } catch{} }, [settings]);
 
   const refreshCloudStatus = useCallback(async ()=>{ setCloudInfo({ enabled:true, repo:'reARbitRA/konklancer2' }); return { enabled:true }; }, []);
   const refreshFeed = useCallback(async (): Promise<void> =>{
@@ -362,8 +361,65 @@ export default function App() {
   };
   const handleMoveJobStatus = (jobId:string, newStatus:FreelanceJob['status'])=>{
     const todayIso=new Date().toISOString().split('T')[0];
-    setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, status: newStatus, ...(newStatus==='completed' && !j.completedAt ? { completedAt: todayIso } : {}) } : j));
+    const stamp = new Date().toISOString();
+    const outcomeStatuses: FreelanceJob['status'][] = ['completed'];
+    setJobs(prev=> prev.map(j=>{
+      if (j.id !== jobId) return j;
+      const next: FreelanceJob = { ...j, status: newStatus };
+      if (newStatus==='completed' && !j.completedAt) next.completedAt = todayIso;
+      // ثبت زمان ارسال برای یادآور ۴ ساعته (SPEC-002)
+      if (newStatus==='bidded' && !j.bidAt) next.bidAt = stamp;
+      if (outcomeStatuses.includes(newStatus) && !j.outcomeAt) next.outcomeAt = stamp;
+      return next;
+    }));
+    // ثبت نتیجه در سرور: تسویه = برد (SPEC-005) — خطا مانع کار UI نمی‌شود
+    if (newStatus === 'completed') {
+      const done = jobsRef.current.find(j=> j.id === jobId);
+      if (done?.bidId) {
+        void updateBid(done.bidId, { status: 'won' }).catch(()=>{});
+      }
+    }
+    // ثبت پیشنهاد در سرور (SPEC-005) — خطا مانع کار UI نمی‌شود
+    if (newStatus === 'bidded') {
+      const target = jobsRef.current.find(j=> j.id === jobId);
+      if (target && !target.bidId) {
+        void createBid({
+          projectId: target.id,
+          platform: target.platform,
+          category: target.categoryKey || target.category,
+          title: target.title,
+          budgetBid: target.proposedPrice || target.budget || 0,
+          budgetText: target.budgetFormatted,
+          bidsAtSeen: target.proposalsCount,
+        })
+          .then((bid)=> setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, bidId: bid.id, bidAt: j.bidAt || bid.bidAt } : j)))
+          .catch((err)=> addLog(`ثبت پیشنهاد در سرور ناموفق بود: ${err?.message ?? err}`, 'bid'));
+      }
+    }
   };
+  // توکن API (SPEC-003 R5): هر تغییر در تنظیمات، در حافظه‌ی مرورگر هم می‌نشیند
+  // تا سرویس‌های شبکه‌ای بدون خواندن کل تنظیمات آن را در هدر بفرستند.
+  useEffect(() => { writeApiTokenToStorage(settings.apiToken || ''); }, [settings.apiToken]);
+
+  // یادآور مرورگر برای پیشنهادهای بی‌نتیجه (SPEC-002 / AC-1):
+  // هر دقیقه بررسی می‌شود؛ هر پیشنهاد حداکثر یک بار اعلان می‌گیرد.
+  useEffect(() => {
+    if (!settings.notificationsEnabled) return;
+    const tick = () => {
+      const due = dueBidReminders(jobsRef.current, new Date(), { alreadyNotified: readNotifiedIds() });
+      if (due.length === 0) return;
+      const shown = due.filter((reminder) => showReminderNotification(reminder)).map((reminder) => reminder.jobId);
+      if (shown.length > 0) {
+        rememberNotifiedIds([...readNotifiedIds(), ...shown]);
+        addLog(`${shown.length} یادآور نتیجه‌ی پیشنهاد نمایش داده شد.`, 'bid');
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.notificationsEnabled, jobs.length]);
+
   const handleUpdateJobRepoUrl = (jobId:string, repoUrl:string)=> setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, repoUrl } : j));
   const handleUpdatePriority = (jobId:string, newPriority:PriorityLevel)=> setJobs(prev=> prev.map(j=> j.id===jobId ? { ...j, priority: newPriority } : j));
   const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>)=>{

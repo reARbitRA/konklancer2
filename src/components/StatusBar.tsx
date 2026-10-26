@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, CircleDot, Cpu, Database, Radar, Sparkles, Terminal, Workflow } from 'lucide-react';
+import { Activity, BarChart3, CircleDot, Cpu, Database, Radar, Sparkles, Terminal, Workflow } from 'lucide-react';
 import type { AppTab } from './Header';
 import type { FeedSource } from './FeedStatusBar';
 import { readKeyVault, subscribeVaultChanges } from '../utils/customLLMClient';
@@ -25,7 +25,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ socketConnected, feedSourc
   useEffect(()=> subscribeVaultChanges(()=> setVault(readKeyVault())), []);
   const activeKey = vault.profiles.find(k=>k.id===vault.activeProfileId) || vault.profiles[0];
   const modelName = activeKey?.selectedModel || 'تنظیم‌نشده';
-  const tabLabel: Record<AppTab, string> = { hunter:'رادار', coder:'استودیو', pipeline:'پایپ‌لاین', autopilot:'سایبورگ' };
+  const tabLabel: Record<AppTab, string> = { hunter:'رادار', coder:'استودیو', pipeline:'پایپ‌لاین', autopilot:'سایبورگ', analytics:'کارنامه' };
 
   return (
     <footer className="hidden md:flex h-[32px] shrink-0 items-center gap-2 border-t-[2.5px] border-black bg-black text-white px-3 font-mono text-[11px] font-bold">
@@ -51,6 +51,7 @@ const MOBILE_TABS: Array<{ key: AppTab; label: string; icon: React.ElementType }
   { key:'coder', label:'استودیو', icon: Terminal },
   { key:'pipeline', label:'پایپ‌لاین', icon: Workflow },
   { key:'autopilot', label:'سایبورگ', icon: Sparkles },
+  { key:'analytics', label:'کارنامه', icon: BarChart3 },
 ];
 
 export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, setActiveTab, activeJobsCount }) => (

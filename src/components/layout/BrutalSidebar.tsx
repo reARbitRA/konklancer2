@@ -38,6 +38,7 @@ export const BrutalSidebar: React.FC<BrutalSidebarProps> = ({ collapsed, onToggl
             { to: '/pipeline', icon: Workflow, label: 'PIPE' },
             { to: '/studio', icon: Terminal, label: 'CODE' },
             { to: '/ops', icon: Cpu, label: 'OPS' },
+            { to: '/analytics', icon: BarChart3, label: 'STATS' },
           ].map(item => (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => `w-10 h-10 border-[2.5px] border-[#0a0a0a] flex items-center justify-center transition-all ${isActive ? 'bg-[#FFDE03] text-[#0a0a0a] shadow-[2px_2px_0px_0px_#0a0a0a]' : 'bg-white hover:bg-[#0a0a0a] hover:text-white'}`}>
               <item.icon className="w-5 h-5" />
@@ -74,6 +75,7 @@ export const BrutalSidebar: React.FC<BrutalSidebarProps> = ({ collapsed, onToggl
               { to: '/pipeline', label: 'پایپ‌لاین', sub: 'PIPE • KANBAN', icon: Workflow, count: stats.inProgress },
               { to: '/studio', label: 'استودیو کد', sub: 'CODE • STUDIO', icon: Terminal, count: stats.completed },
               { to: '/ops', label: 'اتوماسیون', sub: 'OPS • CYBORG', icon: Cpu, count: stats.prime },
+              { to: '/analytics', label: 'کارنامه', sub: 'STATS • OUTCOME', icon: BarChart3, count: stats.completed },
             ].map(item => (
               <NavLink
                 key={item.to}

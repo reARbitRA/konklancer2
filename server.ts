@@ -9,6 +9,10 @@ import { callLLM, LLMError, parseJsonLoose, readLLMConfig, scanModels, type Cust
 import { checkContent } from './server/contentFilter';
 import { ALL_CATEGORIES, categoryLabel, categoryPromptList } from './shared/taxonomy';
 import { fetchAndParseUrl, parseHtmlProjects } from './server/urlScraper';
+import { getBidStore } from './server/store';
+import { registerBidRoutes } from './server/bidRoutes';
+import { createApiTokenGuard, describeApiAuth, readApiToken } from './server/apiAuth';
+import { notifyNotableJobs, readAlertConfig } from './server/notifier';
 import {
   buildFeed,
   categorize,
@@ -47,6 +51,24 @@ const io = new SocketIOServer(httpServer, {
 });
 
 app.use(express.json({ limit: '10mb' }));
+
+// احراز هویت اختیاری API (SPEC-003 R5): با تنظیم KONKLANCER_API_TOKEN همه‌ی
+// درخواست‌های /api به هدر x-api-token نیاز دارند. بدون آن، رفتار قبلی حفظ می‌شود.
+const API_TOKEN = readApiToken(process.env);
+const sendApiTokenHeader = (res: Response) => res.setHeader('x-api-auth', API_TOKEN ? 'required' : 'off');
+app.use('/api', (req: Request, res: Response, next) => {
+  sendApiTokenHeader(res);
+  return createApiTokenGuard(API_TOKEN)(req, res, next);
+});
+
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    service: 'konklancer',
+    time: new Date().toISOString(),
+    apiAuth: describeApiAuth(API_TOKEN),
+  });
+});
 
 // Direct one-tap download route for the compiled Android Tablet APK
 app.get('/download/KonkLancer-Studio.apk', (_req: Request, res: Response) => {
@@ -301,6 +323,8 @@ const effectiveCloudEnv: NodeJS.ProcessEnv = {
 const CLOUD_CONFIG = readCloudFeedConfig(effectiveCloudEnv, process.cwd(), SCAN_CONFIG.outFile);
 /** شناسه پروژه‌هایی که یک‌بار به UI پوش شده‌اند؛ برای جلوگیری از پوش تکراری. */
 const emittedJobIds = new Set<string>();
+// پروژه‌هایی که اعلانشان یک بار فرستاده شده تا اسپم نشود (SPEC-004 R7)
+const alertSent = new Set<string>();
 
 function emitBridgeLog(message: string, type: 'scan' | 'bid' | 'code' | 'github' | 'payment' = 'scan') {
   io.emit('bridge:log', {
@@ -390,6 +414,26 @@ interface ScanOutcome {
 }
 
 /** یک اسکن واقعی: CLI اسکنر را اجرا می‌کند، فید را می‌خواند و پروژه‌های تازه را پوش می‌کند. */
+/**
+ * ارسال اعلان تلگرام برای پروژه‌های بالای آستانه (SPEC-004 R7).
+ * اگر پیکربندی نباشد هیچ درخواستی به بیرون نمی‌رود؛ خطا فقط لاگ می‌شود.
+ */
+async function dispatchAlerts(jobs: { id: string; title: string; platform?: string; budgetFormatted?: string; score?: number; url?: string }[]) {
+  const config = readAlertConfig(process.env);
+  if (!config.enabled || jobs.length === 0) return;
+  try {
+    const result = await notifyNotableJobs(jobs, config, fetch as any, alertSent);
+    if (result.sent > 0) {
+      emitBridgeLog(`اعلان تلگرام برای ${result.sent} پروژه‌ی بالای آستانه ${config.threshold} ارسال شد.`);
+    }
+    if (result.error) {
+      console.warn('[alerts] telegram notification failed:', result.error);
+    }
+  } catch (err: any) {
+    console.warn('[alerts] unexpected failure:', err?.message ?? err);
+  }
+}
+
 async function performScan(): Promise<ScanOutcome> {
   if (scannerBusy()) {
     return { ok: false, added: 0, total: 0, scannedAt: null, message: 'یک اسکن دیگر در حال اجراست؛ لطفاً چند لحظه بعد تلاش کنید.' };
@@ -433,6 +477,14 @@ async function performScan(): Promise<ScanOutcome> {
   }
   const message = `اسکن تمام شد: ${fresh.length} پروژه جدید از ${projects.length} پروژه در فید.`;
   emitBridgeLog(message);
+  void dispatchAlerts(fresh.map((job) => ({
+    id: job.id,
+    title: job.title,
+    platform: job.platform,
+    budgetFormatted: job.budgetFormatted,
+    score: job.score,
+    url: job.url,
+  })));
   return { ok: true, added: fresh.length, total: projects.length, scannedAt, message, output: run.output };
 }
 
@@ -1110,6 +1162,17 @@ app.post('/api/scraper/parse-html', async (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'خطا در تجزیه سورس HTML' });
   }
+});
+
+// ---------------------------------------------------------------------------
+// پیشنهادها و نتیجه‌ها (SPEC-005) — ثبت دستی، بدون هیچ ارسال خودکار.
+// منطق در server/bidRoutes.ts است تا با HTTP واقعی تست شود.
+// ---------------------------------------------------------------------------
+registerBidRoutes(app, {
+  store: getBidStore(),
+  log: (message, type) => emitBridgeLog(message, type),
+  emit: (event, payload) => io.emit(event, payload),
+  alertSentCount: () => alertSent.size,
 });
 
 // Start Express server and connect Vite in development

@@ -1,4 +1,5 @@
 import bundledCloudFeedRaw from '../../scanner/cloud-feed.jsonl?raw';
+import { apiFetch } from '../utils/apiFetch';
 import { FreelanceJob } from '../types';
 import { categoryAiFit, categoryLabel, detectCategory } from '../../shared/taxonomy';
 import { evaluateProjectRelevance } from '../../shared/relevanceEngine';
@@ -581,7 +582,7 @@ async function readServerFeedJobs(timeoutMs = 5000): Promise<{ jobs: FreelanceJo
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
-    const res = await fetch('/api/jobs', {
+    const res = await apiFetch('/api/jobs', {
       headers: { Accept: 'application/json' },
       ...(controller ? { signal: controller.signal } : {}),
     });

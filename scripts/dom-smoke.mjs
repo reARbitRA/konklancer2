@@ -442,6 +442,66 @@ if (newFileBtn) {
   }
 }
 
+// 9) OUTCOME ANALYTICS (SPEC-005) — server-backed win-rate page
+await go('#/analytics');
+await waitFor(() => !!$('[data-testid="outcome-analytics"]') || /کارنامه/.test($('#root').textContent || ''), 'analytics page', 20000);
+check('route /analytics renders', /کارنامه|نرخ برد|پیشنهاد/.test($('#root').textContent || ''));
+check('analytics page mounted', !!$('[data-testid="outcome-analytics"]'));
+const analyticsText = $('#root').textContent || '';
+check('analytics shows the insufficient-sample warning honestly', /نمونه ناکافی|تخمین اولیه/.test(analyticsText));
+// the alerts/persistence panel is a collapsible: expand it like a user would
+const alertsToggle = $$('button').find(b => (b.textContent || '').includes('اعلان‌ها و اتصال سرور'));
+check('analytics exposes a collapsible alerts/server panel', !!alertsToggle);
+alertsToggle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await sleep(600);
+const panelText = $('#root').textContent || '';
+check('analytics reports backend persistence (SQLite)', /konklancer\.db|SQLite/.test(panelText));
+check('analytics explains telegram alert state', /اعلان تلگرام/.test(panelText));
+const statsTable = $$('[data-testid^="stats-table-"]').length;
+check('analytics breakdown tables render', statsTable >= 1, `${statsTable} tables`);
+
+// outcome buttons must be driven by real API data: seed a bid through the API,
+// reload the page and confirm it appears with an actionable status row.
+const seedResponse = await globalThis.fetch(`${BASE_URL}/api/bids`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId: 'dom-smoke-bid', platform: 'ponisha', category: 'web', title: 'پروژه تست کارنامه', budgetBid: 9000000 }),
+});
+const seeded = seedResponse.ok ? (await seedResponse.json()).bid : null;
+check('bid can be recorded through the API', !!seeded?.id, seedResponse.ok ? '' : `HTTP ${seedResponse.status}`);
+
+// refresh the page data through the UI (no bundle re-eval — one React root only)
+const refreshBtn = $$('button').find(b => (b.textContent || '').includes('بازخوانی'));
+check('analytics offers a refresh action', !!refreshBtn);
+refreshBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => /پروژه تست کارنامه/.test($('#root').textContent || ''), 'seeded bid in analytics', 25000)
+  .catch(() => {});
+check('seeded bid appears in the analytics list', /پروژه تست کارنامه/.test($('#root').textContent || ''));
+const wonBtn = $$('button').find(b => (b.textContent || '').trim() === 'برنده');
+check('outcome action buttons render', !!wonBtn);
+if (wonBtn) {
+  wonBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  let persisted = false;
+  for (let i = 0; i < 20 && !persisted; i += 1) {
+    await sleep(400);
+    try {
+      const res = await globalThis.fetch(`${BASE_URL}/api/bids?projectId=dom-smoke-bid`);
+      const body = await res.json();
+      persisted = body.bids?.[0]?.status === 'won';
+    } catch { /* retry */ }
+  }
+  check('clicking برنده persists the outcome to SQLite', persisted, persisted ? '' : 'API never reported won');
+}
+await auditRenderedDesign('route-analytics');
+
+// cleanup the smoke-test bid
+if (seeded?.id) {
+  await globalThis.fetch(`${BASE_URL}/api/bids/${seeded.id}`, { method: 'DELETE' });
+}
+
+await go('#/hunt');
+await sleep(1500);
+
 auditRenderedDesign('route-studio-with-files');
 await go('#/hunt');
 await sleep(2000);

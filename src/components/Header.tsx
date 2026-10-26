@@ -6,4 +6,4 @@
  * and keeping a second, unstyled header around only invited accidental
  * regressions. This module intentionally exports types only.
  */
-export type AppTab = 'hunter' | 'coder' | 'pipeline' | 'autopilot';
+export type AppTab = 'hunter' | 'coder' | 'pipeline' | 'autopilot' | 'analytics';

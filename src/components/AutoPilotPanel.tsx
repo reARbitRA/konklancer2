@@ -3,6 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Sparkles, Radar, ShieldCheck, Activity, Clock, Coins, CheckCircle2, Terminal, Zap, TrendingUp, Cpu, Settings, AlertTriangle, Play, Pause } from 'lucide-react';
 import { ActivityLogItem, UserSettings, FreelanceJob } from '../types';
 import { BrutalCollapsible } from './brutalist/Collapsible';
+import { apiFetch } from '../utils/apiFetch';
 
 interface AutoPilotPanelProps {
   logs: ActivityLogItem[];
@@ -22,7 +23,7 @@ export const AutoPilotPanel: React.FC<AutoPilotPanelProps> = ({ logs, settings, 
     const setStandalone = () => setBridgeStatus('standalone');
     let cancelled = false;
     const timeout = setTimeout(()=>{ if(!cancelled) setStandalone(); }, 2500);
-    fetch('/api/bridge/status').then(r=>{ if(!r.ok) throw new Error(); return r.json(); }).then(d=>{ if(!cancelled) setBridgeStatus(d?.status||'online'); }).catch(()=>{ if(!cancelled) setStandalone(); }).finally(()=>{ if(!cancelled) clearTimeout(timeout); });
+    apiFetch('/api/bridge/status').then(r=>{ if(!r.ok) throw new Error(); return r.json(); }).then(d=>{ if(!cancelled) setBridgeStatus(d?.status||'online'); }).catch(()=>{ if(!cancelled) setStandalone(); }).finally(()=>{ if(!cancelled) clearTimeout(timeout); });
     return ()=>{ cancelled=true; clearTimeout(timeout); };
   }, []);
 

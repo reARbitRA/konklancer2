@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   Zap,
   Check,
+  BellRing,
 } from 'lucide-react';
+import { notificationPermission, requestNotificationPermission } from '../utils/reminders';
 import { LLMProviderId, SavedApiKeyProfile, UserSettings } from '../types';
 import {
   PROVIDER_DEFAULTS_MAP,
@@ -62,6 +64,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeKeyId, setActiveKeyId] = useState<string>('');
   const [autoFailover, setAutoFailover] = useState<boolean>(true);
   const [githubToken, setGithubToken] = useState<string>(settings.githubToken || '');
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(Boolean(settings.notificationsEnabled));
+  const [permission, setPermission] = useState<string>(() => notificationPermission());
+  const [apiToken, setApiToken] = useState<string>(settings.apiToken || '');
 
   const [newLabel, setNewLabel] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
@@ -96,6 +101,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setActiveKeyId(vault.activeProfileId);
     setAutoFailover(vault.autoFailoverKeys);
     setGithubToken(settings.githubToken || '');
+    setNotificationsEnabled(Boolean(settings.notificationsEnabled));
+    setPermission(notificationPermission());
+    setApiToken(settings.apiToken || '');
     setStatusMsg(null);
     // IMPORTANT: only re-init when the modal is opened — NOT when `settings`
     // changes. Otherwise saving a key immediately resets the status message
@@ -325,6 +333,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>{statusMsg.text}</span>
             </div>
           )}
+
+          {/* اعلان‌ها و امنیت API (SPEC-002 / SPEC-003 R5) */}
+          <section className="p-3.5 bg-white/80 border-[2.5px] border-[#0a0a0a] space-y-3" data-testid="settings-notifications">
+            <h4 className="text-xs font-black uppercase tracking-wide text-[#0a0a0a] flex items-center gap-2">
+              <BellRing className="w-4 h-4" /> یادآور و امنیت API
+            </h4>
+
+            <label className="flex items-start justify-between gap-3 cursor-pointer">
+              <span>
+                <span className="block text-xs font-bold text-[#0a0a0a]">یادآور مرورگر برای پیشنهادهای بی‌نتیجه</span>
+                <span className="block text-[11px] text-[#4a4a4a] leading-5">
+                  اگر پیشنهادی بیش از ۴ ساعت در وضعیت «ارسال‌شده» بماند، یک اعلان مرورگر می‌بینی تا نتیجه‌اش را در کارنامه ثبت کنی.
+                  وضعیت مجوز: <b>{permission === 'granted' ? 'داده شده' : permission === 'denied' ? 'رد شده از طرف مرورگر' : permission === 'unsupported' ? 'مرورگر پشتیبانی نمی‌کند' : 'هنوز پرسیده نشده'}</b>
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="فعال‌سازی یادآور مرورگر"
+                checked={notificationsEnabled}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setNotificationsEnabled(next);
+                  if (next) {
+                    const result = await requestNotificationPermission();
+                    setPermission(result);
+                    if (result !== 'granted') {
+                      setStatusMsg({ type: 'err', text: 'مرورگر اجازه‌ی اعلان نداد؛ یادآور فقط داخل برنامه ثبت می‌شود.' });
+                    }
+                  }
+                  onSave({ ...settings, notificationsEnabled: next, apiToken });
+                }}
+                className="w-5 h-5 mt-1 accent-[#0066FF] cursor-pointer shrink-0"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-xs font-bold text-[#0a0a0a] mb-1">توکن API سرور (اختیاری)</span>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                onBlur={() => onSave({ ...settings, apiToken: apiToken.trim(), notificationsEnabled })}
+                placeholder="اگر سرور KONKLANCER_API_TOKEN دارد، همین‌جا وارد کن"
+                dir="ltr"
+                autoComplete="off"
+                aria-label="توکن API سرور"
+                className="w-full bg-white border-[2px] border-[#0a0a0a] px-3 py-2 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
+              />
+              <span className="mt-1 block text-[10.5px] text-[#4a4a4a]">
+                توکن در همین مرورگر می‌ماند و با هدر <code dir="ltr">x-api-token</code> به API فرستاده می‌شود.
+              </span>
+            </label>
+
+            {onSave && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSave({ ...settings, apiToken: apiToken.trim(), notificationsEnabled });
+                  setSavedToast(true);
+                  window.setTimeout(() => setSavedToast(false), 2000);
+                }}
+                className="brutal-btn brutal-btn--primary brutal-btn--sm"
+              >
+                <Check className="w-3.5 h-3.5" /> {savedToast ? 'ذخیره شد' : 'ذخیره‌ی این بخش'}
+              </button>
+            )}
+          </section>
 
           <div className="p-3.5  bg-black/70 border-[2px] border-[#0a0a0a] flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">

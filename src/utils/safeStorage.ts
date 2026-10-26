@@ -1,8 +1,9 @@
 /**
- * با وجود shim در index.html، در beberapa مرورگرهای قدیمی / WebView Android /
- * حالت content://، دسترسی مستقیم به window.localStorage می‌تواند TypeError /
- * SecurityError تولید کند. تمام مزارهای گرفته شده از محلی در اینجا تكون‌گذاری و
- * fallback حافظه‌ای گذاشته می‌شود.
+ * دسترسی مقاوم به localStorage.
+ *
+ * در WebView اندروید و حالت‌های content:// دسترسی مستقیم می‌تواند TypeError یا
+ * SecurityError بدهد. همه‌ی خواندن/نوشتن‌ها اینجا محافظت می‌شوند و در صورت خطا
+ * یک fallback حافظه‌ای در همان نشست استفاده می‌شود تا UI از کار نیفتد.
  */
 
 const memoryStores = new Map<string, Map<string, string>>();
@@ -58,7 +59,7 @@ export function safeRemoveItem(key: string): void {
   memoryStore('local').delete(key);
 }
 
-/**读 JSON 容错包装（无 JSON 时返回默认值，损坏 JSON 返回 null） */
+/** خواندن JSON با تحمل خطا: اگر کلید نبود fallback، و اگر JSON خراب بود هم fallback. */
 export function safeGetJSON<T>(key: string, fallback: T): T {
   try {
     const raw = safeGetItem(key);
@@ -70,7 +71,7 @@ export function safeGetJSON<T>(key: string, fallback: T): T {
   }
 }
 
-/**写 JSON 容错包装 */
+/** نوشتن JSON با تحمل خطا. */
 export function safeSetJSON(key: string, value: unknown): boolean {
   try {
     return safeSetItem(key, JSON.stringify(value));
@@ -79,7 +80,7 @@ export function safeSetJSON(key: string, value: unknown): boolean {
   }
 }
 
-/**当前是否在使用内存兜底存储（便于 UI 提示） */
+/** آیا ذخیره‌سازی واقعی در دسترس نیست و حافظه‌ی موقت استفاده می‌شود؟ (برای هشدار UI) */
 export function isUsingMemoryStorage(): boolean {
   return !canUseLocalStorage();
 }
