@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Radar, Terminal, Workflow, Cpu, Settings, Search, Command, Zap, Layers, Sparkles, TrendingUp, Menu, X, ChevronDown } from 'lucide-react';
 import { LiveModelSwitcher } from '../LiveModelSwitcher';
@@ -15,6 +15,27 @@ interface BrutalHeaderProps {
   socketConnected: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+}
+
+/** هوک ساده‌ی مدیا کوئری (بدون وابستگی اضافه) برای حالت فشرده‌ی هدر. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query).matches : false,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(query);
+    const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
+    setMatches(mql.matches);
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', handler);
+      return () => mql.removeEventListener('change', handler);
+    }
+    // Safari < 14
+    mql.addListener(handler);
+    return () => mql.removeListener(handler);
+  }, [query]);
+  return matches;
 }
 
 const NAV_ITEMS = [
@@ -36,20 +57,21 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
   sidebarCollapsed,
   onToggleSidebar,
 }) => {
-  const navigate = useNavigate();
+  // زیر ۱۲۸۰px نام مدل/کلید در دکمه‌ی سوئیچر جا نمی‌شود و ردیف هدر را از قاب بیرون می‌زند
+  const isWide = useMediaQuery('(min-width: 1280px)');
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white border-b-[3px] border-[#0a0a0a] shadow-[0_4px_0px_0px_#0a0a0a]">
+    <header className="sticky top-0 z-40 w-full max-w-full bg-white border-b-[3px] border-[#0a0a0a] shadow-[0_4px_0px_0px_#0a0a0a] overflow-x-clip">
       {/* Top brutal bar: ticker-like */}
       <div className="h-[28px] bg-[#0a0a0a] text-[#FFFBF0] flex items-center overflow-hidden text-[11px] font-mono font-bold tracking-widest uppercase">
-        <div className="flex items-center gap-0 h-full">
+        <div className="flex min-w-0 items-center gap-0 h-full">
           <span className="h-full flex items-center px-3 bg-[#FFDE03] text-[#0a0a0a] border-r-[2.5px] border-[#0a0a0a]">KONKLANCER OS v4</span>
           <span className="hidden md:flex items-center gap-2 px-3 border-r border-white/20">
             <span className={`w-2 h-2 rounded-none border border-white ${socketConnected ? 'bg-[#00E599] animate-pulse' : 'bg-[#FF4D00]'}`} />
             {socketConnected ? 'BRIDGE LIVE' : 'STANDALONE'}
           </span>
-          <span className="hidden lg:flex items-center px-3 border-r border-white/20">NEO-BRUTALIST • SPACE-SAVING • EVERYTHING COLLAPSIBLE</span>
-          <span className="hidden xl:flex items-center px-3">▲ BUILT FOR FREELANCERS WHO SHIP FAST</span>
+          <span className="hidden 2xl:flex items-center px-3 border-r border-white/20">NEO-BRUTALIST • SPACE-SAVING • EVERYTHING COLLAPSIBLE</span>
+          <span className="hidden 2xl:flex items-center px-3">▲ BUILT FOR FREELANCERS WHO SHIP FAST</span>
         </div>
         <div className="flex-1" />
         <div className="hidden md:flex items-center h-full">
@@ -67,30 +89,30 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
 
       {/* Main header */}
       <div className="bg-[#FFFBF0] border-b-[2.5px] border-[#0a0a0a]/10">
-        <div className="max-w-[1600px] mx-auto flex items-center gap-3 px-3 lg:px-4 h-[64px]">
+        <div className="max-w-[1600px] mx-auto flex min-w-0 items-center gap-2 lg:gap-3 px-2 sm:px-3 lg:px-4 h-[64px]">
           {/* Brand block */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex min-w-0 items-center gap-2 lg:gap-3 shrink-0">
             <button onClick={onToggleSidebar} className="brutal-icon-btn lg:hidden" aria-label="toggle sidebar">
               {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
             </button>
 
             <div className="flex items-center gap-2.5">
-              <div className="w-11 h-11 bg-[#0a0a0a] border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] flex items-center justify-center text-[#FFDE03]">
+              <div className="w-10 h-10 shrink-0 lg:w-11 lg:h-11 bg-[#0a0a0a] border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] flex items-center justify-center text-[#FFDE03]">
                 <Zap className="w-6 h-6 fill-[#FFDE03]" />
               </div>
-              <div className="leading-none">
+              <div className="leading-none hidden lg:block shrink-0 whitespace-nowrap">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[20px] font-black tracking-tighter leading-none">KONK</span>
-                  <span className="text-[20px] font-black tracking-tighter leading-none text-[#0066FF]">LANCER</span>
-                  <span className="hidden sm:inline-flex ml-1 px-1.5 py-0.5 bg-[#FFDE03] border-[2px] border-[#0a0a0a] text-[10px] font-black tracking-widest">V4 STUDIO</span>
+                  <span className="text-[20px] font-black tracking-tighter leading-none whitespace-nowrap">KONK</span>
+                  <span className="text-[20px] font-black tracking-tighter leading-none text-[#0066FF] whitespace-nowrap">LANCER</span>
+                  <span className="hidden xl:inline-flex ml-1 px-1.5 py-0.5 bg-[#FFDE03] border-[2px] border-[#0a0a0a] text-[10px] font-black tracking-widest">V4 STUDIO</span>
                 </div>
-                <div className="text-[10px] font-mono font-bold tracking-[0.18em] uppercase text-[#6B6B6B] mt-0.5 hidden sm:block">BRUTALISM • FUNCTION • SPEED</div>
+                <div className="text-[10px] font-mono font-bold tracking-[0.18em] uppercase text-[#6B6B6B] mt-0.5 hidden 2xl:block">BRUTALISM • FUNCTION • SPEED</div>
               </div>
             </div>
           </div>
 
           {/* Nav tabs - desktop */}
-          <nav className="hidden lg:flex items-center gap-1.5 ml-4">
+          <nav className="hidden xl:flex items-center gap-1.5 ml-4 min-w-0">
             {NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
@@ -116,21 +138,20 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
           </nav>
 
           {/* Spacer */}
-          <div className="flex-1 hidden lg:block" />
+          <div className="flex-1 min-w-0 hidden xl:block" />
 
           {/* Actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Account / Supabase auth (Google · GitHub · Telegram) */}
             <AccountMenu />
 
-            {/* Live API-key / model switcher (restored feature) */}
-            <div className="hidden md:block">
-              <LiveModelSwitcher onOpenFullSettings={onOpenSettings} />
-            </div>
+            {/* Live API-key / model switcher — فشرده زیر ۱۲۸۰px تا هدر از قاب بیرون نزند */}
+            <LiveModelSwitcher onOpenFullSettings={onOpenSettings} compact={!isWide} />
 
             <button
               onClick={onOpenCommandPalette}
-              className="hidden sm:flex items-center gap-2 h-[42px] px-3 bg-white border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+              aria-label="جستجو در دستورها"
+              className="flex items-center justify-center gap-2 h-[42px] w-[42px] sm:w-auto sm:px-3 bg-white border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
             >
               <Search className="w-4 h-4" />
               <span className="text-[12px] font-black uppercase tracking-wide hidden xl:inline">جستجو</span>
@@ -142,17 +163,18 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
             <button
               onClick={onQuickScan}
               disabled={isScanning}
-              className="flex items-center gap-2 h-[42px] px-3 lg:px-4 bg-[#FFDE03] border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all font-black text-[12px] uppercase tracking-wide disabled:opacity-60"
+              className="flex items-center justify-center gap-2 h-[42px] w-[42px] sm:w-auto sm:px-3 lg:px-4 bg-[#FFDE03] border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all font-black text-[12px] uppercase tracking-wide disabled:opacity-60"
             >
               <Radar className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isScanning ? 'SCANNING...' : 'اسکن عمیق'}</span>
-              <span className="sm:hidden">SCAN</span>
+              <span className="hidden lg:inline">{isScanning ? 'SCANNING...' : 'اسکن عمیق'}</span>
+              <span className="hidden sm:inline lg:hidden">SCAN</span>
             </button>
 
             <button
               onClick={onOpenSettings}
               className="w-[42px] h-[42px] shrink-0 bg-white border-[2.5px] border-[#0a0a0a] shadow-[3px_3px_0px_0px_#0a0a0a] hover:shadow-[2px_2px_0px_0px_#0a0a0a] hover:translate-x-[1px] hover:translate-y-[1px] flex items-center justify-center transition-all"
               title="Settings"
+              aria-label="تنظیمات"
             >
               <Settings className="w-5 h-5" />
             </button>
@@ -170,7 +192,7 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
       )}
 
       {/* Mobile nav tabs */}
-      <div className="lg:hidden bg-white border-t-[2.5px] border-[#0a0a0a] px-2 py-2 flex items-center gap-2 overflow-x-auto">
+      <div className="xl:hidden bg-white border-t-[2.5px] border-[#0a0a0a] px-2 py-2 flex items-center gap-2 overflow-x-auto brutal-scroll overscroll-x-contain">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}

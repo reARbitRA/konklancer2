@@ -39,9 +39,15 @@ async function pasteFromClipboard(inputEl: HTMLInputElement | HTMLTextAreaElemen
 
 interface LiveModelSwitcherProps {
   onOpenFullSettings: () => void;
+  /**
+   * حالت فشرده برای عرض‌های تنگ (تبلت/موبایل): فقط آیکون کلید + وضعیت،
+   * بدون نام مدل. پنل بازشو دقیقاً همان امکانات کامل را دارد، پس هیچ
+   * قابلیتی حذف نمی‌شود؛ فقط جای کمتری در هدر می‌گیرد.
+   */
+  compact?: boolean;
 }
 
-export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFullSettings }) => {
+export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFullSettings, compact = false }) => {
   const [vault, setVault] = useState(() => readKeyVault());
   const [open, setOpen] = useState(false);
   const [scanningId, setScanningId] = useState<string | null>(null);
@@ -190,7 +196,11 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-2 px-2.5 py-1.5 border-[2px] border-[#0a0a0a] text-[11px] font-black transition-all ${
+        aria-label="کلید API و مدل هوش مصنوعی"
+        aria-expanded={open}
+        className={`flex items-center justify-center gap-2 border-[2.5px] border-[#0a0a0a] text-[11px] font-black transition-all ${
+          compact ? 'h-[42px] w-[42px] shrink-0' : 'px-2.5 py-1.5'
+        } ${
           activeProfile
             ? 'bg-white hover:bg-[#FFFBF0] text-[#0a0a0a]'
             : 'bg-[#FFDE03] hover:bg-[#FFE53A] text-[#0a0a0a]'
@@ -198,7 +208,13 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
         title="تعویض آنی کلید API و مدل هوش مصنوعی در هر لحظه"
       >
         <KeyRound className={`w-3.5 h-3.5 shrink-0 ${activeProfile ? 'text-[#00875A]' : 'text-[#7a5c00]'}`} />
-        {activeProfile ? (
+        {compact ? (
+          // در حالت فشرده فقط نقطه‌ی وضعیت نشان داده می‌شود
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 border border-[#0a0a0a] ${activeProfile ? 'bg-[#00E599]' : 'bg-[#FF4D00]'}`}
+          />
+        ) : activeProfile ? (
           <>
             <span className="max-w-[95px] truncate font-bold text-[#00875A]">{activeProfile.label}</span>
             <span className="text-[#6b6b6b]">·</span>
@@ -214,13 +230,16 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
         ) : (
           <span>افزودن کلید API</span>
         )}
-        <ChevronDown className={`w-3.5 h-3.5 text-[#4a4a4a] transition-transform ${open ? 'rotate-180' : ''}`} />
+        {!compact && (
+          <ChevronDown className={`w-3.5 h-3.5 text-[#4a4a4a] transition-transform ${open ? 'rotate-180' : ''}`} />
+        )}
       </button>
 
       {open && (
         <div
           dir="rtl"
-          className="fixed sm:absolute left-3 right-3 sm:right-auto sm:left-0 top-16 sm:top-full sm:mt-2 sm:w-[430px] bg-white border-[3px] border-[#0a0a0a] shadow-[8px_8px_0px_0px_#000] z-[75] overflow-hidden"
+          data-testid="model-switcher-panel"
+          className="fixed inset-x-2 bottom-2 max-h-[72vh] lg:absolute lg:inset-x-auto lg:bottom-auto lg:right-0 lg:left-auto lg:top-full lg:mt-2 lg:w-[430px] lg:max-w-[calc(100vw-1.5rem)] lg:max-h-[calc(100vh-7rem)] overflow-y-auto brutal-scroll bg-white border-[3px] border-[#0a0a0a] shadow-[8px_8px_0px_0px_#000] z-[75] overflow-x-hidden"
         >
           <div className="px-3 py-2.5 bg-[#0a0a0a] text-[#FFFBF0] border-b-[3px] border-[#0a0a0a] flex items-center justify-between">
             <div className="flex items-center gap-2">

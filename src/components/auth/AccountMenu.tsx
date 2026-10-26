@@ -67,7 +67,7 @@ export const AccountMenu: React.FC = () => {
           {profile ? profile.fullName || profile.email || 'حساب من' : 'ورود'}
         </span>
         {profile && (
-          <span className="hidden border-[2px] border-[#0a0a0a] bg-white px-1 font-mono text-[9px] font-black uppercase sm:inline">
+          <span className="hidden border-[2px] border-[#0a0a0a] bg-white px-1 font-mono text-[9px] font-black uppercase xl:inline">
             {PROVIDER_LABEL[profile.provider] || profile.provider}
           </span>
         )}
@@ -75,7 +75,10 @@ export const AccountMenu: React.FC = () => {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-[280px] border-[2.5px] border-[#0a0a0a] bg-white shadow-[5px_5px_0px_0px_#000]" data-testid="account-menu">
+        <div
+          className="fixed inset-x-2 top-[96px] z-[70] w-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-[calc(100%+6px)] sm:w-[280px] max-h-[calc(100vh-8rem)] overflow-y-auto brutal-scroll border-[2.5px] border-[#0a0a0a] bg-white shadow-[5px_5px_0px_0px_#000]"
+          data-testid="account-menu"
+        >
           <div className="flex items-center justify-between border-b-[2.5px] border-[#0a0a0a] bg-[#0a0a0a] px-2.5 py-1.5">
             <span className="font-mono text-[10px] font-black uppercase tracking-widest text-[#FFDE03]">
               {profile ? 'ACCOUNT' : 'AUTH'}

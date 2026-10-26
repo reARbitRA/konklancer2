@@ -20,6 +20,7 @@
 | زمان‌بند اسکن قابل کنترل از UI (توقف/فواصل رصد) — قبلاً state محلی و بی‌اثر بود | SPEC-004/007 §2.2 | `POST/GET /api/scheduler` + `POST /api/scheduler/run-now`، وضعیت در SQLite (`settings.scan_scheduler`) پایدار می‌ماند | دکمه‌ی توقف/روشن و انتخاب بازه در صفحه‌ی سایبورگ + نمایش آخرین اجرا | ۸ تست `server/scheduler.test.ts` + چک DOM «engine toggle changes real scheduled-scan state» + تأیید curl/SQLite |
 | ورود کاربر با **Google / GitHub / Telegram** روی Supabase Auth | AUTH-001 (درخواست کاربر) | پروژه‌ی Supabase `rwuyuhjkitcnekpwmoml`؛ جدول‌های `profiles` + `telegram_links` با RLS؛ Edge Function `telegram-auth` v2؛ مسیر هم‌ارز `GET/POST /api/auth/telegram` روی سرور Node | چیپ حساب در هدر، مودال ورود، مسیرهای `/login` و `/account`، گیت اختیاری با `VITE_AUTH_REQUIRED` | ۳۱ تست Node (`server/authClient.test.ts` + `server/telegramAuth.test.ts` + `server/supabaseJwt.test.ts`) + ۱۰ چک DOM جدید؛ **ورود واقعی OAuth/Telegram در این سندباکس تأیید نشد** چون هیچ مسیر شبکه‌ای به `*.supabase.co` نیست و client_id/secret هنوز در داشبورد ست نشده |
 | احراز هویت دوگانه‌ی API: توکن محلی **یا** JWT سوپابیس | AUTH-002 | میدل‌ور `server/supabaseJwt.ts` پیش از `createApiTokenGuard`؛ `GET /api/auth/config` برای وضعیت | `apiFetch` توکن نشست را به‌صورت `Authorization: Bearer` می‌فرستد | ۱۵ تست (شامل HTTP واقعی: بدون توکن ۴۰۱، با JWT ۲۰۰، توکن بد ۴۰۱ با هدر `x-konklancer-jwt`) |
+| رفع سرریز افقی تبلت، پاپ‌اورهای بیرون‌قاب، ریل کنترلِ مرده و **remount شدن کل اپ در هر ثانیه** | UI-QUALITY | — | هدر بازچینش‌شده، کشوی ریل زیر `lg`، `compact` mode برای سوئیچر مدل، `InnerApp` به سطح ماژول منتقل شد | `npm run test:visual` = ۱۰۶ چک در Chromium واقعی (۷ ویوپورت × ۷ مسیر + overlay‌ها + پایداری state) |
 | ذخیره‌سازی مقاوم مرورگر (WebView اندروید) | — | `src/utils/safeStorage.ts` که قبلاً بی‌استفاده بود، اکنون در خواندن/نوشتن jobs و settings | — | `tsc` + اجرای کامل DOM smoke |
 
 ## ۲) قابلیت‌هایی که از قبل بودند و دوباره تأیید شدند
@@ -52,13 +53,14 @@
 یک دستور برای همه‌چیز (به‌جز اسکنر پایتون):
 
 ```bash
-npm run verify      # lint + ۱۳۹ تست Node + ۱۰۱ چک DOM روی سرور زنده
+npm run verify      # lint + ۱۵۷ تست Node + ۱۰۱ چک DOM روی سرور زنده
+CHROMIUM_PATH=/path/to/chrome npm run test:visual   # ۱۰۶ چک چیدمان در مرورگر واقعی
 ```
 
 جزئیات:
 
 ```bash
-npm test            # ۱۳۹ تست Node (سرور + منطق مشترک)
+npm test            # ۱۵۷ تست Node (سرور + منطق مشترک)
 npm run test:dom    # ۱۰۱ چک DOM روی بیلد واقعی + سرور زنده
 npm run lint        # tsc --noEmit
 python3 -m pytest -q scanner/tests   # ۵۸ تست اسکنر

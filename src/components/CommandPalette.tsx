@@ -26,7 +26,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, j
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/70 px-4 pt-[10vh] backdrop-blur-sm" onMouseDown={onClose}>
-      <div dir="rtl" className="w-full max-w-xl bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_#000] overflow-hidden" onMouseDown={e=>e.stopPropagation()} onKeyDown={handleKeyDown} role="dialog" aria-modal="true">
+      <div dir="rtl" data-testid="command-palette" className="w-full max-w-xl bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_#000] overflow-hidden" onMouseDown={e=>e.stopPropagation()} onKeyDown={handleKeyDown} role="dialog" aria-modal="true">
         <div className="flex items-center gap-2 border-b-[3px] border-black px-4 py-3 bg-[#FFDE03]">
           <Search className="w-4 h-4 shrink-0" />
           <input ref={inputRef} value={query} onChange={e=>{setQuery(e.target.value); setCursor(0);}} placeholder="جست‌وجوی پروژه، دستور، تنظیمات..." className="flex-1 bg-transparent text-[13px] font-bold placeholder:text-black/50 focus:outline-none" />

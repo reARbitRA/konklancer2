@@ -20,7 +20,8 @@
     "test:dom": "npm run build && node scripts/dom-smoke.mjs",
     "test:scanner": "python3 -m pytest -q scanner/tests",
     "test:sort": "tsx --test server/jobSort.test.ts",
-    "verify": "npm run lint && npm test && npm run test:dom"
+    "verify": "npm run lint && npm test && npm run test:dom",
+    "test:visual": "node scripts/visual-audit.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
