@@ -14,5 +14,6 @@ verification: "npx tsc --noEmit && npx vite build && npm run test:scanner"
 - R6 autoStart on in_progress disabled (App.tsx)
 - R7 NOT done (open question Q1)
 ## Remaining
-- R5 API auth (KONKLANCER_API_TOKEN) — needs frontend header change
+- R5 API auth DONE — `server/apiAuth.ts` + `src/services/outcomeApi.ts` (هدر x-api-token) + فیلد تنظیمات.
+  تأیید: `server/bidRoutes.test.ts` («بدون توکن ۴۰۱»).
 - Q2 model names; Q1 engine deletion; Q3 confirm R6 wording

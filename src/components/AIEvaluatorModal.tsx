@@ -1,19 +1,11 @@
 import React, { useState } from 'react';
-import { 
-  Sparkles, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Clock, 
-  Layers, 
-  Coins, 
-  X,
-  ArrowLeft,
-  Flame,
-  FileText,
-  Code2
+import {
+  Sparkles, CheckCircle2, AlertTriangle, Clock, Layers, Coins, X,
+  ArrowLeft, Flame, FileText, Code2, RefreshCw, ShieldCheck, TrendingUp,
 } from 'lucide-react';
 import { FreelanceJob, AIAnalysis } from '../types';
 import { analyzeJobDirect } from '../services/browserLLM';
+import { BrutalModal } from './brutalist/Modal';
 
 interface AIEvaluatorModalProps {
   job: FreelanceJob | null;
@@ -23,12 +15,14 @@ interface AIEvaluatorModalProps {
   onUpdateAnalysis: (jobId: string, analysis: AIAnalysis) => void;
 }
 
+const RISK_LABEL: Record<string, { label: string; bg: string }> = {
+  low: { label: 'ریسک پایین', bg: 'bg-[#00E599]' },
+  medium: { label: 'ریسک متوسط', bg: 'bg-[#FFDE03]' },
+  high: { label: 'ریسک بالا', bg: 'bg-[#FF3B30] text-white' },
+};
+
 export const AIEvaluatorModal: React.FC<AIEvaluatorModalProps> = ({
-  job,
-  onClose,
-  onProceedToProposal,
-  onProceedToCoding,
-  onUpdateAnalysis,
+  job, onClose, onProceedToProposal, onProceedToCoding, onUpdateAnalysis,
 }) => {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(job?.aiAnalysis || null);
@@ -50,199 +44,171 @@ export const AIEvaluatorModal: React.FC<AIEvaluatorModalProps> = ({
     }
   };
 
+  const risk = analysis ? RISK_LABEL[analysis.riskLevel] || RISK_LABEL.medium : null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden my-8">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">ارزیابی هوشمند پروژه با Konkred AI</h2>
-              <p className="text-[11px] text-slate-400 font-mono">پلتفرم: {job.platform} · شناسه: {job.id}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            <X className="h-4 w-4" />
+    <BrutalModal
+      title="ارزیابی هوشمند پروژه با Konkred AI"
+      subtitle={`${job.platform} · ${job.id.slice(0, 18)}`}
+      icon={Sparkles}
+      onClose={onClose}
+      size="lg"
+      meta={
+        <span className="hidden sm:inline-flex px-2 py-1 bg-[#FFDE03] text-[#0a0a0a] border-[2px] border-[#0a0a0a] text-[10px] font-black">
+          AI ENGINE
+        </span>
+      }
+      footer={
+        <>
+          <button onClick={onClose} className="brutal-btn brutal-btn--sm">
+            <X className="w-3.5 h-3.5" /> بستن
           </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Job summary info */}
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-2">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-semibold text-white">{job.title}</span>
-              <span className="font-mono text-emerald-400 font-bold tabular-nums">{job.budgetFormatted}</span>
-            </div>
-            <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
-              {job.description}
-            </p>
-          </div>
-
-          {/* If no analysis yet, show trigger button */}
-          {!analysis && !loading && (
-            <div className="text-center py-8 space-y-3">
-              <Sparkles className="h-10 w-10 text-sky-400 mx-auto animate-pulse" />
-              <h3 className="text-sm font-bold text-white">شروع تحلیل پتانسیل اتوماسیون پروژه</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                هوش مصنوعی متن پروژه را بررسی می‌کند تا درصد امکان انجام ۱۰۰٪ خودکار توسط ایجنت، قیمت رقابتی برنده و ترفند روانشناسی را مشخص کند.
-              </p>
-              <button
-                onClick={runAnalysis}
-                className="mt-2 px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-medium rounded-lg text-xs shadow-md transition-all active:scale-95"
-              >
-                اجرای تحلیل فوری (Konkred AI)
-              </button>
-            </div>
-          )}
-
-          {/* Loading state */}
-          {loading && (
-            <div className="text-center py-12 space-y-3">
-              <div className="h-8 w-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              <p className="text-xs text-slate-300">در حال ارزیابی کدنویسی، ضریب سود و بررسی محدودیت‌های فنی کارفرما...</p>
-            </div>
-          )}
-
-          {/* Error state */}
-          {error && (
-            <div className="p-3 bg-red-950/30 border border-red-800/50 rounded-lg text-xs text-red-300 flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={runAnalysis} className="underline text-red-200">تلاش مجدد</button>
-            </div>
-          )}
-
-          {/* Results Display */}
-          {analysis && !loading && (
-            <div className="space-y-5 animate-in fade-in duration-200">
-              {/* Primary Score Indicators */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Score */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>امتیاز اتوماسیون:</span>
-                    <Flame className="h-3.5 w-3.5 text-emerald-400" />
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="font-mono text-2xl font-bold text-emerald-400 tabular-nums">
-                      {analysis.automatabilityScore}٪
-                    </span>
-                    <span className="text-[11px] text-emerald-500 font-medium">آماده اجرای خودکار</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
-                    <div
-                      className="bg-emerald-400 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${analysis.automatabilityScore}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Recommended Price */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>قیمت پیشنهادی برنده:</span>
-                    <Coins className="h-3.5 w-3.5 text-amber-400" />
-                  </div>
-                  <div className="font-mono text-lg font-bold text-amber-300 tabular-nums">
-                    {analysis.recommendedBidFormatted}
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    ~۱۸٪ پایین‌تر از بودجه برای تایید فوری
-                  </p>
-                </div>
-
-                {/* Turnaround Time */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>زمان تحویل پیشنهادی:</span>
-                    <Clock className="h-3.5 w-3.5 text-sky-400" />
-                  </div>
-                  <div className="font-mono text-lg font-bold text-white">
-                    {analysis.suggestedDuration}
-                  </div>
-                  <p className="text-[11px] text-sky-400/90 font-medium mt-1">
-                    احتمال برنده شدن: {analysis.winProbability}
-                  </p>
-                </div>
-              </div>
-
-              {/* Feasibility reason */}
-              <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                <h4 className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>تحلیل استراتژیک ایجنت:</span>
-                </h4>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {analysis.feasibilityReason}
-                </p>
-              </div>
-
-              {/* Key psychological hook */}
-              <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs space-y-1">
-                <span className="font-semibold text-amber-300 block">نکته کلیدی خط اول پروپوزال:</span>
-                <p className="text-slate-300 italic">
-                  "{analysis.suggestedKicker}"
-                </p>
-              </div>
-
-              {/* Technical Stack */}
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Layers className="h-3.5 w-3.5 text-slate-400" />
-                <span>پشته فنی اجرایی:</span>
-                <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-                  {analysis.technicalStack.map((tech, i) => (
-                    <span key={i} className="bg-slate-800 px-2 py-0.5 rounded text-slate-200">
-                      {tech}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-800 bg-slate-900/90">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs text-slate-400 hover:text-white transition-colors"
-          >
-            بستن
-          </button>
-
           {analysis && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => {
-                  onClose();
-                  onProceedToProposal(job);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded-lg text-xs font-medium transition-colors"
+                onClick={() => { onClose(); onProceedToProposal(job); }}
+                className="brutal-btn brutal-btn--sm"
               >
-                <FileText className="h-3.5 w-3.5" />
-                <span>نگارش پروپوزال با این تحلیل</span>
+                <FileText className="w-3.5 h-3.5" /> نگارش پروپوزال با این تحلیل
               </button>
-
               <button
-                onClick={() => {
-                  onClose();
-                  onProceedToCoding(job);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-lg text-xs shadow-md transition-all active:scale-95"
+                onClick={() => { onClose(); onProceedToCoding(job); }}
+                className="brutal-btn brutal-btn--sm brutal-btn--primary gap-1"
               >
-                <Code2 className="h-3.5 w-3.5" />
-                <span>تولید خودکار سورس کد</span>
+                <Code2 className="w-3.5 h-3.5" /> تولید خودکار سورس <ArrowLeft className="w-3 h-3" />
               </button>
             </div>
           )}
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {/* Job summary */}
+        <div className="p-3 bg-[#FFFBF0] border-[2.5px] border-[#0a0a0a]">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="text-[13px] font-black leading-6">{job.title}</span>
+            <span className="shrink-0 px-2.5 py-1 bg-[#FFDE03] border-[2px] border-[#0a0a0a] font-mono font-black text-[11px]">
+              {job.budgetFormatted}
+            </span>
+          </div>
+          <p className="mt-2 text-[12px] leading-6 text-[#333] line-clamp-3">{job.description}</p>
         </div>
+
+        {/* Idle */}
+        {!analysis && !loading && (
+          <div className="border-[2.5px] border-[#0a0a0a] p-6 text-center space-y-3 bg-white">
+            <div className="w-14 h-14 mx-auto bg-[#FFDE03] border-[2.5px] border-[#0a0a0a] flex items-center justify-center">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <h3 className="text-[13px] font-black">شروع تحلیل پتانسیل اتوماسیون پروژه</h3>
+            <p className="text-[11px] leading-6 text-[#4a4a4a] max-w-md mx-auto">
+              هوش مصنوعی متن پروژه را بررسی می‌کند تا درصد امکان انجام ۱۰۰٪ خودکار توسط ایجنت،
+              قیمت رقابتی برنده و ترفند روانشناسی را مشخص کند.
+            </p>
+            <button onClick={runAnalysis} className="brutal-btn brutal-btn--primary">
+              <Sparkles className="w-4 h-4" /> اجرای تحلیل فوری (Konkred AI)
+            </button>
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading && (
+          <div className="border-[2.5px] border-[#0a0a0a] p-10 text-center space-y-3 bg-[#FFFBF0]">
+            <RefreshCw className="w-8 h-8 mx-auto animate-spin" />
+            <p className="text-[12px] font-bold">در حال ارزیابی کدنویسی، ضریب سود و بررسی محدودیت‌های فنی کارفرما…</p>
+            <div className="h-3 w-full max-w-sm mx-auto bg-white border-[2px] border-[#0a0a0a] overflow-hidden">
+              <div className="h-full bg-[#0066FF] animate-pulse" style={{ width: '65%' }} />
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="p-3 bg-[#FF3B30] text-white border-[2.5px] border-[#0a0a0a] flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[12px] font-bold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" /> {error}
+            </span>
+            <button onClick={runAnalysis} className="px-2.5 py-1 bg-white text-[#0a0a0a] border-[2px] border-[#0a0a0a] text-[11px] font-black hover:bg-[#FFDE03]">
+              تلاش مجدد
+            </button>
+          </div>
+        )}
+
+        {/* Results */}
+        {analysis && !loading && (
+          <div className="space-y-3 animate-brutal-in">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {/* Automatability */}
+              <div className="p-3 bg-white border-[2.5px] border-[#0a0a0a]">
+                <div className="flex items-center justify-between text-[11px] font-bold">
+                  <span>امتیاز اتوماسیون</span>
+                  <Flame className="w-3.5 h-3.5" />
+                </div>
+                <div className="mt-1 font-mono text-2xl font-black">{analysis.automatabilityScore}٪</div>
+                <div className="mt-2 h-2.5 w-full bg-[#FFFBF0] border-[2px] border-[#0a0a0a] overflow-hidden">
+                  <div className="h-full bg-[#00E599]" style={{ width: `${analysis.automatabilityScore}%` }} />
+                </div>
+                <div className="mt-1.5 text-[10px] font-black uppercase tracking-wide text-[#00875A]">آماده اجرای خودکار</div>
+              </div>
+
+              {/* Price */}
+              <div className="p-3 bg-[#FFFBF0] border-[2.5px] border-[#0a0a0a]">
+                <div className="flex items-center justify-between text-[11px] font-bold">
+                  <span>قیمت پیشنهادی برنده</span>
+                  <Coins className="w-3.5 h-3.5" />
+                </div>
+                <div className="mt-1 font-mono text-lg font-black">{analysis.recommendedBidFormatted}</div>
+                <p className="mt-1.5 text-[10px] font-bold text-[#4a4a4a]">~۱۸٪ پایین‌تر از بودجه برای تایید فوری</p>
+              </div>
+
+              {/* Duration */}
+              <div className="p-3 bg-[#0066FF] text-white border-[2.5px] border-[#0a0a0a]">
+                <div className="flex items-center justify-between text-[11px] font-bold">
+                  <span>زمان تحویل پیشنهادی</span>
+                  <Clock className="w-3.5 h-3.5" />
+                </div>
+                <div className="mt-1 font-mono text-lg font-black">{analysis.suggestedDuration}</div>
+                <p className="mt-1.5 text-[10px] font-bold opacity-90">احتمال برنده شدن: {analysis.winProbability}</p>
+              </div>
+            </div>
+
+            {/* Reason */}
+            <div className="p-3 border-[2.5px] border-[#0a0a0a] bg-white">
+              <h4 className="text-[11px] font-black uppercase tracking-wide flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> تحلیل استراتژیک ایجنت
+              </h4>
+              <p className="mt-1.5 text-[12px] leading-6 text-[#333]">{analysis.feasibilityReason}</p>
+            </div>
+
+            {/* Kicker */}
+            <div className="p-3 bg-[#FFDE03] border-[2.5px] border-[#0a0a0a]">
+              <span className="text-[11px] font-black uppercase tracking-wide block">نکته کلیدی خط اول پروپوزال</span>
+              <p className="mt-1 text-[12px] font-bold italic leading-6">«{analysis.suggestedKicker}»</p>
+            </div>
+
+            {/* Risk + stack */}
+            <div className="flex flex-wrap items-center gap-2">
+              {risk && (
+                <span className={`px-2.5 py-1 border-[2px] border-[#0a0a0a] text-[11px] font-black ${risk.bg}`}>
+                  <ShieldCheck className="w-3.5 h-3.5 inline mr-1" />
+                  {risk.label}
+                </span>
+              )}
+              <span className="px-2.5 py-1 bg-white border-[2px] border-[#0a0a0a] text-[11px] font-black flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5" /> برد: {analysis.winProbability}
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] font-bold">
+                <Layers className="w-3.5 h-3.5" /> پشته فنی:
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {analysis.technicalStack.map((tech, i) => (
+                  <span key={i} className="brutal-tag">{tech}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </BrutalModal>
   );
 };

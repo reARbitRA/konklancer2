@@ -222,10 +222,10 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#070d18]" dir="ltr">
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#0a0a0a]" dir="ltr">
       <div
         ref={gutterRef}
-        className="code-gutter relative w-[52px] shrink-0 select-none overflow-hidden border-r border-slate-800/70 bg-[#080f1b] py-3 text-right"
+        className="code-gutter relative w-[48px] shrink-0 select-none overflow-hidden py-3 text-right"
         aria-hidden="true"
       >
         <div ref={gutterInnerRef} className="will-change-transform">
@@ -233,21 +233,21 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             <div
               key={line}
               className={`pr-2.5 pl-1 tabular-nums transition-colors ${
-                line === activeLine ? 'bg-slate-800/40 text-emerald-300/90' : 'text-slate-600'
+                line === activeLine ? 'code-gutter__active' : 'text-[#6b6b6b]'
               }`}
             >
               {line}
             </div>
           ))}
         </div>
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-px bg-slate-800/60" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[2px] bg-[#FFDE03]" />
       </div>
 
       <div className="relative min-w-0 flex-1">
         <pre
           ref={preRef}
           aria-hidden="true"
-          className="code-surface pointer-events-none absolute inset-0 m-0 overflow-hidden p-3 text-slate-200"
+          className="code-surface pointer-events-none absolute inset-0 m-0 overflow-hidden p-3"
         >
           <code dangerouslySetInnerHTML={{ __html: `${highlighted}\n` }} />
         </pre>

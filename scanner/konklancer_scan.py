@@ -186,6 +186,12 @@ def fetch_html(
         raise PermissionError(f"robots.txt این مسیر را ممنوع کرده است: {url}")
     host = urlparse(url).netloc
     limiter.wait(host)
+    if os.environ.get("KONKLANCER_BROWSER", "").strip() in {"1", "true", "yes"}:
+        # سایت‌های JS-محور: HTML اولیه خالی است و فهرست با AJAX می‌آید.
+        try:
+            return render_html_with_browser(url, allowed_domain)
+        except BrowserRenderError as exc:
+            print(f"[scanner] رندر مرورگری ممکن نشد، برگشت به درخواست ساده: {exc}")
     resp = client.get(url)
     final_host = urlparse(str(resp.url)).netloc
     if not _same_domain(final_host, allowed_domain):
@@ -194,6 +200,65 @@ def fetch_html(
         )
     resp.raise_for_status()
     return resp.text
+
+
+class BrowserRenderError(RuntimeError):
+    """خطای رندر با مرورگر واقعی — پیام باید برای کاربر قابل‌فهم باشد."""
+
+
+def browser_render_available() -> tuple[bool, str]:
+    """آیا Playwright + مرورگر نصب است؟ (بدون بالا آوردن مرورگر)"""
+    try:
+        import playwright  # noqa: F401
+    except Exception:
+        return False, (
+            "Playwright نصب نیست. برای سایت‌های JS-محور: pip install playwright && playwright install chromium "
+            "(یا مسیر جایگزین: صفحه را در مرورگر ذخیره کنید و با autoscan --html بدهید)"
+        )
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            browser.close()
+        return True, ""
+    except Exception as exc:  # مرورگر دانلود نشده یا محیط بدون کتابخانه‌های لازم
+        return False, f"مرورگر Playwright قابل اجرا نیست: {exc}. راه‌حل: playwright install chromium"
+
+
+def render_html_with_browser(
+    url: str,
+    allowed_domain: str,
+    *,
+    wait_ms: int = 2500,
+    timeout_ms: int = 30000,
+) -> str:
+    """رندر صفحه با مرورگر واقعی (برای سایت‌های JS-محور).
+
+    قواعد ایمنی مثل مسیر httpx رعایت می‌شود: robots.txt، محدودیت دامنه و مهلت.
+    """
+    parsed = urlparse(url)
+    if allowed_domain and not _same_domain(parsed.netloc, allowed_domain):
+        raise BrowserRenderError(f"دامنه‌ی {parsed.netloc} با دامنه‌ی مجاز {allowed_domain} یکی نیست.")
+    ok, reason = browser_render_available()
+    if not ok:
+        raise BrowserRenderError(reason)
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent=USER_AGENT, locale="fa-IR")
+            page.set_default_timeout(timeout_ms)
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            # فرصت برای درخواست‌های AJAX فهرست پروژه‌ها
+            page.wait_for_timeout(wait_ms)
+            final_host = urlparse(page.url).netloc
+            if allowed_domain and not _same_domain(final_host, allowed_domain):
+                raise BrowserRenderError(f"ریدایرکت به دامنه‌ی خارج از فهرست: {final_host}")
+            return page.content()
+        finally:
+            browser.close()
 
 
 def _bare_host(netloc: str) -> str:
@@ -1222,6 +1287,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="برای پلتفرم بدون انتخابگر، ساختار صفحه را در همان لحظه کشف و استفاده کن",
     )
+    sc.add_argument("--browser", action="store_true", help="سایت‌های JS-محور را با مرورگر واقعی (Playwright) رندر کن؛ اگر نصب نباشد پیام صادقانه و برگشت به حالت ساده")
     sc.add_argument("--out", default=str(DEFAULT_OUT))
     sc.set_defaults(fn=cmd_scan)
 
@@ -1231,6 +1297,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--min-items", type=int, default=3, help="حداقل آیتم برای قبول یک نامزد")
     pr.add_argument("--delay", type=float, default=8.0)
     pr.add_argument("--save", action="store_true", help="ذخیره‌ی بهترین نتیجه در platforms.json")
+    pr.add_argument("--browser", action="store_true", help="سایت‌های JS-محور را با مرورگر واقعی (Playwright) رندر کن؛ اگر نصب نباشد پیام صادقانه و برگشت به حالت ساده")
     pr.set_defaults(fn=cmd_probe)
 
     cp = sub.add_parser(
@@ -1252,6 +1319,7 @@ def build_parser() -> argparse.ArgumentParser:
     ad.add_argument("--min-count", type=int, default=5)
     ad.add_argument("--delay", type=float, default=8.0)
     ad.add_argument("--save", action="store_true", help="ذخیره‌ی بهترین انتخابگرها در platforms.json")
+    ad.add_argument("--browser", action="store_true", help="سایت‌های JS-محور را با مرورگر واقعی (Playwright) رندر کن؛ اگر نصب نباشد پیام صادقانه و برگشت به حالت ساده")
     ad.set_defaults(fn=cmd_autodetect)
 
     au = sub.add_parser(
@@ -1267,6 +1335,7 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("--min-count", type=int, default=3)
     au.add_argument("--html", default="", help="فایل HTML ذخیره‌شده در مرورگر (بدون هیچ درخواست شبکه‌ای)")
     au.add_argument("--save", action="store_true", help="ذخیره‌ی انتخابگرهای کشف‌شده در platforms.json")
+    au.add_argument("--browser", action="store_true", help="سایت‌های JS-محور را با مرورگر واقعی (Playwright) رندر کن؛ اگر نصب نباشد پیام صادقانه و برگشت به حالت ساده")
     au.add_argument("--out", default=str(DEFAULT_OUT))
     au.set_defaults(fn=cmd_autoscan)
     return ap
@@ -1274,6 +1343,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # --browser روی هر زیرفرمانی که از شبکه می‌خواند، حالت رندر مرورگری را روشن می‌کند
+    if getattr(args, "browser", False):
+        os.environ["KONKLANCER_BROWSER"] = "1"
     return args.fn(args)
 
 

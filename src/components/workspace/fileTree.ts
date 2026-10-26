@@ -211,7 +211,11 @@ export function uniquePath(files: Record<string, string>, folder: string, base =
 
 /** بررسی معتبر بودن مسیر فایل (هم‌راستا با sanitizeSolutionFiles در سرور). */
 export function isValidFilePath(path: string): boolean {
-  const clean = normalize(path).trim();
+  const raw = String(path ?? '').trim();
+  // اعتبارسنجی روی مسیر خام انجام می‌شود؛ normalize مسیر مطلق را به نسبی
+  // تبدیل می‌کرد و باعث می‌شد «/etc/passwd» معتبر شمرده شود.
+  if (!raw || raw.startsWith('/') || raw.startsWith('\\') || raw.includes('..') || /^[A-Za-z]:/.test(raw)) return false;
+  const clean = normalize(raw).trim();
   if (!clean || clean.startsWith('/') || clean.includes('..')) return false;
   if (!/^[\w\-./@()\u0600-\u06FF ]+$/.test(clean)) return false;
   return /\.[A-Za-z0-9]+$/.test(clean);

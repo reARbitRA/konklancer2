@@ -34,7 +34,11 @@ function master(bucket: Bucket): RegExp {
   const parts = Object.entries(bucket)
     .filter(([, pattern]) => Boolean(pattern))
     .map(([name, pattern]) => `(?<${name}>${pattern})`);
-  return new RegExp(parts.join('|'), 'gyms');
+  // بدون فلگ «y» (sticky): با sticky، exec بعد از اولین توکن در صورت
+  // عدم تطابق دقیق در همان ایندکس متوقف می‌شد و بقیه‌ی خط رنگ نمی‌گرفت.
+  // بدون فلگ «i»: با i، الگوی «\b[A-Z]...» با حروف کوچک هم تطابق می‌یافت و
+  // همه‌ی شناسه‌ها رنگ «type» می‌گرفتند؛ کلیدواژه‌ها خودشان هر دو حالت را دارند.
+  return new RegExp(parts.join('|'), 'gms');
 }
 
 const RULES: Record<CodeLanguage, { regex: RegExp }> = {
@@ -133,7 +137,8 @@ const RULES: Record<CodeLanguage, { regex: RegExp }> = {
     regex: master({
       com: '--[^\\n]*|/\\*[\\s\\S]*?\\*/',
       str: "'(?:''|[^'])*'",
-      kw: `\\b(?:${SQL_KEYWORDS})\\b`,
+      // SQL معمولاً با حروف بزرگ نوشته می‌شود؛ هر دو حالت پوشش داده می‌شود.
+      kw: `\\b(?:${SQL_KEYWORDS}|${SQL_KEYWORDS.toUpperCase()})\\b`,
       num: '\\b\\d+(?:\\.\\d+)?\\b',
       fn: '\\b[A-Za-z_]\\w*(?=\\s*\\()',
       op: '[=<>!+*/%-]',
@@ -151,7 +156,7 @@ const CLASS_OF: Record<string, string> = {
   com: 'tok-com',
   str: 'tok-str',
   num: 'tok-num',
-  kw: 'tok-key',
+  kw: 'tok-kw',
   fn: 'tok-fn',
   type: 'tok-type',
   prop: 'tok-prop',

@@ -28,16 +28,16 @@ interface FileTreeProps {
 }
 
 const KIND_STYLE: Record<string, { icon: React.ElementType; className: string }> = {
-  py: { icon: FileCode2, className: 'text-sky-400' },
-  ts: { icon: FileType2, className: 'text-blue-400' },
-  js: { icon: FileType2, className: 'text-amber-300' },
-  json: { icon: FileJson2, className: 'text-yellow-300' },
-  md: { icon: FileText, className: 'text-slate-300' },
-  html: { icon: Hash, className: 'text-orange-400' },
-  css: { icon: Hash, className: 'text-pink-400' },
-  sh: { icon: FileCode2, className: 'text-emerald-400' },
-  yaml: { icon: FileText, className: 'text-violet-300' },
-  txt: { icon: FileText, className: 'text-slate-400' },
+  py: { icon: FileCode2, className: 'text-[#0066FF]' },
+  ts: { icon: FileType2, className: 'text-[#0066FF]' },
+  js: { icon: FileType2, className: 'text-[#7a5c00]' },
+  json: { icon: FileJson2, className: 'text-[#7a5c00]' },
+  md: { icon: FileText, className: 'text-[#333333]' },
+  html: { icon: Hash, className: 'text-[#FF4D00]' },
+  css: { icon: Hash, className: 'text-[#8B5CF6]' },
+  sh: { icon: FileCode2, className: 'text-[#00875A]' },
+  yaml: { icon: FileText, className: 'text-[#8B5CF6]' },
+  txt: { icon: FileText, className: 'text-[#555555]' },
 };
 
 interface RowProps {
@@ -78,10 +78,10 @@ const Row: React.FC<RowProps> = ({
   return (
     <div>
       <div
-        className={`group flex h-[26px] items-center gap-1 rounded-md pe-1 text-[12px] transition-colors ${
+        className={`group flex h-[26px] items-center gap-1 border-[2px] pe-1 text-[12px] transition-colors ${
           isActive
-            ? 'bg-emerald-500/12 text-emerald-100 shadow-[inset_2px_0_0_0_rgba(52,211,153,0.75)]'
-            : 'text-slate-300 hover:bg-slate-800/50'
+            ? 'border-[#0a0a0a] bg-[#FFDE03] font-bold text-[#0a0a0a]'
+            : 'border-transparent text-[#0a0a0a] hover:border-[#0a0a0a] hover:bg-[#F6F0E0]'
         }`}
         style={{ paddingInlineStart: `${6 + depth * 12}px` }}
         dir="ltr"
@@ -94,11 +94,11 @@ const Row: React.FC<RowProps> = ({
         >
           {isFolder ? (
             <>
-              <Chevron className="h-3 w-3 shrink-0 text-slate-500" />
+              <Chevron className="h-3 w-3 shrink-0 text-[#0a0a0a]" />
               {isOpen ? (
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-300/80" />
+                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[#7a5c00]" />
               ) : (
-                <Folder className="h-3.5 w-3.5 shrink-0 text-amber-300/70" />
+                <Folder className="h-3.5 w-3.5 shrink-0 text-[#7a5c00]" />
               )}
             </>
           ) : (
@@ -107,13 +107,13 @@ const Row: React.FC<RowProps> = ({
               <FileIcon className={`h-3.5 w-3.5 shrink-0 ${style.className}`} />
             </>
           )}
-          <span className={`truncate ${dirty ? 'italic text-amber-200' : ''}`}>{node.name}</span>
+          <span className={`truncate ${dirty ? 'italic underline decoration-[#FF4D00] decoration-2 underline-offset-2' : ''}`}>{node.name}</span>
           {isFolder && (
-            <span className="ms-1 text-[10px] tabular-nums text-slate-600 group-hover:text-slate-500">
+            <span className="ms-1 text-[10px] font-bold tabular-nums text-[#555555] group-hover:text-[#0a0a0a]">
               {node.children.length}
             </span>
           )}
-          {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="تغییر ذخیره‌نشده" />}
+          {dirty && <span className="h-2 w-2 shrink-0 border-2 border-[#0a0a0a] bg-[#FF4D00]" aria-label="ویرایش‌شده در این نشست" />}
         </button>
 
         <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
@@ -124,7 +124,7 @@ const Row: React.FC<RowProps> = ({
                 event.stopPropagation();
                 onNewFile(node.path);
               }}
-              className="rounded p-0.5 text-slate-500 hover:bg-slate-700/60 hover:text-emerald-300"
+              className="border-[2px] border-transparent p-0.5 text-[#555555] hover:border-[#0a0a0a] hover:bg-[#00E599] hover:text-[#0a0a0a]"
               title="فایل جدید در این پوشه"
             >
               <Plus className="h-3 w-3" />
@@ -137,7 +137,7 @@ const Row: React.FC<RowProps> = ({
                   event.stopPropagation();
                   onRename(node.path);
                 }}
-                className="rounded p-0.5 text-slate-500 hover:bg-slate-700/60 hover:text-sky-300"
+                className="border-[2px] border-transparent p-0.5 text-[#555555] hover:border-[#0a0a0a] hover:bg-[#0066FF] hover:text-white"
                 title="تغییر نام"
               >
                 <Pencil className="h-3 w-3" />
@@ -148,7 +148,7 @@ const Row: React.FC<RowProps> = ({
                   event.stopPropagation();
                   onDelete(node.path);
                 }}
-                className="rounded p-0.5 text-slate-500 hover:bg-slate-700/60 hover:text-red-300"
+                className="border-[2px] border-transparent p-0.5 text-[#555555] hover:border-[#0a0a0a] hover:bg-[#FF3B30] hover:text-white"
                 title="حذف فایل"
               >
                 <Trash2 className="h-3 w-3" />
@@ -158,7 +158,7 @@ const Row: React.FC<RowProps> = ({
         </span>
 
         {!isFolder && node.size !== undefined && (
-          <span className="shrink-0 font-mono text-[9px] text-slate-600 group-hover:hidden">
+          <span className="shrink-0 font-mono text-[9px] font-bold text-[#777777] group-hover:hidden">
             {formatBytes(node.size)}
           </span>
         )}
@@ -224,7 +224,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
 
   if (nodes.length === 0) {
     return (
-      <div className="px-3 py-6 text-center text-[11px] leading-relaxed text-slate-500">
+      <div className="px-3 py-6 text-center text-[11px] leading-relaxed font-bold text-[#555555]">
         هنوز فایلی تولید نشده است.
         <br />
         از دکمه‌ی «تولید سورس» شروع کنید یا فایل جدید بسازید.

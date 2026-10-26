@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, MessageSquare } from 'lucide-react';
+import { BrutalModal } from '../brutalist/Modal';
 
 interface PromptDialogProps {
   open: boolean;
@@ -9,12 +10,18 @@ interface PromptDialogProps {
   initialValue?: string;
   confirmLabel?: string;
   tone?: 'default' | 'danger';
+  /** اگر false باشد ورودی متنی نشان داده نمی‌شود و دیالوگ فقط تأیید می‌گیرد. */
+  withInput?: boolean;
   validate?: (value: string) => string | null;
   onCancel: () => void;
   onConfirm: (value: string) => void;
 }
 
-/** دیالوگ سبک برای نام‌گذاری/تأیید — جایگزین window.prompt با ظاهر خود برنامه. */
+/**
+ * PromptDialog — دیالوگ بروتالیست برای نام‌گذاری/تأیید.
+ * جایگزین window.prompt و window.confirm با ظاهر خود برنامه؛ روی
+ * BrutalModal سوار است تا با بقیه‌ی دیالوگ‌ها یکدست بماند.
+ */
 export const PromptDialog: React.FC<PromptDialogProps> = ({
   open,
   title,
@@ -23,6 +30,7 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
   initialValue = '',
   confirmLabel = 'تأیید',
   tone = 'default',
+  withInput = true,
   validate,
   onCancel,
   onConfirm,
@@ -35,26 +43,22 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
     if (!open) return;
     setValue(initialValue);
     setError(null);
+    if (!withInput) return;
     const timer = window.setTimeout(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     }, 40);
     return () => window.clearTimeout(timer);
-  }, [open, initialValue]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onCancel]);
+  }, [open, initialValue, withInput]);
 
   if (!open) return null;
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (!withInput) {
+      onConfirm('');
+      return;
+    }
     const trimmed = value.trim();
     const invalid = validate ? validate(trimmed) : trimmed ? null : 'مقدار نمی‌تواند خالی باشد.';
     if (invalid) {
@@ -64,26 +68,35 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
     onConfirm(trimmed);
   };
 
+  const danger = tone === 'danger';
+
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
-      onMouseDown={onCancel}
-    >
-      <form
-        onSubmit={submit}
-        onMouseDown={(event) => event.stopPropagation()}
-        className="animate-scale-in w-full max-w-sm overflow-hidden rounded-xl border border-slate-700/70 bg-slate-900 shadow-2xl"
-      >
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
-          <h3 className={`text-xs font-bold ${tone === 'danger' ? 'text-red-300' : 'text-white'}`}>{title}</h3>
-          <button type="button" onClick={onCancel} className="icon-btn" aria-label="بستن">
-            <X className="h-3.5 w-3.5" />
+    <BrutalModal
+      title={title}
+      subtitle={description}
+      icon={danger ? AlertTriangle : MessageSquare}
+      variant={danger ? 'ink' : 'accent'}
+      size="sm"
+      onClose={onCancel}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onCancel} className="brutal-btn brutal-btn--ghost border-[2px]">
+            انصراف
+          </button>
+          <button
+            type="submit"
+            form="prompt-dialog-form"
+            className={`brutal-btn ${danger ? 'bg-[#FF3B30] text-white border-black' : 'brutal-btn--primary'}`}
+          >
+            {confirmLabel}
           </button>
         </div>
-        <div className="space-y-2.5 px-4 py-3">
-          {description && <p className="text-[11px] leading-6 text-slate-400">{description}</p>}
+      }
+    >
+      <form id="prompt-dialog-form" onSubmit={submit} className="space-y-2.5">
+        {withInput && (
           <label className="block">
-            {label && <span className="mb-1 block text-[10px] text-slate-400">{label}</span>}
+            {label && <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-[#555]">{label}</span>}
             <input
               ref={inputRef}
               value={value}
@@ -91,28 +104,18 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
                 setValue(event.target.value);
                 setError(null);
               }}
-              className="field font-mono text-[12px]"
               dir="ltr"
+              aria-label={label ?? title}
+              className="brutal-input font-mono text-[12px] w-full"
             />
           </label>
-          {error && (
-            <p className="flex items-start gap-1 text-[10px] text-red-300">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {error}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-slate-800 bg-slate-950/40 px-4 py-2.5">
-          <button type="button" onClick={onCancel} className="btn">
-            انصراف
-          </button>
-          <button
-            type="submit"
-            className={`btn ${tone === 'danger' ? 'border-red-500/40 bg-red-500/15 text-red-200' : 'btn-primary'}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+        )}
+        {error && (
+          <p className="flex items-start gap-1 border-[2px] border-[#0a0a0a] bg-[#FF3B30] px-2 py-1 text-[11px] font-bold text-white">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {error}
+          </p>
+        )}
       </form>
-    </div>
+    </BrutalModal>
   );
 };

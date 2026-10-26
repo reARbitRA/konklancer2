@@ -1,7 +1,8 @@
 {
-  "requested_at": "2026-10-23T09:15:00Z",
+  "_comment": "برای درخواست اسکن تازه، یکی از مقدارها را تغییر دهید و کامیت کنید؛ ورک‌فلوی scanner-feed اجرا می‌شود.",
   "platforms": "parscoders,ponisha,karlancer",
   "pages": 4,
   "delay": 2,
-  "telegram": 1
+  "telegram": 1,
+  "requested_at": "2026-10-26T10:06:39.216Z"
 }

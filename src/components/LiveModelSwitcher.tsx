@@ -190,23 +190,23 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+        className={`flex items-center gap-2 px-2.5 py-1.5 border-[2px] border-[#0a0a0a] text-[11px] font-black transition-all ${
           activeProfile
-            ? 'bg-slate-800/90 hover:bg-slate-800 border-emerald-500/35 text-slate-100'
-            : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/40 text-amber-300'
+            ? 'bg-white hover:bg-[#FFFBF0] text-[#0a0a0a]'
+            : 'bg-[#FFDE03] hover:bg-[#FFE53A] text-[#0a0a0a]'
         }`}
         title="تعویض آنی کلید API و مدل هوش مصنوعی در هر لحظه"
       >
-        <KeyRound className={`w-3.5 h-3.5 shrink-0 ${activeProfile ? 'text-emerald-400' : 'text-amber-400'}`} />
+        <KeyRound className={`w-3.5 h-3.5 shrink-0 ${activeProfile ? 'text-[#00875A]' : 'text-[#7a5c00]'}`} />
         {activeProfile ? (
           <>
-            <span className="max-w-[95px] truncate font-bold text-emerald-300">{activeProfile.label}</span>
-            <span className="text-slate-500">·</span>
-            <span className="font-mono text-[11px] text-slate-200 max-w-[130px] truncate" dir="ltr">
+            <span className="max-w-[95px] truncate font-bold text-[#00875A]">{activeProfile.label}</span>
+            <span className="text-[#6b6b6b]">·</span>
+            <span className="font-mono text-[11px] text-[#1a1a1a] max-w-[130px] truncate" dir="ltr">
               {shortModelName(activeProfile.selectedModel)}
             </span>
             {enabledCount > 1 && (
-              <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px]">
+              <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 border border-[#0a0a0a] bg-[#00E599] text-[#0a0a0a] text-[10px] font-black">
                 {enabledCount.toLocaleString('fa-IR')} کلید
               </span>
             )}
@@ -214,22 +214,22 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
         ) : (
           <span>افزودن کلید API</span>
         )}
-        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-3.5 h-3.5 text-[#4a4a4a] transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div
           dir="rtl"
-          className="fixed sm:absolute left-3 right-3 sm:right-auto sm:left-0 top-16 sm:top-full sm:mt-2 sm:w-[410px] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden"
+          className="fixed sm:absolute left-3 right-3 sm:right-auto sm:left-0 top-16 sm:top-full sm:mt-2 sm:w-[430px] bg-white border-[3px] border-[#0a0a0a] shadow-[8px_8px_0px_0px_#000] z-[75] overflow-hidden"
         >
-          <div className="px-4 py-3 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between">
+          <div className="px-3 py-2.5 bg-[#0a0a0a] text-[#FFFBF0] border-b-[3px] border-[#0a0a0a] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white">سوئیچر زنده کلید و مدل (Real-Time)</span>
+              <Sparkles className="w-4 h-4 text-[#FFDE03]" />
+              <span className="text-[12px] font-black uppercase tracking-wide">سوئیچر زنده کلید و مدل</span>
             </div>
             <div className="flex items-center gap-2">
               {enabledCount > 1 && vault.autoFailoverKeys && (
-                <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-2 py-0.5 rounded-full">
+                <span className="inline-flex items-center gap-1 text-[10px] bg-[#00E599] text-[#0a0a0a] border-[2px] border-[#0a0a0a] px-2 py-0.5">
                   <ShieldCheck className="w-3 h-3" /> چرخش خودکار
                 </span>
               )}
@@ -239,7 +239,7 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                   setOpen(false);
                   onOpenFullSettings();
                 }}
-                className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-md"
+                className="text-[11px] font-black flex items-center gap-1 bg-white text-[#0a0a0a] border-[2px] border-[#0a0a0a] px-2 py-1 hover:bg-[#FFDE03]"
               >
                 <Settings className="w-3 h-3" /> مدیریت کامل
               </button>
@@ -247,7 +247,7 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
           </div>
 
           {feedback && (
-            <div className="px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/20 text-[11px] text-emerald-300 flex items-center gap-1.5">
+            <div className="px-4 py-2 bg-[#00E599]/25 border-b border-[2px] border-[#0a0a0a] text-[11px] text-[#00875A] flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>{feedback}</span>
             </div>
@@ -256,13 +256,13 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
           <div className="p-3.5 space-y-3.5 max-h-[72vh] overflow-y-auto">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-semibold text-slate-400">
+                <span className="text-[11px] font-semibold text-[#4a4a4a]">
                   ۱. کلیدهای ذخیره‌شده ({vault.profiles.length.toLocaleString('fa-IR')})
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowQuickAdd((v) => !v)}
-                  className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium"
+                  className="text-[11px] text-[#00875A] hover:text-[#00875A] flex items-center gap-1 font-medium"
                 >
                   <Plus className="w-3.5 h-3.5" /> کلید جدید فوری
                 </button>
@@ -271,14 +271,14 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
               {showQuickAdd && (
                 <form
                   onSubmit={handleQuickAddSubmit}
-                  className="mb-2.5 p-2.5 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2"
+                  className="mb-2.5 p-2.5  bg-[#FFFBF0] border-[2px] border-[#0a0a0a] space-y-2"
                 >
                   <input
                     type="text"
                     value={quickLabel}
                     onChange={(e) => setQuickLabel(e.target.value)}
                     placeholder="نام دلخواه (مثلاً Gemini اصلی، Groq سریع...)"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border-[2px] border-[#0a0a0a]  px-2.5 py-1.5 text-xs text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
                   />
                   <div className="relative">
                     <input
@@ -289,7 +289,7 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                       onChange={(e) => setQuickKey(e.target.value)}
                       placeholder="چسباندن کلید API (AIza... / gsk_... / sk-or-... / sk-...)"
                       dir="ltr"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 pr-24 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border-[2px] border-[#0a0a0a]  px-2.5 py-1.5 pr-24 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
                     />
                     <button
                       type="button"
@@ -299,15 +299,15 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                             (document.activeElement as HTMLInputElement),
                         )
                       }
-                      className="absolute right-1 top-1 px-2 py-0.5 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                      className="absolute right-1 top-1 px-2 py-0.5 text-[10px] font-bold text-[#00875A] bg-white hover:bg-[#FFDE03] border-[2px] border-[#0a0a0a] "
                     >
                       پِست
                     </button>
                   </div>
                   {quickKey.trim() && (
-                    <div className="text-[10px] text-slate-400">
+                    <div className="text-[10px] text-[#4a4a4a]">
                       سرویس تشخیص داده‌شده:{' '}
-                      <strong className="text-emerald-400">
+                      <strong className="text-[#00875A]">
                         {detectProviderClient('', undefined, quickKey.trim())}
                       </strong>
                     </div>
@@ -316,14 +316,14 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                     <button
                       type="button"
                       onClick={() => setShowQuickAdd(false)}
-                      className="px-2.5 py-1 rounded text-[11px] text-slate-400 hover:text-white"
+                      className="px-2.5 py-1  text-[11px] text-[#4a4a4a] hover:text-[#0a0a0a]"
                     >
                       انصراف
                     </button>
                     <button
                       type="submit"
                       disabled={!quickKey.trim() || quickAdding}
-                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1"
+                      className="brutal-btn brutal-btn--sm brutal-btn--mint gap-1"
                     >
                       {quickAdding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
                       ذخیره، اسکن مدل و فعال‌سازی
@@ -333,7 +333,7 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
               )}
 
               {vault.profiles.length === 0 ? (
-                <div className="p-4 text-center rounded-xl bg-slate-950/70 border border-dashed border-slate-800 text-xs text-slate-400">
+                <div className="p-4 text-center  bg-black/70 border border-dashed border-[2px] border-[#0a0a0a] text-xs text-[#4a4a4a]">
                   هنوز کلیدی ثبت نشده است. روی «+ کلید جدید فوری» بزنید تا همه کلیدهای خود را یک‌بار برای همیشه ذخیره کنید.
                 </div>
               ) : (
@@ -345,28 +345,28 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                         key={k.id}
                         type="button"
                         onClick={() => handleSelectProfile(k.id)}
-                        className={`w-full text-right px-3 py-2 rounded-xl border transition-all flex items-center justify-between ${
+                        className={`w-full text-right px-2.5 py-2 border-[2px] border-[#0a0a0a] transition-all flex items-center justify-between ${
                           isSelected
-                            ? 'bg-emerald-500/12 border-emerald-500/45 text-white'
-                            : 'bg-slate-950/60 hover:bg-slate-800/80 border-slate-800 text-slate-300'
+                            ? 'bg-[#00E599]/30 text-[#0a0a0a] shadow-[2px_2px_0px_0px_#000]'
+                            : 'bg-white hover:bg-[#FFDE03] text-[#333333]'
                         }`}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold truncate">{k.label}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                            <span className="text-[10px] font-mono px-1 bg-[#FFFBF0] border border-[#0a0a0a] text-[#4a4a4a]">
                               {k.provider}
                             </span>
                           </div>
-                          <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5" dir="ltr">
+                          <div className="text-[11px] font-mono text-[#4a4a4a] truncate mt-0.5" dir="ltr">
                             {k.selectedModel}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 mr-2">
-                          <span className="text-[10px] font-mono text-slate-500" dir="ltr">
+                          <span className="text-[10px] font-mono text-[#6b6b6b]" dir="ltr">
                             …{k.apiKey.slice(-4)}
                           </span>
-                          {isSelected && <Check className="w-4 h-4 text-emerald-400" />}
+                          {isSelected && <Check className="w-4 h-4 text-[#00875A]" />}
                         </div>
                       </button>
                     );
@@ -376,16 +376,16 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
             </div>
 
             {activeProfile && (
-              <div className="pt-2 border-t border-slate-800">
+              <div className="pt-2 border-t border-[2px] border-[#0a0a0a]">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-semibold text-slate-400">
+                  <span className="text-[11px] font-semibold text-[#4a4a4a]">
                     ۲. تغییر آنی مدل روی «{activeProfile.label}»
                   </span>
                   <button
                     type="button"
                     onClick={handleScanModelsForActive}
                     disabled={scanningId === activeProfile.id}
-                    className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1"
+                    className="text-[11px] text-[#0066FF] hover:text-[#0066FF] flex items-center gap-1"
                   >
                     <RefreshCw className={`w-3 h-3 ${scanningId === activeProfile.id ? 'animate-spin' : ''}`} />
                     بروزرسانی لیست مدل‌ها
@@ -400,14 +400,14 @@ export const LiveModelSwitcher: React.FC<LiveModelSwitcherProps> = ({ onOpenFull
                         key={m}
                         type="button"
                         onClick={() => handleSelectModel(m)}
-                        className={`px-2.5 py-1.5 rounded-lg text-left font-mono text-xs flex items-center justify-between transition-colors ${
+                        className={`px-2.5 py-1.5  text-left font-mono text-xs flex items-center justify-between transition-colors ${
                           active
-                            ? 'bg-indigo-600/25 border border-indigo-500/50 text-indigo-200 font-semibold'
-                            : 'bg-slate-950/60 hover:bg-slate-800 text-slate-300 border border-slate-800/60'
+                            ? 'bg-[#0066FF]/25 border-[2px] border-[#0a0a0a] text-[#0066FF] font-semibold'
+                            : 'bg-black/60 hover:bg-white text-[#333333] border-[2px] border-[#0a0a0a]'
                         }`}
                       >
                         <span className="truncate">{m}</span>
-                        {active && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0 ml-2" />}
+                        {active && <Check className="w-3.5 h-3.5 text-[#0066FF] shrink-0 ml-2" />}
                       </button>
                     );
                   })}

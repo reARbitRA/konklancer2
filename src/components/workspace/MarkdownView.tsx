@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { highlight } from './highlight';
+import { languageOf } from './fileTree';
 
 /** رندر سبک مارک‌داون برای README و مستندات پروژه — بدون وابستگی خارجی. */
 
@@ -16,13 +18,13 @@ export function renderInline(text: string): React.ReactNode[] {
     const key = `${match.index}-${token.slice(0, 8)}`;
     if (token.startsWith('`')) {
       nodes.push(
-        <code key={key} className="rounded border border-slate-700/70 bg-slate-950/80 px-1 py-0.5 font-mono text-[11px] text-emerald-200">
+        <code key={key} className="border-[2px] border-[#0a0a0a] bg-[#0a0a0a] px-1 py-0.5 font-mono text-[11px] text-[#00E599]">
           {token.slice(1, -1)}
         </code>,
       );
     } else if (token.startsWith('**') || token.startsWith('__')) {
       nodes.push(
-        <strong key={key} className="font-semibold text-white">
+        <strong key={key} className="font-black text-[#0a0a0a]">
           {token.slice(2, -2)}
         </strong>,
       );
@@ -34,14 +36,14 @@ export function renderInline(text: string): React.ReactNode[] {
           href={linkMatch?.[2]}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sky-300 underline decoration-sky-500/40 underline-offset-2 hover:text-sky-200"
+          className="font-bold text-[#0066FF] underline decoration-[2px] underline-offset-2 hover:bg-[#FFDE03]"
         >
           {linkMatch?.[1] ?? token}
         </a>,
       );
     } else {
       nodes.push(
-        <em key={key} className="text-slate-300">
+        <em key={key} className="text-[#333333]">
           {token.slice(1, -1)}
         </em>,
       );
@@ -55,9 +57,9 @@ export function renderInline(text: string): React.ReactNode[] {
 const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, language }) => {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="group my-3 overflow-hidden rounded-lg border border-slate-800 bg-[#070d18]">
-      <div className="flex items-center justify-between border-b border-slate-800/80 px-3 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-slate-500">{language || 'code'}</span>
+    <div className="group my-3 overflow-hidden border-[2.5px] border-[#0a0a0a] shadow-[4px_4px_0px_0px_#0a0a0a]">
+      <div className="flex items-center justify-between border-b-[2px] border-[#0a0a0a] bg-[#FFDE03] px-3 py-1.5" dir="ltr">
+        <span className="font-mono text-[10px] font-black uppercase tracking-wide text-[#0a0a0a]">{language || 'code'}</span>
         <button
           type="button"
           onClick={() => {
@@ -65,14 +67,14 @@ const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, langua
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1600);
           }}
-          className="flex items-center gap-1 text-[10px] text-slate-500 transition-colors hover:text-slate-200"
+          className="flex items-center gap-1 border-[2px] border-[#0a0a0a] bg-white px-1.5 py-0.5 text-[10px] font-black text-[#0a0a0a] hover:bg-[#0a0a0a] hover:text-[#FFDE03]"
         >
-          {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? 'کپی شد' : 'کپی'}
         </button>
       </div>
-      <pre className="code-surface overflow-x-auto p-3 text-slate-200" dir="ltr">
-        <code>{code}</code>
+      <pre className="code-surface overflow-x-auto p-3" dir="ltr">
+        <code dangerouslySetInnerHTML={{ __html: highlight(code, languageOf(`x.${language || 'txt'}`)) }} />
       </pre>
     </div>
   );
@@ -116,12 +118,12 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
         const level = heading[1].length;
         const text = heading[2];
         const sizes: Record<number, string> = {
-          1: 'mt-2 mb-3 text-xl font-bold text-white',
-          2: 'mt-5 mb-2.5 text-lg font-bold text-white border-b border-slate-800 pb-2',
-          3: 'mt-4 mb-2 text-sm font-bold text-emerald-200',
-          4: 'mt-3 mb-1.5 text-[13px] font-semibold text-slate-200',
-          5: 'mt-3 mb-1 text-xs font-semibold text-slate-300',
-          6: 'mt-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400',
+          1: 'mt-2 mb-3 text-[22px] font-black uppercase tracking-tight text-[#0a0a0a]',
+          2: 'mt-5 mb-2.5 text-lg font-black text-[#0a0a0a] border-b-[3px] border-[#0a0a0a] pb-2',
+          3: 'mt-4 mb-2 text-sm font-black text-[#00875A]',
+          4: 'mt-3 mb-1.5 text-[13px] font-bold text-[#0a0a0a]',
+          5: 'mt-3 mb-1 text-xs font-bold text-[#333333]',
+          6: 'mt-2 mb-1 text-[11px] font-bold uppercase tracking-wide text-[#555555]',
         };
         nodes.push(
           React.createElement(
@@ -135,7 +137,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
       }
 
       if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) {
-        nodes.push(<hr key={`hr-${key++}`} className="my-4 border-slate-800" />);
+        nodes.push(<hr key={`hr-${key++}`} className="my-4 border-t-[3px] border-[#0a0a0a]" />);
         index += 1;
         continue;
       }
@@ -149,7 +151,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
         nodes.push(
           <blockquote
             key={`quote-${key++}`}
-            className="my-3 rounded-e-md border-e-2 border-emerald-500/50 bg-emerald-500/5 px-3 py-2 text-[12px] leading-relaxed text-slate-300"
+            className="my-3 border-s-[6px] border-[#0066FF] bg-[#F6F0E0] px-3 py-2 text-[12px] leading-relaxed text-[#0a0a0a]"
           >
             {renderInline(buffer.join(' '))}
           </blockquote>,
@@ -169,9 +171,9 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
             ordered ? 'ol' : 'ul',
             {
               key: `list-${key++}`,
-              className: `my-2 space-y-1 ps-5 text-[12px] leading-relaxed text-slate-300 ${
+              className: `my-2 space-y-1 ps-5 text-[12px] leading-relaxed text-[#0a0a0a] ${
                 ordered ? 'list-decimal' : 'list-disc'
-              } marker:text-emerald-500/70`,
+              } marker:text-[#FF4D00]`,
             },
             items.map((item, itemIndex) => {
               const checkbox = item.match(/^\[( |x|X)\]\s+(.*)$/);
@@ -180,10 +182,8 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
                   <li key={itemIndex} className="list-none ps-0">
                     <span className="flex items-start gap-2">
                       <span
-                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                          checkbox[1].toLowerCase() === 'x'
-                            ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
-                            : 'border-slate-600'
+                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border-[2px] border-[#0a0a0a] ${
+                          checkbox[1].toLowerCase() === 'x' ? 'bg-[#00E599] text-[#0a0a0a]' : 'bg-white'
                         }`}
                       >
                         {checkbox[1].toLowerCase() === 'x' ? <Check className="h-2.5 w-2.5" /> : null}
@@ -210,7 +210,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
         index += 1;
       }
       nodes.push(
-        <p key={`p-${key++}`} className="my-2 text-[12px] leading-7 text-slate-300">
+        <p key={`p-${key++}`} className="my-2 text-[12px] leading-7 text-[#222222]">
           {renderInline(paragraph.join(' '))}
         </p>,
       );
@@ -220,7 +220,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, emptyHint }
 
   if (!content.trim()) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-xs text-slate-500">
+      <div className="flex h-full items-center justify-center p-8 text-center text-xs font-bold text-[#555555]">
         {emptyHint ?? 'محتوایی برای نمایش وجود ندارد.'}
       </div>
     );

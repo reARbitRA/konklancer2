@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   Zap,
   Check,
+  BellRing,
 } from 'lucide-react';
+import { notificationPermission, requestNotificationPermission } from '../utils/reminders';
 import { LLMProviderId, SavedApiKeyProfile, UserSettings } from '../types';
 import {
   PROVIDER_DEFAULTS_MAP,
@@ -62,6 +64,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeKeyId, setActiveKeyId] = useState<string>('');
   const [autoFailover, setAutoFailover] = useState<boolean>(true);
   const [githubToken, setGithubToken] = useState<string>(settings.githubToken || '');
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(Boolean(settings.notificationsEnabled));
+  const [permission, setPermission] = useState<string>(() => notificationPermission());
+  const [apiToken, setApiToken] = useState<string>(settings.apiToken || '');
 
   const [newLabel, setNewLabel] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
@@ -96,6 +101,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setActiveKeyId(vault.activeProfileId);
     setAutoFailover(vault.autoFailoverKeys);
     setGithubToken(settings.githubToken || '');
+    setNotificationsEnabled(Boolean(settings.notificationsEnabled));
+    setPermission(notificationPermission());
+    setApiToken(settings.apiToken || '');
     setStatusMsg(null);
     // IMPORTANT: only re-init when the modal is opened — NOT when `settings`
     // changes. Otherwise saving a key immediately resets the status message
@@ -280,37 +288,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-950/70">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-              <Cpu className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white">
-                گاوصندوق چندکلیدی API و مدیریت زنده مدل‌ها
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                همه کلیدهای خود (Gemini، Groq، OpenRouter، DeepSeek، OpenAI) را یک‌جا ذخیره کنید؛ سوییچ آنی در نوار بالا + چرخش خودکار
+    <div
+      className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-label="گاوصندوق API"
+    >
+      <div className="w-full max-w-3xl bg-white border-[3px] border-[#0a0a0a] shadow-[8px_8px_0px_0px_#000] overflow-hidden my-4 sm:my-8 max-h-[calc(100vh-2rem)] flex flex-col">
+        <div className="shrink-0 flex items-center justify-between gap-3 p-4 border-b-[3px] border-[#0a0a0a] bg-[#0a0a0a] text-[#FFFBF0]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-8 h-8 shrink-0 border-[2px] border-current flex items-center justify-center">
+              <Cpu className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-[13px] font-black tracking-wide uppercase leading-5">گاوصندوق چندکلیدی API</h3>
+              <p className="text-[11px] font-mono opacity-70 truncate">
+                Gemini · Groq · OpenRouter · DeepSeek · OpenAI — سوییچ آنی + چرخش خودکار
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            aria-label="بستن"
+            className="w-8 h-8 shrink-0 bg-white text-[#0a0a0a] border-[2px] border-[#0a0a0a] flex items-center justify-center hover:bg-[#FFDE03] transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 brutal-scroll">
           {statusMsg && (
             <div
-              className={`p-3.5 rounded-xl border text-xs flex items-start gap-2 ${
+              className={`p-3.5  border text-xs flex items-start gap-2 ${
                 statusMsg.type === 'ok'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  ? 'bg-[#00E599]/25 border-[2px] border-[#0a0a0a] text-[#00875A]'
+                  : 'bg-[#FF3B30]/15 border-[2px] border-[#0a0a0a] text-[#C1121F]'
               }`}
             >
               {statusMsg.type === 'ok' ? (
@@ -322,14 +334,81 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-4">
+          {/* اعلان‌ها و امنیت API (SPEC-002 / SPEC-003 R5) */}
+          <section className="p-3.5 bg-white/80 border-[2.5px] border-[#0a0a0a] space-y-3" data-testid="settings-notifications">
+            <h4 className="text-xs font-black uppercase tracking-wide text-[#0a0a0a] flex items-center gap-2">
+              <BellRing className="w-4 h-4" /> یادآور و امنیت API
+            </h4>
+
+            <label className="flex items-start justify-between gap-3 cursor-pointer">
+              <span>
+                <span className="block text-xs font-bold text-[#0a0a0a]">یادآور مرورگر برای پیشنهادهای بی‌نتیجه</span>
+                <span className="block text-[11px] text-[#4a4a4a] leading-5">
+                  اگر پیشنهادی بیش از ۴ ساعت در وضعیت «ارسال‌شده» بماند، یک اعلان مرورگر می‌بینی تا نتیجه‌اش را در کارنامه ثبت کنی.
+                  وضعیت مجوز: <b>{permission === 'granted' ? 'داده شده' : permission === 'denied' ? 'رد شده از طرف مرورگر' : permission === 'unsupported' ? 'مرورگر پشتیبانی نمی‌کند' : 'هنوز پرسیده نشده'}</b>
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="فعال‌سازی یادآور مرورگر"
+                checked={notificationsEnabled}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setNotificationsEnabled(next);
+                  if (next) {
+                    const result = await requestNotificationPermission();
+                    setPermission(result);
+                    if (result !== 'granted') {
+                      setStatusMsg({ type: 'err', text: 'مرورگر اجازه‌ی اعلان نداد؛ یادآور فقط داخل برنامه ثبت می‌شود.' });
+                    }
+                  }
+                  onSave({ ...settings, notificationsEnabled: next, apiToken });
+                }}
+                className="w-5 h-5 mt-1 accent-[#0066FF] cursor-pointer shrink-0"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-xs font-bold text-[#0a0a0a] mb-1">توکن API سرور (اختیاری)</span>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                onBlur={() => onSave({ ...settings, apiToken: apiToken.trim(), notificationsEnabled })}
+                placeholder="اگر سرور KONKLANCER_API_TOKEN دارد، همین‌جا وارد کن"
+                dir="ltr"
+                autoComplete="off"
+                aria-label="توکن API سرور"
+                className="w-full bg-white border-[2px] border-[#0a0a0a] px-3 py-2 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
+              />
+              <span className="mt-1 block text-[10.5px] text-[#4a4a4a]">
+                توکن در همین مرورگر می‌ماند و با هدر <code dir="ltr">x-api-token</code> به API فرستاده می‌شود.
+              </span>
+            </label>
+
+            {onSave && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSave({ ...settings, apiToken: apiToken.trim(), notificationsEnabled });
+                  setSavedToast(true);
+                  window.setTimeout(() => setSavedToast(false), 2000);
+                }}
+                className="brutal-btn brutal-btn--primary brutal-btn--sm"
+              >
+                <Check className="w-3.5 h-3.5" /> {savedToast ? 'ذخیره شد' : 'ذخیره‌ی این بخش'}
+              </button>
+            )}
+          </section>
+
+          <div className="p-3.5  bg-black/70 border-[2px] border-[#0a0a0a] flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+              <ShieldCheck className="w-5 h-5 text-[#00875A] shrink-0" />
               <div>
-                <div className="text-xs sm:text-sm font-bold text-white">
+                <div className="text-xs sm:text-sm font-bold text-[#0a0a0a]">
                   چرخش خودکار بدون توقف بین کلیدها (Smart Multi-Key Failover)
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-[#4a4a4a]">
                   اگر کلید فعال وسط تولید مستندات سنگین به محدودیت سرعت (429) بخورد، سیستم خودکار با کلید سالم بعدی ادامه می‌دهد.
                 </p>
               </div>
@@ -338,31 +417,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               type="checkbox"
               checked={autoFailover}
               onChange={(e) => commitVault(keys, activeKeyId, e.target.checked)}
-              className="w-5 h-5 accent-emerald-500 cursor-pointer shrink-0"
+              className="w-5 h-5 accent-[#0066FF] cursor-pointer shrink-0"
             />
           </div>
 
           <form
             onSubmit={handleAddKeyToVault}
-            className="p-4 rounded-xl bg-slate-950/80 border border-indigo-500/25 space-y-3"
+            className="p-4  bg-black/75 border-[2px] border-[#0a0a0a] space-y-3"
           >
-            <div className="flex items-center gap-2 text-sm font-bold text-indigo-300">
+            <div className="flex items-center gap-2 text-sm font-bold text-[#0066FF]">
               <Plus className="w-4 h-4" /> افزودن کلید جدید به گاوصندوق
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">نام دلخواه کلید</label>
+                <label className="block text-xs text-[#4a4a4a] mb-1">نام دلخواه کلید</label>
                 <input
                   type="text"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
                   placeholder="مثلاً: Gemini Pro اصلی / Groq فوق‌سریع"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border-[2px] border-[#0a0a0a]  px-3 py-2 text-xs text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1 flex items-center gap-1">
-                  <Globe className="w-3 h-3 text-slate-500" /> Base URL سفارشی (اختیاری)
+                <label className="block text-xs text-[#4a4a4a] mb-1 flex items-center gap-1">
+                  <Globe className="w-3 h-3 text-[#6b6b6b]" /> Base URL سفارشی (اختیاری)
                 </label>
                 <input
                   type="text"
@@ -370,13 +449,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => setNewBaseUrl(e.target.value)}
                   placeholder="خالی بگذارید تا خودکار تشخیص دهد"
                   dir="ltr"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border-[2px] border-[#0a0a0a]  px-3 py-2 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
                 />
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
-                <Key className="w-4 h-4 text-slate-500 absolute right-14 top-2.5" />
+                <Key className="w-4 h-4 text-[#6b6b6b] absolute right-14 top-2.5" />
                 <input
                   type="text"
                   autoComplete="off"
@@ -385,12 +464,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => setNewApiKey(e.target.value)}
                   placeholder="کلید API را اینجا بچسبانید (AIza... / gsk_... / sk-or-... / sk-...)"
                   dir="ltr"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-28 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border-[2px] border-[#0a0a0a]  pl-3 pr-28 py-2 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
                 />
                 <button
                   type="button"
                   onClick={(e) => pasteFromClipboard((e.currentTarget.previousElementSibling as HTMLInputElement) || (document.activeElement as HTMLInputElement))}
-                  className="absolute right-1 top-2 px-2.5 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                  className="absolute right-1 top-2 px-2.5 py-1 text-[10px] font-bold text-[#00875A] bg-white hover:bg-[#FFDE03] border-[2px] border-[#0a0a0a] "
                 >
                   پِست
                 </button>
@@ -398,7 +477,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="submit"
                 disabled={!newApiKey.trim() || addingKey}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shrink-0"
+                className="brutal-btn brutal-btn--electric gap-1.5 shrink-0"
               >
                 {addingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 {addingKey ? 'در حال اسکن مدل‌ها...' : 'افزودن و اسکن مدل‌ها'}
@@ -407,11 +486,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </form>
 
           <div>
-            <h4 className="text-xs font-bold text-slate-300 mb-2.5">
+            <h4 className="text-xs font-bold text-[#333333] mb-2.5">
               کلیدهای ذخیره‌شده در گاوصندوق ({keys.length.toLocaleString('fa-IR')} کلید)
             </h4>
             {keys.length === 0 ? (
-              <div className="p-6 text-center rounded-xl bg-slate-950/50 border border-dashed border-slate-800 text-xs text-slate-400">
+              <div className="p-6 text-center  bg-black/50 border border-dashed border-[2px] border-[#0a0a0a] text-xs text-[#4a4a4a]">
                 هنوز هیچ کلیدی ذخیره نشده است. اولین کلید خود را در کادر بالا وارد کنید.
               </div>
             ) : (
@@ -428,10 +507,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   return (
                     <div
                       key={k.id}
-                      className={`p-3.5 rounded-xl border transition-all ${
+                      className={`p-3.5  border transition-all ${
                         isActive
-                          ? 'bg-emerald-500/8 border-emerald-500/45'
-                          : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                          ? 'bg-[#00E599]/25 border-[2px] border-[#0a0a0a]'
+                          : 'bg-black/60 border-[2px] border-[#0a0a0a] hover:border-[#0a0a0a]'
                       }`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -439,10 +518,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => commitVault(keys, k.id, autoFailover)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors ${
+                            className={`px-2.5 py-1  text-xs font-bold flex items-center gap-1 transition-colors ${
                               isActive
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                                ? 'bg-[#00C584] text-[#0a0a0a]'
+                                : 'bg-white hover:bg-[#FFDE03] text-[#333333]'
                             }`}
                           >
                             {isActive && <Check className="w-3.5 h-3.5" />}
@@ -452,23 +531,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="text"
                             value={k.label}
                             onChange={(e) => handleUpdateProfileField(k.id, { label: e.target.value })}
-                            className="bg-transparent border-b border-transparent hover:border-slate-700 focus:border-emerald-500 text-sm font-bold text-white focus:outline-none px-1 py-0.5"
+                            className="bg-transparent border-b-[2px] border-transparent hover:border-[#0a0a0a] focus:border-[#0066FF] text-[13px] font-black text-[#0a0a0a] focus:outline-none px-1 py-0.5 min-w-0"
                           />
-                          <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[#FFDE03] border border-[#0a0a0a] text-[#0a0a0a]">
                             {k.provider}
                           </span>
-                          <span className="text-xs font-mono text-slate-500" dir="ltr">
+                          <span className="text-xs font-mono text-[#6b6b6b]" dir="ltr">
                             {k.apiKey.slice(0, 6)}…{k.apiKey.slice(-4)}
                           </span>
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <label className="flex items-center gap-1 text-[11px] text-slate-400 ml-2 cursor-pointer">
+                          <label className="flex items-center gap-1 text-[11px] text-[#4a4a4a] ml-2 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={k.enabled}
                               onChange={(e) => handleUpdateProfileField(k.id, { enabled: e.target.checked })}
-                              className="accent-emerald-500"
+                              className="accent-[#0066FF]"
                             />
                             مشارکت در چرخش
                           </label>
@@ -476,7 +555,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="button"
                             onClick={() => handlePingKey(k)}
                             disabled={testingId === k.id}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs flex items-center gap-1"
+                            className="px-2.5 py-1  bg-white hover:bg-[#FFDE03] text-[#00875A] text-xs flex items-center gap-1"
                           >
                             {testingId === k.id ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -489,7 +568,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="button"
                             onClick={() => handleScanModels(k)}
                             disabled={scanningId === k.id}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs flex items-center gap-1"
+                            className="px-2.5 py-1  bg-white hover:bg-[#FFDE03] text-[#0066FF] text-xs flex items-center gap-1"
                           >
                             <RefreshCw className={`w-3.5 h-3.5 ${scanningId === k.id ? 'animate-spin' : ''}`} />
                             اسکن مدل‌ها
@@ -497,7 +576,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDeleteKey(k.id)}
-                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400"
+                            className="p-1.5  bg-[#FF3B30]/15 hover:bg-[#FF3B30]/15 text-[#C1121F]"
                             title="حذف کلید"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -505,13 +584,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center gap-2">
-                        <span className="text-xs text-slate-400 shrink-0">مدل انتخابی این کلید:</span>
+                      <div className="mt-3 pt-2.5 border-t border-[2px] border-[#0a0a0a] flex flex-col sm:flex-row sm:items-center gap-2">
+                        <span className="text-xs text-[#4a4a4a] shrink-0">مدل انتخابی این کلید:</span>
                         <select
                           value={k.selectedModel}
                           onChange={(e) => handleUpdateProfileField(k.id, { selectedModel: e.target.value })}
                           dir="ltr"
-                          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                          className="flex-1 bg-white border-[2px] border-[#0a0a0a]  px-3 py-1.5 text-xs font-mono text-[#00875A] focus:outline-none focus:border-[#0066FF]"
                         >
                           {modelList.map((m) => (
                             <option key={m} value={m}>
@@ -528,8 +607,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {activeProfile && (
-            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row gap-2 items-center">
-              <span className="text-xs text-slate-400 shrink-0">
+            <div className="p-3.5  bg-black/60 border-[2px] border-[#0a0a0a] flex flex-col sm:flex-row gap-2 items-center">
+              <span className="text-xs text-[#4a4a4a] shrink-0">
                 افزودن دستی شناسه مدل سفارشی به «{activeProfile.label}»:
               </span>
               <input
@@ -538,21 +617,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={(e) => setCustomModelInput(e.target.value)}
                 placeholder="مثلاً: gemini-2.5-pro یا deepseek/deepseek-r1"
                 dir="ltr"
-                className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="flex-1 w-full bg-white border-[2px] border-[#0a0a0a]  px-3 py-1.5 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
               />
               <button
                 type="button"
                 onClick={handleAddCustomModel}
                 disabled={!customModelInput.trim()}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs text-white shrink-0"
+                className="px-3 py-1.5  bg-white hover:bg-[#FFDE03] disabled:opacity-40 text-xs text-[#0a0a0a] shrink-0"
               >
                 ثبت مدل
               </button>
             </div>
           )}
 
-          <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
-            <label className="block text-xs font-bold text-slate-300">
+          <div className="p-3.5  bg-black/60 border-[2px] border-[#0a0a0a] space-y-1.5">
+            <label className="block text-xs font-bold text-[#333333]">
               توکن GitHub جهت انتشار مخزن تحویلی (اختیاری - ذخیره امن فقط در نشست فعلی)
             </label>
             <div className="relative">
@@ -564,7 +643,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={(e) => setGithubToken(e.target.value)}
                 placeholder="ghp_... یا github_pat_..."
                 dir="ltr"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 pr-24 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-white border-[2px] border-[#0a0a0a]  px-3 py-1.5 pr-24 text-xs font-mono text-[#0a0a0a] focus:outline-none focus:border-[#0066FF]"
               />
               <button
                 type="button"
@@ -574,7 +653,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       (document.activeElement as HTMLInputElement),
                   )
                 }
-                className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-emerald-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md"
+                className="absolute right-1.5 top-1.5 px-2 py-1 text-[10px] font-bold text-[#00875A] bg-white hover:bg-[#FFDE03] border-[2px] border-[#0a0a0a] "
               >
                 پِست
               </button>
@@ -582,16 +661,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Permanent Safe Storage Guarantees */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 space-y-2.5">
+          <div className="p-4  bg-black/80 border-[2px] border-[#0a0a0a] space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <div className="flex items-center gap-2 text-xs font-bold text-[#00875A]">
+                <CheckCircle2 className="w-4 h-4 text-[#00875A]" />
                 <span>ذخیره‌سازی دائمی و خودکار کلیدها (Permanent Safe Storage)</span>
               </div>
               <button
                 type="button"
                 onClick={handleWipeAllKeys}
-                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors"
+                className="px-2.5 py-1 bg-[#FF3B30]/15 hover:bg-[#FF3B30]/15 text-[#C1121F] border-[2px] border-[#0a0a0a]  text-[10px] font-bold flex items-center gap-1 transition-colors"
                 title="پاکسازی دستی تمامی کلیدها از حافظه این دستگاه"
               >
                 <Trash2 className="w-3 h-3" />
@@ -599,19 +678,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            <p className="text-[11px] leading-relaxed text-slate-300">
+            <p className="text-[11px] leading-relaxed text-[#333333]">
               💾 <strong>ذخیره ماندگار:</strong> تمامی کلیدهای اضافه‌شده به‌صورت دائمی در دیتابیس بومی دستگاه و LocalStorage ثبت می‌شوند. در دفعات بعدی اجرای برنامه یا روشن کردن تبلت، نیازی به ورود مجدد ندارید.
             </p>
-            <p className="text-[10px] leading-relaxed text-slate-400">
+            <p className="text-[10px] leading-relaxed text-[#4a4a4a]">
               ⚡ <strong>تماس مستقیم و واقعی:</strong> کلیه تحلیل‌ها و کدهای تحویلی مستقیماً به API اصلی ارسال می‌شوند (هیچ شبیه‌ساز یا Mock آفلاین در سیستم فعال نیست).
             </p>
           </div>
 
-          <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">
+          <div className="pt-2 flex justify-end gap-3 border-t border-[2px] border-[#0a0a0a]">
             <button
               type="button"
               onClick={handleDone}
-              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-600/20 text-sm"
+              className="brutal-btn brutal-btn--primary gap-2"
             >
               {savedToast ? (
                 <>

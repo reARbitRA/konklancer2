@@ -41,6 +41,12 @@ export interface FreelanceJob {
   priority?: PriorityLevel;
   categorizedTag?: JobCategoryTag;
   completedAt?: string;
+  /** زمان ثبت پیشنهاد (برای یادآور ۴ ساعته — SPEC-002) */
+  bidAt?: string;
+  /** زمان ثبت نتیجه‌ی پیشنهاد (won/lost/no_reply) */
+  outcomeAt?: string;
+  /** شناسه‌ی پیشنهاد در جدول bids سرور (SPEC-005) */
+  bidId?: string;
   url?: string;
   source?: string;
   score?: number;
@@ -132,4 +138,8 @@ export interface UserSettings {
   apiKeyProfiles?: SavedApiKeyProfile[];
   activeProfileId?: string;
   autoFailoverKeys?: boolean;
+  /** یادآور مرورگر برای پیشنهادهای بی‌نتیجه (SPEC-002) */
+  notificationsEnabled?: boolean;
+  /** توکن اختیاری API سرور (SPEC-003 R5) — در صورت تنظیم KONKLANCER_API_TOKEN */
+  apiToken?: string;
 }

@@ -9,6 +9,13 @@ import { callLLM, LLMError, parseJsonLoose, readLLMConfig, scanModels, type Cust
 import { checkContent } from './server/contentFilter';
 import { ALL_CATEGORIES, categoryLabel, categoryPromptList } from './shared/taxonomy';
 import { fetchAndParseUrl, parseHtmlProjects } from './server/urlScraper';
+import { getBidStore } from './server/store';
+import { registerBidRoutes } from './server/bidRoutes';
+import { ScanScheduler } from './server/scheduler';
+import { createApiTokenGuard, describeApiAuth, readApiToken } from './server/apiAuth';
+import { extractBearerJwt, verifySupabaseJwt } from './server/supabaseJwt';
+import { createTelegramAuthHandler } from './server/telegramAuth';
+import { notifyNotableJobs, readAlertConfig } from './server/notifier';
 import {
   buildFeed,
   categorize,
@@ -47,6 +54,64 @@ const io = new SocketIOServer(httpServer, {
 });
 
 app.use(express.json({ limit: '10mb' }));
+
+// احراز هویت اختیاری API (SPEC-003 R5): با تنظیم KONKLANCER_API_TOKEN همه‌ی
+// درخواست‌های /api به هدر x-api-token نیاز دارند. بدون آن، رفتار قبلی حفظ می‌شود.
+const API_TOKEN = readApiToken(process.env);
+const sendApiTokenHeader = (res: Response) => res.setHeader('x-api-auth', API_TOKEN ? 'required' : 'off');
+const tokenGuard = createApiTokenGuard(API_TOKEN);
+/**
+ * راه دوم احراز هویت: توکن Supabase (Bearer JWT).
+ * اگر توکن معتبر باشد، حتی وقتی `KONKLANCER_API_TOKEN` تنظیم شده هم عبور می‌کند
+ * تا کاربرها بتوانند با حساب Google/GitHub/Telegram لاگین کنند و از همان نشست
+ * API را صدا بزنند. هدر `x-konklancer-user` شناسه‌ی کاربر را برای لاگ/UI می‌فرستد.
+ */
+app.use('/api', (req: Request, res: Response, next) => {
+  sendApiTokenHeader(res);
+  const jwt = extractBearerJwt(req.headers.authorization);
+  if (jwt) {
+    const result = verifySupabaseJwt(jwt);
+    if (result.ok) {
+      res.setHeader('x-konklancer-user', result.claims.sub);
+      (req as Request & { user?: { id: string; email?: string; provider?: string } }).user = {
+        id: result.claims.sub,
+        email: result.claims.email,
+        provider: result.claims.app_metadata?.provider ?? result.claims.user_metadata?.user_name,
+      };
+      return next();
+    }
+    res.setHeader('x-konklancer-jwt', result.reason);
+  }
+  return tokenGuard(req, res, next);
+});
+
+// ورود تلگرام (سرور خودمیزبان؛ هم‌ارز Edge Function `telegram-auth`).
+// GET وضعیت پیکربندی، POST بررسی امضای ویجت و صدور token_hash.
+app.get('/api/auth/telegram', createTelegramAuthHandler());
+app.post('/api/auth/telegram', createTelegramAuthHandler());
+
+/** احراز هویت آماری برای UI: کدام راه‌ها فعال‌اند. */
+app.get('/api/auth/config', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    apiToken: describeApiAuth(API_TOKEN),
+    supabaseJwt: {
+      enabled: true,
+      signatureChecked: Boolean((process.env.SUPABASE_JWT_SECRET ?? '').trim()),
+      trustUnsigned: process.env.KONKLANCER_TRUST_SUPABASE_JWT === 'true',
+      header: 'authorization',
+    },
+  });
+});
+
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    service: 'konklancer',
+    time: new Date().toISOString(),
+    apiAuth: describeApiAuth(API_TOKEN),
+  });
+});
 
 // Direct one-tap download route for the compiled Android Tablet APK
 app.get('/download/KonkLancer-Studio.apk', (_req: Request, res: Response) => {
@@ -301,6 +366,8 @@ const effectiveCloudEnv: NodeJS.ProcessEnv = {
 const CLOUD_CONFIG = readCloudFeedConfig(effectiveCloudEnv, process.cwd(), SCAN_CONFIG.outFile);
 /** شناسه پروژه‌هایی که یک‌بار به UI پوش شده‌اند؛ برای جلوگیری از پوش تکراری. */
 const emittedJobIds = new Set<string>();
+// پروژه‌هایی که اعلانشان یک بار فرستاده شده تا اسپم نشود (SPEC-004 R7)
+const alertSent = new Set<string>();
 
 function emitBridgeLog(message: string, type: 'scan' | 'bid' | 'code' | 'github' | 'payment' = 'scan') {
   io.emit('bridge:log', {
@@ -390,6 +457,26 @@ interface ScanOutcome {
 }
 
 /** یک اسکن واقعی: CLI اسکنر را اجرا می‌کند، فید را می‌خواند و پروژه‌های تازه را پوش می‌کند. */
+/**
+ * ارسال اعلان تلگرام برای پروژه‌های بالای آستانه (SPEC-004 R7).
+ * اگر پیکربندی نباشد هیچ درخواستی به بیرون نمی‌رود؛ خطا فقط لاگ می‌شود.
+ */
+async function dispatchAlerts(jobs: { id: string; title: string; platform?: string; budgetFormatted?: string; score?: number; url?: string }[]) {
+  const config = readAlertConfig(process.env);
+  if (!config.enabled || jobs.length === 0) return;
+  try {
+    const result = await notifyNotableJobs(jobs, config, fetch as any, alertSent);
+    if (result.sent > 0) {
+      emitBridgeLog(`اعلان تلگرام برای ${result.sent} پروژه‌ی بالای آستانه ${config.threshold} ارسال شد.`);
+    }
+    if (result.error) {
+      console.warn('[alerts] telegram notification failed:', result.error);
+    }
+  } catch (err: any) {
+    console.warn('[alerts] unexpected failure:', err?.message ?? err);
+  }
+}
+
 async function performScan(): Promise<ScanOutcome> {
   if (scannerBusy()) {
     return { ok: false, added: 0, total: 0, scannedAt: null, message: 'یک اسکن دیگر در حال اجراست؛ لطفاً چند لحظه بعد تلاش کنید.' };
@@ -433,15 +520,42 @@ async function performScan(): Promise<ScanOutcome> {
   }
   const message = `اسکن تمام شد: ${fresh.length} پروژه جدید از ${projects.length} پروژه در فید.`;
   emitBridgeLog(message);
+  void dispatchAlerts(fresh.map((job) => ({
+    id: job.id,
+    title: job.title,
+    platform: job.platform,
+    budgetFormatted: job.budgetFormatted,
+    score: job.score,
+    url: job.url,
+  })));
   return { ok: true, added: fresh.length, total: projects.length, scannedAt, message, output: run.output };
 }
 
-// اسکن دوره‌ای اختیاری برای استفاده شخصی (پیش‌فرض: خاموش)
-if (SCAN_CONFIG.intervalMinutes > 0) {
-  setInterval(() => {
-    performScan().catch((err) => console.warn('[scanner] scheduled scan failed:', err?.message ?? err));
-  }, SCAN_CONFIG.intervalMinutes * 60_000);
+// ── زمان‌بند اسکن دوره‌ای (از UI کنترل می‌شود؛ پیش‌فرض از .env) ──────────
+const SCHEDULER_KEY = 'scan_scheduler';
+function readPersistedScheduler(): { enabled?: boolean; intervalMinutes?: number } {
+  try {
+    const raw = getBidStore().getSetting(SCHEDULER_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : undefined,
+      intervalMinutes: Number.isFinite(Number(parsed?.intervalMinutes)) ? Number(parsed.intervalMinutes) : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
+const persistedScheduler = readPersistedScheduler();
+const scanScheduler = new ScanScheduler({
+  scan: () => performScan(),
+  log: (message) => emitBridgeLog(message),
+  persist: (state) => getBidStore().setSetting(SCHEDULER_KEY, JSON.stringify(state)),
+  initial: {
+    enabled: persistedScheduler.enabled ?? SCAN_CONFIG.intervalMinutes > 0,
+    intervalMinutes: persistedScheduler.intervalMinutes ?? (SCAN_CONFIG.intervalMinutes > 0 ? SCAN_CONFIG.intervalMinutes : 30),
+  },
+});
 
 
 
@@ -755,6 +869,7 @@ app.get('/api/bridge/status', (_req: Request, res: Response) => {
         .filter((target) => !target.enabled)
         .map((target) => ({ name: target.name, reason: target.reason, kind: target.kind })),
       clientsCount: io.engine.clientsCount,
+      scheduler: scanScheduler.getState(),
     },
   });
 });
@@ -1112,17 +1227,59 @@ app.post('/api/scraper/parse-html', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// پیشنهادها و نتیجه‌ها (SPEC-005) — ثبت دستی، بدون هیچ ارسال خودکار.
+// منطق در server/bidRoutes.ts است تا با HTTP واقعی تست شود.
+// ---------------------------------------------------------------------------
+registerBidRoutes(app, {
+  store: getBidStore(),
+  log: (message, type) => emitBridgeLog(message, type),
+  emit: (event, payload) => io.emit(event, payload),
+  alertSentCount: () => alertSent.size,
+});
+
+// کنترل زمان‌بند اسکن از UI (SPEC-007 §2.2) — قبلاً فقط در بوت قابل تنظیم بود
+app.get('/api/scheduler', (_req: Request, res: Response) => {
+  res.json({ success: true, scheduler: scanScheduler.getState() });
+});
+
+app.post('/api/scheduler', (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const state = scanScheduler.configure({
+      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+      intervalMinutes: body.intervalMinutes === undefined ? undefined : Number(body.intervalMinutes),
+    });
+    io.emit('scheduler:changed', state);
+    return res.json({ success: true, scheduler: scanScheduler.getState() });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, code: 'INVALID_SCHEDULE', error: err?.message ?? 'تنظیم نامعتبر' });
+  }
+});
+
+app.post('/api/scheduler/run-now', async (_req: Request, res: Response) => {
+  const result = await scanScheduler.tick(true);
+  return res.json({ success: result !== 'error', result, scheduler: scanScheduler.getState() });
+});
+
 // Start Express server and connect Vite in development
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
+    // HMR websockets cannot be proxied reliably by the preview host and file
+    // watching is intentionally disabled here, so keep a single listening port.
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        // Vite 8: `server.ws: false` is what actually stops the websocket
+        // server from grabbing the default HMR port (24678) that Express needs.
         hmr: false,
-        watch: null,
+        ws: false,
+        // Watch files even without HMR so a browser reload always reflects the
+        // latest source. (No extra port is opened: hmr/ws are disabled.)
+        watch: {},
         // Allow any host (including AI Studio preview domains)
         allowedHosts: true,
       },
@@ -1177,9 +1334,32 @@ async function startServer() {
     console.log(`[scanner] اسکن خودکار هر ${SCAN_CONFIG.intervalMinutes} دقیقه فعال است.`);
   }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
+  // ── Resilient listen ────────────────────────────────────────────────
+  // The preview supervisor may briefly hold the port while restarting a
+  // previous instance, so retry with backoff instead of crashing the process.
+  let listenAttempt = 0;
+  const maxListenAttempts = 8;
+  const onListening = () => {
     console.log(`Konklancer server & Socket.io bridge running at http://localhost:${PORT}`);
+  };
+  const tryListen = () => {
+    listenAttempt += 1;
+    httpServer.listen(PORT, '0.0.0.0', onListening);
+  };
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE' && listenAttempt < maxListenAttempts) {
+      console.warn(`[server] پورت ${PORT} موقتاً در اشغال است (تلاش ${listenAttempt}/${maxListenAttempts}) — تلاش مجدد...`);
+      setTimeout(tryListen, 700);
+      return;
+    }
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[server] پورت ${PORT} در حال استفاده است؛ یک نمونهٔ دیگر از سرور در حال سرویس‌دهی است.`);
+      process.exit(0);
+    }
+    console.error('[server] listen error', err);
+    process.exit(1);
   });
+  tryListen();
 }
 
 startServer();
