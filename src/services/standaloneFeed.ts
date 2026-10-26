@@ -572,12 +572,53 @@ export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
   return cloud.html || '';
 }
 
+/**
+ * فید معتبر سرور (Express) را می‌خواند. اگر اپ به‌صورت آفلاین/فایل اجرا شود یا
+ * سرور در دسترس نباشد، بی‌صدا به فید ابری/محلی برمی‌گردد.
+ */
+async function readServerFeedJobs(timeoutMs = 5000): Promise<{ jobs: FreelanceJob[]; scannedAt: string | null; total: number } | null> {
+  if (typeof fetch !== 'function') return null;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch('/api/jobs', {
+      headers: { Accept: 'application/json' },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const jobs: FreelanceJob[] = Array.isArray(data?.jobs) ? data.jobs : [];
+    if (jobs.length === 0) return null;
+    return {
+      jobs,
+      scannedAt: typeof data?.scannedAt === 'string' ? data.scannedAt : null,
+      total: typeof data?.scannedProjects === 'number' ? data.scannedProjects : jobs.length,
+    };
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function loadInitialFeedUnified(): Promise<{
   jobs: FreelanceJob[];
   source: 'scanner';
   scannedAt: string | null;
   scannedProjects: number;
 }> {
+  // ۱) فید رسمی سرور (منبع حقیقت) — وقتی اپ روی وب/دسکتاپ اجرا می‌شود
+  const serverFeed = await readServerFeedJobs();
+  if (serverFeed && serverFeed.jobs.length > 0) {
+    return {
+      jobs: serverFeed.jobs,
+      source: 'scanner',
+      scannedAt: serverFeed.scannedAt,
+      scannedProjects: serverFeed.total,
+    };
+  }
+
+  // ۲) حالت آفلاین/اندروید: ترکیب فید همراه، فید ابری و ردیف‌های ذخیره‌شده
   const cloudRows = await readCloudSyncedRows<RawScannedRow>();
   const allRows = saveLocalRows([], cloudRows);
   const { jobs, scannedAt } = buildJobsFromRows(allRows);

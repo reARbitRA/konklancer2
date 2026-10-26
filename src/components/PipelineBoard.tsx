@@ -3,6 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Coins, Clock, Target, TrendingUp, CheckCircle2, Code2, Filter, ChevronDown, Sparkles, BarChart2, Calendar, Layers, Tag, ArrowLeft, Zap, Eye } from 'lucide-react';
 import { FreelanceJob, PriorityLevel } from '../types';
 import { BrutalCollapsible } from './brutalist/Collapsible';
+import { PipelineDashboard } from './PipelineDashboard';
 
 interface PipelineBoardProps {
   jobs: FreelanceJob[];
@@ -66,6 +67,16 @@ export const PipelineBoard: React.FC<PipelineBoardProps> = ({ jobs, onSelectJobF
     return mP && mC;
   }), [jobs, priorityFilter, categoryFilter]);
 
+  const categoryOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of jobs) {
+      const tag = j.categorizedTag || (j.categoryKey ? String(j.categoryKey) : '');
+      if (!tag) continue;
+      map.set(tag, (map.get(tag) || 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [jobs]);
+
   const priorityCounts = {
     All: jobs.length,
     High: jobs.filter(j=>(j.priority||'Medium')==='High').length,
@@ -116,6 +127,13 @@ export const PipelineBoard: React.FC<PipelineBoardProps> = ({ jobs, onSelectJobF
         </div>
       </div>
 
+      {/* Funnel dashboard (d3) — restored feature, collapsible */}
+      <BrutalCollapsible title="قیف تبدیل پایپ‌لاین (Funnel)" icon={Layers} variant="ink" defaultOpen={false} storageKey="pipeline-funnel">
+        <div className="bg-white border-[2px] border-black p-2">
+          <PipelineDashboard jobs={jobs} />
+        </div>
+      </BrutalCollapsible>
+
       {/* Chart collapsible */}
       <BrutalCollapsible title="روند درآمد ۷ روز اخیر" icon={TrendingUp} variant="electric" defaultOpen={true} storageKey="pipeline-chart">
         <div className="h-[220px] w-full">
@@ -144,8 +162,10 @@ export const PipelineBoard: React.FC<PipelineBoardProps> = ({ jobs, onSelectJobF
           <div className="flex items-center gap-2">
             <Tag className="w-4 h-4" />
             <select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} className="brutal-select !h-[34px] !w-auto text-[11px]">
-              <option value="All">همه تگ‌ها</option>
-              <option value="Frontend">Frontend</option><option value="Backend">Backend</option><option value="DevOps">DevOps</option><option value="Design">Design</option>
+              <option value="All">همه تگ‌ها ({jobs.length})</option>
+              {categoryOptions.map(([tag, count]) => (
+                <option key={tag} value={tag}>{tag} ({count})</option>
+              ))}
             </select>
           </div>
         </div>
