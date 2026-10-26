@@ -1118,12 +1118,15 @@ async function startServer() {
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
-    // Prevent HMR port collision when Express runs on Vite's default HMR port (24678)
-    const hmrPort = PORT === 24678 ? 24679 : 24678;
+    // HMR websockets cannot be proxied reliably by the preview host and file
+    // watching is intentionally disabled here, so keep a single listening port.
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: { port: hmrPort, host: '0.0.0.0' },
+        // Vite 8: `server.ws: false` is what actually stops the websocket
+        // server from grabbing the default HMR port (24678) that Express needs.
+        hmr: false,
+        ws: false,
         watch: null,
         // Allow any host (including AI Studio preview domains)
         allowedHosts: true,
@@ -1179,9 +1182,32 @@ async function startServer() {
     console.log(`[scanner] اسکن خودکار هر ${SCAN_CONFIG.intervalMinutes} دقیقه فعال است.`);
   }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
+  // ── Resilient listen ────────────────────────────────────────────────
+  // The preview supervisor may briefly hold the port while restarting a
+  // previous instance, so retry with backoff instead of crashing the process.
+  let listenAttempt = 0;
+  const maxListenAttempts = 8;
+  const onListening = () => {
     console.log(`Konklancer server & Socket.io bridge running at http://localhost:${PORT}`);
+  };
+  const tryListen = () => {
+    listenAttempt += 1;
+    httpServer.listen(PORT, '0.0.0.0', onListening);
+  };
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE' && listenAttempt < maxListenAttempts) {
+      console.warn(`[server] پورت ${PORT} موقتاً در اشغال است (تلاش ${listenAttempt}/${maxListenAttempts}) — تلاش مجدد...`);
+      setTimeout(tryListen, 700);
+      return;
+    }
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[server] پورت ${PORT} در حال استفاده است؛ یک نمونهٔ دیگر از سرور در حال سرویس‌دهی است.`);
+      process.exit(0);
+    }
+    console.error('[server] listen error', err);
+    process.exit(1);
   });
+  tryListen();
 }
 
 startServer();
