@@ -35,8 +35,9 @@ export default defineConfig(() => {
       ...(hmrEnabled
         ? { hmr: { port: hmrPort as number, host: '0.0.0.0' }, ws: { port: hmrPort as number, host: '0.0.0.0' } }
         : { hmr: false as const, ws: false as const }),
-      // Disable file watching when HMR is off to save CPU during agent edits.
-      watch: hmrEnabled ? {} : null,
+      // Keep watching so reloads always reflect the latest source; without
+      // `hmr`/`ws` this opens no extra port.
+      watch: {},
     },
   };
 });

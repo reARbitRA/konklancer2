@@ -1127,7 +1127,9 @@ async function startServer() {
         // server from grabbing the default HMR port (24678) that Express needs.
         hmr: false,
         ws: false,
-        watch: null,
+        // Watch files even without HMR so a browser reload always reflects the
+        // latest source. (No extra port is opened: hmr/ws are disabled.)
+        watch: {},
         // Allow any host (including AI Studio preview domains)
         allowedHosts: true,
       },
