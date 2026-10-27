@@ -301,10 +301,12 @@ async function executeSingleKeyCall(
     return { text, model: cleanModel, provider: 'gemini', keyLabel: cfg.label };
   }
 
+  const isServerManaged = cfg.apiKey === '__SERVER__';
   const base = normalizeEndpointBaseClient(cfg.endpoint);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cfg.apiKey}`,
+    ...(isServerManaged ? { 'x-server-managed': '1' } : {}),
   };
   if (cfg.provider === 'openrouter') {
     headers['HTTP-Referer'] = 'https://konklancer.app';
@@ -363,9 +365,20 @@ export async function callBrowserLLM(opts: {
   overrideConfig?: Partial<ActiveCustomLLM>;
 }): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
   const rawCandidates = getOrderedVaultCandidates(opts.overrideConfig);
-  const candidates = rawCandidates
+  let candidates = rawCandidates
     .map((c) => resolveClientLLMConfig(c))
     .filter((c): c is ActiveCustomLLM => Boolean(c));
+
+  // اگر کلید محلی نیست، از کلیدهای سرور (Supabase Secrets) استفاده کن — APK داخلی
+  const hasServerKeys = true; // کلیدها در Supabase Secrets internal شدن
+  if (candidates.length === 0 && hasServerKeys && !opts.overrideConfig) {
+    // لیست پیش‌فرض سرور — به ترتیب اولویت: Gemini, Groq, OpenRouter
+    candidates = [
+      { provider: 'gemini', endpoint: PROVIDER_DEFAULTS.gemini.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.gemini.defaultModel, label: 'سرور (Gemini)' },
+      { provider: 'groq', endpoint: PROVIDER_DEFAULTS.groq.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.groq.defaultModel, label: 'سرور (Groq)' },
+      { provider: 'openrouter', endpoint: PROVIDER_DEFAULTS.openrouter.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.openrouter.defaultModel, label: 'سرور (OpenRouter)' },
+    ];
+  }
 
   if (candidates.length === 0) {
     throw new Error(

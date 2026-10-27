@@ -1164,9 +1164,31 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
     }
     if (!forwardHeaders['Content-Type'] && !forwardHeaders['content-type']) forwardHeaders['Content-Type'] = 'application/json';
 
-    const upstream = await fetch(targetUrl, {
+    // Inject server-managed keys if client sent placeholder (APK بدون کلید)
+    const injectServerKeysNode = (url: string, headers: Record<string, string>) => {
+      const isPlaceholder = (headers['Authorization'] || headers['authorization'] || '') === 'Bearer __SERVER__' || headers['x-server-managed'] === '1';
+      const urlHasRealKey = url.includes('key=') && !url.includes('key=__SERVER__');
+      const host = (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } })();
+      let nUrl = url; let nH = { ...headers };
+      if (nUrl.includes('__SERVER__')) { try { const u = new URL(nUrl); if (u.searchParams.get('key') === '__SERVER__') u.searchParams.delete('key'); nUrl = u.toString(); } catch {} }
+      if (nH['Authorization'] === 'Bearer __SERVER__') delete nH['Authorization'];
+      if (nH['authorization'] === 'Bearer __SERVER__') delete nH['authorization'];
+      if (!isPlaceholder && urlHasRealKey && (nH['Authorization'] || nH['authorization'])) return { url: nUrl, headers: nH };
+      if (host === 'api.groq.com') { const k = process.env.GROQ_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host === 'api.openai.com') { const k = process.env.OPENAI_API_KEY || process.env.AGNES_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host === 'api.openrouter.ai' || host === 'openrouter.ai') { const k = process.env.OPENROUTER_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host === 'api.deepseek.com') { const k = process.env.DEEPSEEK_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host === 'api.mistral.ai') { const k = process.env.MISTRAL_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host === 'api.cerebras.ai') { const k = process.env.CEREBRAS_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
+      else if (host.includes('generativelanguage.googleapis.com') && !nUrl.includes('key=')) { const k = process.env.GEMINI_KEY_P3 || process.env.GEMINI_API_KEY || ''; if (k) { try { const u = new URL(nUrl); u.searchParams.set('key', k); nUrl = u.toString(); } catch {} } }
+      return { url: nUrl, headers: nH };
+    };
+    let effectiveUrl = targetUrl; let effectiveHeaders: Record<string,string> = { ...forwardHeaders };
+    try { const inj = injectServerKeysNode(targetUrl, forwardHeaders); effectiveUrl = inj.url; effectiveHeaders = inj.headers; } catch {}
+
+    const upstream = await fetch(effectiveUrl, {
       method: reqMethod,
-      headers: forwardHeaders,
+      headers: effectiveHeaders,
       body: reqBody != null ? reqBody : undefined,
       signal: AbortSignal.timeout(25_000),
     });

@@ -1,4 +1,4 @@
-// Konklancer — US Edge Relay (Virginia, us-east-1)
+// Konklancer — US Edge Relay (Virginia, us-east-1) — SERVER KEYS INTERNAL
 // Forwards LLM API calls from the browser through Supabase Edge infrastructure
 // so that geo-blocked providers (Gemini 400 "User location is not supported",
 // Groq 403, OpenAI 403) work without VPN for users in Iran.
@@ -15,6 +15,9 @@
 //
 // Security: allow-listed hosts only (no open SSRF proxy). anon/publishable key is public by design.
 // verify_jwt: false (relies on allow-list + anon key, not user session).
+// Server-managed keys: if client sends Bearer __SERVER__ or x-server-managed:1 or Gemini key=__SERVER__,
+// the Edge injects the real key from Supabase Secrets (Deno.env). This allows APKs built without
+// bundled keys to work — keys never leave the server.
 
 const ALLOWED_HOSTS = new Set([
   // LLM providers
@@ -27,6 +30,7 @@ const ALLOWED_HOSTS = new Set([
   'api.anthropic.com',
   'api.cohere.ai',
   'api.mistral.ai',
+  'api.cerebras.ai',
   // scraping / feed relay
   't.me',
   'telegram.me',
@@ -70,7 +74,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
       : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-api-token, x-custom-llm, x-custom-llm-b64',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-api-token, x-custom-llm, x-custom-llm-b64, x-server-managed',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
@@ -86,6 +90,60 @@ const json = (body: unknown, status: number, origin: string | null, extraHeaders
       ...extraHeaders,
     },
   });
+
+// Inject server-side API keys when client uses placeholder __SERVER__
+function injectServerKeys(targetUrl: string, headers: Record<string, string>): { url: string; headers: Record<string, string> } {
+  const hasAuth = !!(headers['Authorization'] || headers['authorization'] || headers['x-goog-api-key'] || headers['X-Goog-Api-Key']);
+  const isPlaceholder =
+    (headers['Authorization'] || headers['authorization'] || '') === 'Bearer __SERVER__' || headers['x-server-managed'] === '1';
+  const urlHasRealKey = targetUrl.includes('key=') && !targetUrl.includes('key=__SERVER__');
+  const host = (() => {
+    try { return new URL(targetUrl).hostname.toLowerCase(); } catch { return ''; }
+  })();
+
+  let newUrl = targetUrl;
+  let newHeaders = { ...headers };
+
+  if (!hasAuth || isPlaceholder || !urlHasRealKey) {
+    if (newHeaders['Authorization'] === 'Bearer __SERVER__') delete newHeaders['Authorization'];
+    if (newHeaders['authorization'] === 'Bearer __SERVER__') delete newHeaders['authorization'];
+    if (newUrl.includes('__SERVER__')) {
+      try {
+        const u = new URL(newUrl);
+        if (u.searchParams.get('key') === '__SERVER__') u.searchParams.delete('key');
+        newUrl = u.toString();
+      } catch { /* ignore */ }
+    }
+
+    if (host === 'api.groq.com') {
+      const k = Deno.env.get('GROQ_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host === 'api.openai.com') {
+      const k = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('AGNES_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host === 'api.openrouter.ai' || host === 'openrouter.ai') {
+      const k = Deno.env.get('OPENROUTER_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host === 'api.deepseek.com') {
+      const k = Deno.env.get('DEEPSEEK_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host === 'api.mistral.ai') {
+      const k = Deno.env.get('MISTRAL_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host === 'api.cerebras.ai') {
+      const k = Deno.env.get('CEREBRAS_API_KEY') || '';
+      if (k) newHeaders['Authorization'] = 'Bearer ' + k;
+    } else if (host.includes('generativelanguage.googleapis.com')) {
+      if (!newUrl.includes('key=')) {
+        const k = Deno.env.get('GEMINI_KEY_P3') || Deno.env.get('GEMINI_KEY_P1') || Deno.env.get('GOOGLE_API_KEY') || '';
+        if (k) {
+          try { const u = new URL(newUrl); u.searchParams.set('key', k); newUrl = u.toString(); } catch { /* ignore */ }
+        }
+      }
+    }
+  }
+  return { url: newUrl, headers: newHeaders };
+}
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin');
@@ -145,7 +203,6 @@ Deno.serve(async (req: Request) => {
   const reqHeadersIn: Record<string, string> = body?.req_headers || body?.headers || {};
   const reqBody: string | null = body?.req_body ?? body?.body ?? null;
 
-  // Forward only safe headers; strip host-specific ones
   const forwardHeaders: Record<string, string> = {};
   for (const [k, v] of Object.entries(reqHeadersIn)) {
     const lk = k.toLowerCase();
@@ -156,17 +213,24 @@ Deno.serve(async (req: Request) => {
     forwardHeaders['Content-Type'] = 'application/json';
   }
 
+  let effectiveUrl = targetUrl;
+  let effectiveHeaders = forwardHeaders;
   try {
-    const upstream = await fetch(targetUrl, {
+    const injected = injectServerKeys(targetUrl, forwardHeaders);
+    effectiveUrl = injected.url;
+    effectiveHeaders = injected.headers;
+  } catch { /* ignore */ }
+
+  try {
+    const upstream = await fetch(effectiveUrl, {
       method: reqMethod,
-      headers: forwardHeaders,
+      headers: effectiveHeaders,
       body: reqBody != null ? reqBody : undefined,
       signal: AbortSignal.timeout(30_000),
     });
 
     const bodyText = await upstream.text();
 
-    // Pass through status + body; client reconstructs Response
     return json(
       {
         ok: upstream.ok,

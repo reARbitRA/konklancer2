@@ -51,40 +51,54 @@ export async function fetchPageViaCloudRelay(targetUrl: string): Promise<{ ok: b
 }
 
 /**
- * relay via own Node server (same-origin `/api/llm/relay`) — works when the
- * server is hosted on Vercel/US VPS and acts as a fast second hop.
- * Used as fallback when Supabase Edge is not yet deployed or returns 404.
+ * relay via own Node server — works when the server is hosted on Vercel/US VPS.
+ * For native APK (no local server) falls back to Vercel-hosted relay.
  */
+const VERCEL_RELAY_URL = 'https://konklancer2.vercel.app/api/llm/relay';
+
 async function relayViaServer(
   targetUrl: string,
   method: string,
   headers: Record<string, string>,
   body?: string,
 ): Promise<Response | null> {
-  try {
-    const res = await fetch('/api/llm/relay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        target_url: targetUrl,
-        mode: 'llm',
-        req_method: method.toUpperCase(),
-        req_headers: headers,
-        req_body: body ?? null,
-      }),
-    });
-    if (!res.ok) return null;
-    const wrapped = await res.json();
-    if (wrapped?.status == null && wrapped?.bodyText == null) return null;
-    const status = Number(wrapped?.status) || 502;
-    const bodyText = typeof wrapped?.bodyText === 'string' ? wrapped.bodyText : JSON.stringify(wrapped?.bodyText ?? {});
-    return new Response(bodyText, {
-      status: status >= 200 && status <= 599 ? status : 502,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  } catch {
-    return null;
+  const tryOnce = async (url: string): Promise<Response | null> => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_url: targetUrl,
+          mode: 'llm',
+          req_method: method.toUpperCase(),
+          req_headers: headers,
+          req_body: body ?? null,
+        }),
+      });
+      if (!res.ok) return null;
+      const wrapped = await res.json();
+      if (wrapped?.status == null && wrapped?.bodyText == null) return null;
+      const status = Number(wrapped?.status) || 502;
+      const bodyText = typeof wrapped?.bodyText === 'string' ? wrapped.bodyText : JSON.stringify(wrapped?.bodyText ?? {});
+      return new Response(bodyText, {
+        status: status >= 200 && status <= 599 ? status : 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) same-origin (Vercel preview / localhost dev)
+  const sameOrigin = await tryOnce('/api/llm/relay');
+  if (sameOrigin) return sameOrigin;
+  // 2) absolute Vercel fallback for native APK where /api doesn't exist
+  if (typeof window !== 'undefined' && window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
+    // file:// / content:// — native APK
+    return await tryOnce(VERCEL_RELAY_URL);
   }
+  // also try Vercel as second chance for browser if same-origin failed
+  return await tryOnce(VERCEL_RELAY_URL);
 }
 
 export async function relayLLMRequestViaUS(
