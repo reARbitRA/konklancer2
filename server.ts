@@ -1177,6 +1177,32 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
   }
 });
 
+// Health check for US relay — verifies requests go from outside Iran
+app.get('/api/llm/relay-health', async (_req: Request, res: Response) => {
+  const checks: Record<string, any> = {
+    serverRelay: { enabled: true, path: '/api/llm/relay', allowListedHosts: [...LLM_RELAY_ALLOWED_HOSTS] },
+    supabaseRelay: {
+      enabled: true,
+      url: 'https://rwuyuhjkitcnekpwmoml.supabase.co/functions/v1/konklancer-relay',
+      deployedFile: 'supabase/functions/konklancer-relay/index.ts',
+      note: 'باید با supabase functions deploy konklancer-relay روی Supabase deploy شود تا درخواست‌ها از Virginia/US برود',
+    },
+  };
+  try {
+    const probe = await fetch('https://rwuyuhjkitcnekpwmoml.supabase.co/functions/v1/konklancer-relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs', Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs' },
+      body: JSON.stringify({ target_url: 'https://generativelanguage.googleapis.com/v1beta/models', mode: 'page' }),
+      signal: AbortSignal.timeout(6_000),
+    });
+    checks.supabaseRelay.probe = { httpStatus: probe.status, ok: probe.ok, deployed: probe.status !== 404 };
+    if (probe.status === 404) checks.supabaseRelay.deployedHint = 'هنوز deploy نشده — supabase functions deploy konklancer-relay';
+  } catch (e: any) {
+    checks.supabaseRelay.probe = { error: e?.message || String(e), note: 'سندباکس به supabase.co دسترسی شبکه ندارد — در پروداکشن چک کن' };
+  }
+  res.json({ success: true, relay: checks, vital: 'تمام درخواست‌های AI باید از رله خارج ایران برود — مستقیم از IP ایران به Gemini بلاک است' });
+});
+
 // Endpoint: واکشی مستقیم URL و استخراج خودکار پروژه‌ها
 app.post('/api/scraper/fetch-url', async (req: Request, res: Response) => {
   try {
