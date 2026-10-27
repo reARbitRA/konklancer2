@@ -1123,6 +1123,60 @@ app.post('/api/llm/test', async (req: Request, res: Response) => {
   }
 });
 
+// ── رله عمومی LLM (fallback روی خودِ سرور؛ مشابه Supabase Edge Relay)
+// اگر کلاینت نخواهد مستقیماً با گوگل صحبت کند (یا IP ایران بلاک شده)، درخواست را
+// از همین سرور (Vercel/US) فوروارد می‌کنیم. فقط هاست‌های allow-list قبول می‌شوند تا SSRF بسته بماند.
+const LLM_RELAY_ALLOWED_HOSTS = new Set([
+  'generativelanguage.googleapis.com',
+  'api.groq.com',
+  'api.openai.com',
+  'api.openrouter.ai',
+  'openrouter.ai',
+  'api.deepseek.com',
+  'api.anthropic.com',
+  'api.cohere.ai',
+  'api.mistral.ai',
+  'generativelanguage.googleapis.com',
+]);
+const LLM_RELAY_ALLOWED_SUFFIXES = ['.googleapis.com', '.openai.azure.com'];
+function isLLMRelayAllowed(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (LLM_RELAY_ALLOWED_HOSTS.has(h)) return true;
+  return LLM_RELAY_ALLOWED_SUFFIXES.some((s) => h.endsWith(s));
+}
+app.post('/api/llm/relay', async (req: Request, res: Response) => {
+  try {
+    const targetUrl: string = (req.body?.target_url || req.body?.targetUrl || '').trim?.() || '';
+    if (!targetUrl) return res.status(400).json({ ok: false, error: 'target_url required' });
+    let parsed: URL;
+    try { parsed = new URL(targetUrl); } catch { return res.status(400).json({ ok: false, error: 'Invalid target_url' }); }
+    if (!isLLMRelayAllowed(parsed.hostname)) {
+      return res.status(403).json({ ok: false, error: `Host not allow-listed: ${parsed.hostname}` });
+    }
+    const reqMethod: string = (req.body?.req_method || req.body?.method || 'POST').toUpperCase();
+    const reqHeadersIn: Record<string, string> = req.body?.req_headers || req.body?.headers || {};
+    const reqBody: string | null = req.body?.req_body ?? req.body?.body ?? null;
+    const forwardHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(reqHeadersIn)) {
+      const lk = k.toLowerCase();
+      if (lk === 'host' || lk === 'content-length' || lk === 'connection') continue;
+      forwardHeaders[k] = String(v);
+    }
+    if (!forwardHeaders['Content-Type'] && !forwardHeaders['content-type']) forwardHeaders['Content-Type'] = 'application/json';
+
+    const upstream = await fetch(targetUrl, {
+      method: reqMethod,
+      headers: forwardHeaders,
+      body: reqBody != null ? reqBody : undefined,
+      signal: AbortSignal.timeout(25_000),
+    });
+    const bodyText = await upstream.text();
+    return res.json({ ok: upstream.ok, status: upstream.status, bodyText, headers: Object.fromEntries(upstream.headers.entries()) });
+  } catch (e: any) {
+    return res.status(502).json({ ok: false, status: 0, bodyText: '', error: e?.message || String(e) });
+  }
+});
+
 // Endpoint: واکشی مستقیم URL و استخراج خودکار پروژه‌ها
 app.post('/api/scraper/fetch-url', async (req: Request, res: Response) => {
   try {

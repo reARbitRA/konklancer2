@@ -73,36 +73,71 @@ export function isStandaloneClientMode(): boolean {
  * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
  * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
  */
+/**
+ * Smart LLM fetch — **از طریق سوپابیس/رله ارسال می‌شود** تا گوگل و بقیه پرووایدرها خطا ندهند.
+ *
+ * طبق توافق: درخواست AI نباید مستقیماً از IP ایران برود (Gemini با 400
+ * "User location is not supported" و Groq/OpenAI با 403 بلاک می‌کنند).
+ * بنابراین اول از رله آمریکا (Supabase Edge → fallback سرور `/api/llm/relay`)
+ * استفاده می‌کنیم و فقط اگر رله در دسترس نبود، به fetch مستقیم می‌افتیم.
+ *
+ * Ollama (localhost:11434) از این قاعده مستثناست و همیشه مستقیم می‌رود.
+ */
 async function smartFetchLLM(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
 ): Promise<Response> {
   const method = init.method || 'GET';
   const headers = init.headers || {};
+  const isLocalOllama = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
 
-  let directRes: Response | null = null;
+  // Ollama is local — never relay
+  if (isLocalOllama) {
+    return fetch(url, {
+      method,
+      headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+    });
+  }
+
+  // 1) Try US relay FIRST (Supabase Edge → fallback Node relay) — avoids Iran geo-block
   try {
-    directRes = await fetch(url, {
+    const relayed = await relayLLMRequestViaUS(url, method, headers, init.body);
+    if (relayed.ok) return relayed;
+    // If relay returned a client error (4xx auth), don't hide it — return it directly
+    if (relayed.status === 401 || relayed.status === 403 || relayed.status === 400) {
+      return relayed;
+    }
+    // For 429/5xx, fall through to try direct as well (maybe relay quota vs origin quota)
+  } catch {
+    // relay unreachable → will try direct below
+  }
+
+  // 2) Fallback: direct fetch (works when VPN is on, or relay not deployed yet)
+  try {
+    const directRes = await fetch(url, {
       method,
       headers,
       ...(init.body !== undefined ? { body: init.body } : {}),
     });
     if (directRes.ok) return directRes;
-    if (directRes.status !== 400 && directRes.status !== 403 && directRes.status < 500) {
-      return directRes;
+    // If direct also failed but we have no other option, try relay one more time for 400/403
+    if (directRes.status === 400 || directRes.status === 403) {
+      try {
+        return await relayLLMRequestViaUS(url, method, headers, init.body);
+      } catch {
+        // fall through
+      }
     }
-  } catch {
-    // Network / ISP filter / CORS error -> fall through to US-East-1 Cloud Relay
+    return directRes;
+  } catch (e) {
+    // Direct network error — last chance relay
+    try {
+      return await relayLLMRequestViaUS(url, method, headers, init.body);
+    } catch {
+      throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
+    }
   }
-
-  try {
-    return await relayLLMRequestViaUS(url, method, headers, init.body);
-  } catch {
-    // fall back to direct response if any
-  }
-
-  if (directRes) return directRes;
-  throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
 }
 
 export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {
