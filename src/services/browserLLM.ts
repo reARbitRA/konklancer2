@@ -73,36 +73,72 @@ export function isStandaloneClientMode(): boolean {
  * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
  * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
  */
+/**
+ * Smart LLM fetch — **حیاتی: همیشه از خارج ایران ارسال می‌شود**
+ *
+ * هیچ درخواستی به Gemini/Groq/OpenAI/OpenRouter نباید از IP ایران برود
+ * (Gemini 400 "User location is not supported", Groq/OpenAI 403).
+ * بنابراین:
+ *   1) اول Supabase Edge (Virginia US) → fallback سرور `/api/llm/relay` (وقتی روی Vercel/US هست)
+ *   2) فقط اگر رله کاملاً در دسترس نبود، با خطای شفاف fail می‌کند — نه اینکه بی‌صدا برود مستقیم و دوباره بلاک شود.
+ *   3) Ollama (localhost:11434) تنها استثناء است و همیشه مستقیم می‌رود.
+ *   4) برای تست محلی با VPN می‌توان `localStorage.setItem('konklancer_allow_direct','1')` را ست کرد تا fallback مستقیم مجاز شود.
+ */
 async function smartFetchLLM(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
 ): Promise<Response> {
   const method = init.method || 'GET';
   const headers = init.headers || {};
+  const isLocalOllama = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
 
-  let directRes: Response | null = null;
-  try {
-    directRes = await fetch(url, {
+  if (isLocalOllama) {
+    return fetch(url, {
       method,
       headers,
       ...(init.body !== undefined ? { body: init.body } : {}),
     });
-    if (directRes.ok) return directRes;
-    if (directRes.status !== 400 && directRes.status !== 403 && directRes.status < 500) {
-      return directRes;
-    }
-  } catch {
-    // Network / ISP filter / CORS error -> fall through to US-East-1 Cloud Relay
   }
 
+  const allowDirectFallback = (() => {
+    try {
+      return localStorage.getItem('konklancer_allow_direct') === '1' ||
+             (import.meta as any).env?.VITE_ALLOW_DIRECT === '1';
+    } catch { return false; }
+  })();
+
+  // 1) US relay FIRST — حیاتی
+  let lastRelayError: unknown = null;
   try {
-    return await relayLLMRequestViaUS(url, method, headers, init.body);
-  } catch {
-    // fall back to direct response if any
+    const relayed = await relayLLMRequestViaUS(url, method, headers, init.body);
+    // Relay responded (even with 4xx) — this IS the answer from outside Iran
+    return relayed;
+  } catch (e) {
+    lastRelayError = e;
+    if (!allowDirectFallback) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `رله خارج از ایران در دسترس نیست — درخواست از IP ایران به گوگل بلاک می‌شود. ` +
+        `علت: ${msg} — ` +
+        `۱) مطمئن شو Edge Function 'konklancer-relay' روی Supabase deploy شده (supabase functions deploy)، ` +
+        `۲) یا اپ روی Vercel/US deploy شده تا /api/llm/relay کار کند. ` +
+        `برای تست با VPN: localStorage.setItem('konklancer_allow_direct','1')`
+      );
+    }
   }
 
-  if (directRes) return directRes;
-  throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
+  // 2) Fallback مستقیم فقط وقتی کاربر صریحاً اجازه داده (VPN)
+  try {
+    const directRes = await fetch(url, {
+      method,
+      headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+    });
+    return directRes;
+  } catch (e) {
+    if (lastRelayError) throw lastRelayError;
+    throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
+  }
 }
 
 export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {

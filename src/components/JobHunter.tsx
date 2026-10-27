@@ -297,7 +297,7 @@ export const JobHunter: React.FC<JobHunterProps> = ({
         )}
 
       {/* Efficient Project Grid — 1 col mobile, 2 col desktop, expandable details */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
         {sortedJobs.length===0 ? (
           <div className="xl:col-span-2 brutal-panel p-10 text-center bg-white">
             <div className="w-16 h-16 mx-auto bg-[#FFDE03] border-[2.5px] border-black flex items-center justify-center mb-4"><Search className="w-8 h-8" /></div>

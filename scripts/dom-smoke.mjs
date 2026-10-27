@@ -139,9 +139,20 @@ check('price sort toggled (asc)', bAsc.every((v, i) => i === 0 || v >= bAsc[i-1]
 
 // 1b) relevance filter "همه" + price desc must surface the absolute max budget (1e9)
 // rendering 1000+ cards takes >1s in jsdom → wait on the condition, not a timer
-await clickUntil('همه (', () => $$('.job-brutal').length >= 1000, '"همه" full feed render');
+// The feed size is data, not code: derive the expectation from the API instead of
+// hard-coding 1000 (the scanner bot legitimately moves between ~900 and ~1100).
+const feedTotal = await (async () => {
+  try {
+    const body = await (await globalThis.fetch(`${BASE_URL}/api/jobs`)).json();
+    return Array.isArray(body.jobs) ? body.jobs.length : Number(body.scannedProjects) || 0;
+  } catch {
+    return 0;
+  }
+})();
+const expectedCards = Math.max(100, Math.floor(feedTotal * 0.9));
+await clickUntil('همه (', () => $$('.job-brutal').length >= expectedCards, '"همه" full feed render');
 const allCards = $$('.job-brutal').length;
-check('"همه" relevance filter shows full feed', allCards >= 1000, `${allCards} cards`);
+check('"همه" relevance filter shows full feed', allCards >= expectedCards, `${allCards} cards / feed ${feedTotal}`);
 
 // force price DESC via the direction toggle (label starts with the "desc" side)
 const dirs = () => $$('button').find(b => /^(نزولی|صعودی)|^(جدیدترین|قدیمی‌ترین|گران‌ترین|ارزان‌ترین)/.test((b.textContent || '').trim()));

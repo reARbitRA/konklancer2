@@ -76,7 +76,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     mounted.current = true;
     let unsubscribe: (() => void) | null = null;
     (async () => {
-      const [initialSession] = await Promise.all([loadSession(), refreshProviders()]);
+      // «آماده» فقط به خواندن نشست محلی وابسته است، نه به شبکه.
+      // (قبلاً منتظر probeProviders می‌ماند و در شبکه‌ی کند تا ۸ ثانیه چیپ حساب
+      // اسپینر می‌ماند.) وضعیت providerها جدا و در پس‌زمینه به‌روز می‌شود.
+      const initialSession = await loadSession();
       if (!mounted.current) return;
       applySession(initialSession);
       setReady(true);
@@ -85,6 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         applySession(next);
         setError(null);
       });
+      void refreshProviders();
     })();
     return () => {
       mounted.current = false;

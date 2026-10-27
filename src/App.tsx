@@ -148,13 +148,26 @@ const Layout: React.FC<{
   const navigate = useNavigate();
   const location = useLocation();
   const activeTab = useRouteTab();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // زیر ۱۰۲۴px ریل کنترل به‌صورت کشوی کنارِ صفحه باز می‌شود؛ پس باید بسته شروع
+  // کند (قبلاً با یک effect بعد از رندر ست می‌شد و در همان لحظه‌ی اول کل صفحه را
+  // می‌پوشاند). مقدار اولیه در همان اولین رندر خوانده می‌شود.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 1024px)').matches
+      : false,
+  );
 
-  // auto collapse on mobile
+  // اگر کاربر پنجره را کوچک/بزرگ کرد، وضعیت پیش‌فرض را دنبال کن
   useEffect(()=>{
+    if (typeof window.matchMedia !== 'function') return;
     const mql = window.matchMedia('(max-width: 1024px)');
-    const handler = ()=>{ if(mql.matches) setSidebarCollapsed(true); };
-    handler();
+    const handler = (event: MediaQueryListEvent)=>{ setSidebarCollapsed(event.matches); };
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', handler);
+      return () => mql.removeEventListener('change', handler);
+    }
+    mql.addListener(handler);
+    return () => mql.removeListener(handler);
   }, []);
 
   return (
@@ -169,11 +182,11 @@ const Layout: React.FC<{
         activeJobsCount={props.activeJobsCount}
         socketConnected={props.socketConnected}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={()=>setSidebarCollapsed(!sidebarCollapsed)}
+        onToggleSidebar={()=>setSidebarCollapsed(v=>!v)}
       />
 
       <div className="flex flex-1 max-w-[1600px] w-full mx-auto">
-        <BrutalSidebar collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(!sidebarCollapsed)} jobs={props.jobs} feed={props.feed} onOpenSettings={props.onOpenSettings} />
+        <BrutalSidebar collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(v=>!v)} jobs={props.jobs} feed={props.feed} onOpenSettings={props.onOpenSettings} />
 
         <main className="flex-1 min-w-0 p-3 lg:p-5 pb-20 lg:pb-5">
           <Routes>
@@ -276,6 +289,7 @@ const Layout: React.FC<{
 };
 
 export default function App() {
+
   const [jobs, setJobs] = useState<FreelanceJob[]>(()=>{
     const manualVault = readPermanentManualVault().map(enrichJob);
     const saved = safeGetJSON<FreelanceJob[]>('freelanceflow_jobs', []);
@@ -492,103 +506,143 @@ export default function App() {
   }, []);
 
   // Inner component to access navigate
-  const InnerApp = ()=>{
-    const navigate = useNavigate();
-    const paletteActions: PaletteAction[] = useMemo(()=>[
-      { id:'scan', label:'اجرای اسکن زنده', hint:'اسکن چندصفحه‌ای', icon: Radar, run: ()=> handleQuickScan() },
-      { id:'settings', label:'تنظیمات گاوصندوق', hint:'مدیریت کلیدها', icon: Settings, run: ()=> setIsSettingsOpen(true) },
-      { id:'tab-hunter', label:'رادار شکار', hint:'فهرست پروژه‌ها', icon: Radar, run: ()=> navigate('/hunt') },
-      { id:'tab-coder', label:'استودیو تحویل', hint:'۳ مرحله‌ای', icon: Terminal, run: ()=> navigate('/studio') },
-      { id:'tab-pipeline', label:'پایپ‌لاین', hint:'کانبان و درآمد', icon: Workflow, run: ()=> navigate('/pipeline') },
-      { id:'tab-autopilot', label:'مرکز سایبورگ', hint:'اتوماسیون', icon: Sparkles, run: ()=> navigate('/ops') },
-      { id:'tab-analytics', label:'کارنامه‌ی پیشنهادها', hint:'نرخ برد و نتیجه‌ها', icon: BarChart3, run: ()=> navigate('/analytics') },
-    ], [handleQuickScan, navigate]);
 
-    return (
-      <>
-        {socketError && (
-          <div className="bg-[#FF3B30] border-b-[3px] border-black text-white px-4 py-2 text-xs font-bold flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2"><WifiOff className="w-4 h-4" /> {socketError}</div>
-            <div className="flex items-center gap-2">
-              <button onClick={handleManualReconnect} disabled={isReconnecting} className="px-3 py-1 bg-white text-black border-[2px] border-black font-black text-[11px] flex items-center gap-1"><RefreshCw className={`w-3 h-3 ${isReconnecting?'animate-spin':''}`} /> تلاش مجدد</button>
-              <button onClick={()=>setSocketError(null)} className="w-7 h-7 bg-black text-white border border-white flex items-center justify-center"><X className="w-4 h-4" /></button>
-            </div>
-          </div>
-        )}
 
-        <Layout
-          jobs={jobs}
-          feed={feed}
-          settings={settings}
-          logs={logs}
-          isScanning={isScanning}
-          scanStatusText={scanStatusText}
-          socketConnected={socketConnected}
-          totalEarningsToday={totalEarningsToday}
-          activeJobsCount={activeJobsCount}
-          onOpenSettings={()=>setIsSettingsOpen(true)}
-          onOpenCommandPalette={()=>setIsCommandPaletteOpen(true)}
-          onQuickScan={handleQuickScan}
-          onSyncCloudFeed={handleSyncCloudFeed}
-          cloudBusy={cloudBusy}
-          cloudEnabled={cloudInfo.enabled}
-          handleSelectAnalysis={(job)=> setSelectedJobForAnalysis(job)}
-          handleSelectProposal={(job)=> setSelectedJobForProposal(job)}
-          handleSelectCoding={(job)=> setSelectedJobForCodingId(job.id)}
-          handleAddManual={handleAddNewManualJob}
-          handleTogglePin={handleTogglePinJob}
-          handleDeleteManual={handleDeleteManualJob}
-          handleMoveStatus={handleMoveJobStatus}
-          handleUpdatePriority={handleUpdatePriority}
-          handleUpdateSettings={(ns)=> setSettings({ ...settings, ...ns })}
-          aiAvailable={aiAvailable}
-          selectedJobForCoding={selectedJobForCoding}
-          onUpdateJob={handleFullJobUpdate}
-          onUpdateJobFiles={handleUpdateJobFiles}
-          onOpenGitHubPush={(job,files)=> setGitHubPushState({job,files})}
-          onUpdateJobRepoUrl={handleUpdateJobRepoUrl}
-          githubToken={settings.githubToken}
-          dailyEarningsGoal={settings.dailyEarningsGoal}
-        />
-
-        {jobToInit && (
-          <div className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center">
-            <div className="bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_#000] max-w-2xl w-full p-4">
-              <GitHubWorkflowManager job={jobToInit} githubToken={settings.githubToken} onRepoCreated={(repoUrl)=>{ setJobs(prev=> prev.map(j=> j.id===jobToInit.id ? { ...j, repoUrl } : j)); setJobToInit(null); }} autoStart={false} />
-              <button onClick={()=>setJobToInit(null)} className="mt-3 brutal-btn w-full">بستن</button>
-            </div>
-          </div>
-        )}
-
-        {selectedJobForAnalysis && (
-          <AIEvaluatorModal
-            job={selectedJobForAnalysis}
-            onClose={()=> setSelectedJobForAnalysis(null)}
-            onProceedToProposal={setSelectedJobForProposal}
-            onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
-            onUpdateAnalysis={handleUpdateAnalysis}
-          />
-        )}
-        {selectedJobForProposal && (
-          <ProposalStudioModal
-            job={selectedJobForProposal}
-            onClose={()=> setSelectedJobForProposal(null)}
-            onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
-            onSaveProposalToJob={handleSaveProposalToJob}
-          />
-        )}
-        {gitHubPushState.job && (
-          <GitHubDispatcher job={gitHubPushState.job} files={gitHubPushState.files} githubToken={settings.githubToken} onClose={()=> setGitHubPushState({job:null, files:{}})} onCompleteJob={handleCompleteJob} />
-        )}
-        {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} settings={settings} onClose={()=> setIsSettingsOpen(false)} onSave={(ns)=> setSettings(ns)} />}
-        <CommandPalette open={isCommandPaletteOpen} onClose={()=> setIsCommandPaletteOpen(false)} jobs={jobs} actions={paletteActions} onSelectJob={setSelectedJobForAnalysis} />
-      </>
-    );
-  };
+  // همه‌ی state/هندلرهای App در یک شیء به InnerApp داده می‌شود تا نوعِ
+  // کامپوننت ثابت بماند (بدون remount).
+  const scope: AppScope = { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday };
 
   return (
     <HashRouter>
-      <InnerApp />
+      <InnerApp s={scope} />
     </HashRouter>
   );
 }
+
+/**
+ * InnerApp — بدنه‌ی واقعی اپ.
+ *
+ * مهم: این کامپوننت باید در سطح ماژول تعریف شود. اگر داخل App (یا هر کامپوننت
+ * دیگری) تعریف شود، هر رندر یک «نوع کامپوننت» جدید می‌سازد و React کل زیرشاخه را
+ * unmount/remount می‌کند؛ نتیجه‌اش از دست رفتن state محلی (ریل کنترل، فیلترها،
+ * کارت باز، متن فرم) و رندر مجدد هزار کارت در هر ثانیه بود.
+ */
+interface AppScope {
+/** اعضای پرکاربرد با تایپ دقیق تا ایمنی تایپ حفظ شود */
+jobs: FreelanceJob[];
+setJobs: React.Dispatch<React.SetStateAction<FreelanceJob[]>>;
+settings: UserSettings;
+setSettings: React.Dispatch<React.SetStateAction<UserSettings>>;
+logs: ActivityLogItem[];
+setLogs: React.Dispatch<React.SetStateAction<ActivityLogItem[]>>;
+feed: { source: FeedSource; scannedAt: string | null; scannedProjects: number };
+setFeed: React.Dispatch<React.SetStateAction<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>>;
+gitHubPushState: { job: FreelanceJob | null; files: Record<string, string> };
+setGitHubPushState: React.Dispatch<React.SetStateAction<{ job: FreelanceJob | null; files: Record<string, string> }>>;
+selectedJobForAnalysis: FreelanceJob | null;
+selectedJobForProposal: FreelanceJob | null;
+selectedJobForCodingId: string | null;
+jobToInit: FreelanceJob | null;
+isScanning: boolean;
+isSettingsOpen: boolean;
+isCommandPaletteOpen: boolean;
+socketConnected: boolean;
+/** بقیه‌ی اعضا (هندلرها/ست‌کننده‌ها) — تایپ‌شان از App کنترل می‌شود */
+[key: string]: any;
+}
+
+const InnerApp: React.FC<{ s: AppScope }> = ({ s }) => {
+  const { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday } = s;
+  const navigate = useNavigate();
+  const paletteActions: PaletteAction[] = useMemo(()=>[
+    { id:'scan', label:'اجرای اسکن زنده', hint:'اسکن چندصفحه‌ای', icon: Radar, run: ()=> handleQuickScan() },
+    { id:'settings', label:'تنظیمات گاوصندوق', hint:'مدیریت کلیدها', icon: Settings, run: ()=> setIsSettingsOpen(true) },
+    { id:'tab-hunter', label:'رادار شکار', hint:'فهرست پروژه‌ها', icon: Radar, run: ()=> navigate('/hunt') },
+    { id:'tab-coder', label:'استودیو تحویل', hint:'۳ مرحله‌ای', icon: Terminal, run: ()=> navigate('/studio') },
+    { id:'tab-pipeline', label:'پایپ‌لاین', hint:'کانبان و درآمد', icon: Workflow, run: ()=> navigate('/pipeline') },
+    { id:'tab-autopilot', label:'مرکز سایبورگ', hint:'اتوماسیون', icon: Sparkles, run: ()=> navigate('/ops') },
+    { id:'tab-analytics', label:'کارنامه‌ی پیشنهادها', hint:'نرخ برد و نتیجه‌ها', icon: BarChart3, run: ()=> navigate('/analytics') },
+  ], [handleQuickScan, navigate]);
+
+  return (
+    <>
+      {socketError && (
+        <div className="bg-[#FF3B30] border-b-[3px] border-black text-white px-4 py-2 text-xs font-bold flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><WifiOff className="w-4 h-4" /> {socketError}</div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleManualReconnect} disabled={isReconnecting} className="px-3 py-1 bg-white text-black border-[2px] border-black font-black text-[11px] flex items-center gap-1"><RefreshCw className={`w-3 h-3 ${isReconnecting?'animate-spin':''}`} /> تلاش مجدد</button>
+            <button onClick={()=>setSocketError(null)} className="w-7 h-7 bg-black text-white border border-white flex items-center justify-center"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
+
+      <Layout
+        jobs={jobs}
+        feed={feed}
+        settings={settings}
+        logs={logs}
+        isScanning={isScanning}
+        scanStatusText={scanStatusText}
+        socketConnected={socketConnected}
+        totalEarningsToday={totalEarningsToday}
+        activeJobsCount={activeJobsCount}
+        onOpenSettings={()=>setIsSettingsOpen(true)}
+        onOpenCommandPalette={()=>setIsCommandPaletteOpen(true)}
+        onQuickScan={handleQuickScan}
+        onSyncCloudFeed={handleSyncCloudFeed}
+        cloudBusy={cloudBusy}
+        cloudEnabled={cloudInfo.enabled}
+        handleSelectAnalysis={(job)=> setSelectedJobForAnalysis(job)}
+        handleSelectProposal={(job)=> setSelectedJobForProposal(job)}
+        handleSelectCoding={(job)=> setSelectedJobForCodingId(job.id)}
+        handleAddManual={handleAddNewManualJob}
+        handleTogglePin={handleTogglePinJob}
+        handleDeleteManual={handleDeleteManualJob}
+        handleMoveStatus={handleMoveJobStatus}
+        handleUpdatePriority={handleUpdatePriority}
+        handleUpdateSettings={(ns)=> setSettings({ ...settings, ...ns })}
+        aiAvailable={aiAvailable}
+        selectedJobForCoding={selectedJobForCoding}
+        onUpdateJob={handleFullJobUpdate}
+        onUpdateJobFiles={handleUpdateJobFiles}
+        onOpenGitHubPush={(job,files)=> setGitHubPushState({job,files})}
+        onUpdateJobRepoUrl={handleUpdateJobRepoUrl}
+        githubToken={settings.githubToken}
+        dailyEarningsGoal={settings.dailyEarningsGoal}
+      />
+
+      {jobToInit && (
+        <div className="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center">
+          <div className="bg-white border-[3px] border-black shadow-[8px_8px_0px_0px_#000] max-w-2xl w-full p-4">
+            <GitHubWorkflowManager job={jobToInit} githubToken={settings.githubToken} onRepoCreated={(repoUrl)=>{ setJobs(prev=> prev.map(j=> j.id===jobToInit.id ? { ...j, repoUrl } : j)); setJobToInit(null); }} autoStart={false} />
+            <button onClick={()=>setJobToInit(null)} className="mt-3 brutal-btn w-full">بستن</button>
+          </div>
+        </div>
+      )}
+
+      {selectedJobForAnalysis && (
+        <AIEvaluatorModal
+          job={selectedJobForAnalysis}
+          onClose={()=> setSelectedJobForAnalysis(null)}
+          onProceedToProposal={setSelectedJobForProposal}
+          onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
+          onUpdateAnalysis={handleUpdateAnalysis}
+        />
+      )}
+      {selectedJobForProposal && (
+        <ProposalStudioModal
+          job={selectedJobForProposal}
+          onClose={()=> setSelectedJobForProposal(null)}
+          onProceedToCoding={(job)=>{ setSelectedJobForCodingId(job.id); navigate('/studio'); }}
+          onSaveProposalToJob={handleSaveProposalToJob}
+        />
+      )}
+      {gitHubPushState.job && (
+        <GitHubDispatcher job={gitHubPushState.job} files={gitHubPushState.files} githubToken={settings.githubToken} onClose={()=> setGitHubPushState({job:null, files:{}})} onCompleteJob={handleCompleteJob} />
+      )}
+      {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} settings={settings} onClose={()=> setIsSettingsOpen(false)} onSave={(ns)=> setSettings(ns)} />}
+      <CommandPalette open={isCommandPaletteOpen} onClose={()=> setIsCommandPaletteOpen(false)} jobs={jobs} actions={paletteActions} onSelectJob={setSelectedJobForAnalysis} />
+    </>
+  );
+
+};

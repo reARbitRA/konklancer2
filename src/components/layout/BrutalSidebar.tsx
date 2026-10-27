@@ -56,12 +56,24 @@ export const BrutalSidebar: React.FC<BrutalSidebarProps> = ({ collapsed, onToggl
     );
   }
 
+  // expanded: off-canvas drawer on tablet/phone (the header toggle finally does
+  // something below lg), static control rail from lg up
   return (
-    <aside className="hidden lg:flex w-[300px] shrink-0 bg-[#FFFBF0] border-r-[3px] border-[#0a0a0a] flex-col sticky top-[92px] h-[calc(100vh-92px)] overflow-hidden">
+    <>
+    <div
+      className="fixed inset-0 z-[55] bg-[#0a0a0a]/60 lg:hidden"
+      onClick={onToggle}
+      aria-hidden="true"
+      data-testid="sidebar-backdrop"
+    />
+    <aside
+      data-testid="sidebar"
+      className="fixed inset-y-0 right-0 z-[60] flex w-[86vw] max-w-[340px] flex-col overflow-hidden bg-[#FFFBF0] border-l-[3px] border-[#0a0a0a] lg:sticky lg:inset-auto lg:top-[92px] lg:right-auto lg:z-auto lg:h-[calc(100vh-92px)] lg:w-[300px] lg:max-w-none lg:shrink-0 lg:border-l-0 lg:border-r-[3px]"
+    >
       {/* Collapse handle */}
       <div className="h-10 shrink-0 bg-[#0a0a0a] text-white flex items-center justify-between px-3 border-b-[2.5px] border-[#0a0a0a]">
         <span className="text-[11px] font-black tracking-[0.14em] uppercase">CONTROL RAIL — SPACE SAVER</span>
-        <button onClick={onToggle} className="w-7 h-7 bg-white text-black border-[2px] border-white flex items-center justify-center hover:bg-[#FFDE03]">
+        <button onClick={onToggle} aria-label="بستن کنترل‌ریل" className="w-7 h-7 bg-white text-black border-[2px] border-white flex items-center justify-center hover:bg-[#FFDE03]">
           <ChevronLeft className="w-4 h-4" />
         </button>
       </div>
@@ -191,5 +203,6 @@ export const BrutalSidebar: React.FC<BrutalSidebarProps> = ({ collapsed, onToggl
         </div>
       </div>
     </aside>
+    </>
   );
 };

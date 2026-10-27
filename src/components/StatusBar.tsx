@@ -28,7 +28,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ socketConnected, feedSourc
   const tabLabel: Record<AppTab, string> = { hunter:'رادار', coder:'استودیو', pipeline:'پایپ‌لاین', autopilot:'سایبورگ', analytics:'کارنامه' };
 
   return (
-    <footer className="hidden md:flex h-[32px] shrink-0 items-center gap-2 border-t-[2.5px] border-black bg-black text-white px-3 font-mono text-[11px] font-bold">
+    <footer className="status-bar hidden md:flex h-[32px] shrink-0 items-center gap-2 border-t-[2.5px] border-black bg-black text-white px-3 font-mono text-[11px] font-bold">
       <span className="flex items-center gap-1.5"><Terminal className="w-3 h-3 text-[#FFDE03]" /> KONKLANCER V4</span>
       <span className="opacity-30">|</span>
       <span className="flex items-center gap-1"><CircleDot className={`w-3 h-3 ${socketConnected?'text-[#00E599]':'text-white/50'}`} /> {socketConnected?'BRIDGE LIVE':'STANDALONE'}</span>
@@ -38,7 +38,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({ socketConnected, feedSourc
       <span className="flex items-center gap-1"><Database className="w-3 h-3" /> {FEED_LABEL[feedSource]}</span>
       <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {jobCount.toLocaleString('fa-IR')} پروژه</span>
       <span className="flex-1" />
-      {onOpenCommandPalette && <button onClick={onOpenCommandPalette} className="px-2 py-0.5 bg-white text-black border border-white hover:bg-[#FFDE03] text-[10px]">CTRL+K SEARCH</button>}
+      {onOpenCommandPalette && (
+        <button
+          onClick={onOpenCommandPalette}
+          className="hide-on-touch px-2 py-0.5 bg-white text-black border border-white hover:bg-[#FFDE03] text-[10px]"
+        >
+          CTRL+K SEARCH
+        </button>
+      )}
       <span className="px-2 py-0.5 bg-[#FFDE03] text-black border border-white">{tabLabel[activeTab]}</span>
     </footer>
   );

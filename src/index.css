@@ -625,3 +625,70 @@
   .tok-prop { color: #FFDE03; }
   .tok-head { color: #FF4D00; font-weight: 800; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Touch ergonomics (tablet / phone: coarse pointer)
+   The brutalist layout is deliberately compact — 24–30px pills read well with a
+   mouse but are too small for a thumb. Rather than bloating the design, we grow
+   the *hit area* to ≥34px only on coarse pointers, so the visual density stays
+   identical while taps stop landing on the neighbour control.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  /* small pill buttons (cards, filters, footer actions) */
+  .brutal-btn--sm {
+    min-height: 34px;
+  }
+
+  /* icon-only controls that ship at 28–30px */
+  button.h-7.w-7,
+  button.h-8.w-8,
+  a.h-7.w-7 {
+    min-height: 34px;
+    min-width: 34px;
+  }
+
+  /* tag / category chips and filter pills (padding-only sizing) */
+  .job-brutal button:not([class*='h-[']),
+  button:not([class*='h-']):not([class*='py-']) {
+    min-height: 30px;
+  }
+
+  /* every padded pill/link acting as a button */
+  button[class*='py-1'],
+  a[class*='py-1'] {
+    min-height: 30px;
+  }
+
+  /* the desktop status bar is a decorative strip — give its buttons a real thumb area */
+  .status-bar {
+    height: 36px;
+  }
+  .status-bar button {
+    min-height: 30px;
+  }
+
+  /* keyboard-only affordances make no sense on a touch screen */
+  .hide-on-touch {
+    display: none !important;
+  }
+
+  /* inputs and selects */
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-height: 34px;
+  }
+
+  /* never let an inline tap target drop below the minimum in modals */
+  [role='dialog'] button {
+    min-height: 32px;
+  }
+}
+
+/* Horizontal overflow safety net: a single mis-sized child must never turn the
+   whole tablet layout into a sideways-scrolling canvas (see visual-audit). */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
