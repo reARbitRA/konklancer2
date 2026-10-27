@@ -89,16 +89,17 @@ async function relayViaServer(
     }
   };
 
-  // 1) same-origin (Vercel preview / localhost dev)
+  // 1) same-origin (preview localhost, Vercel preview)
   const sameOrigin = await tryOnce('/api/llm/relay');
   if (sameOrigin) return sameOrigin;
-  // 2) absolute Vercel fallback for native APK where /api doesn't exist
+  // 2) absolute Vercel fallback — also works in sandbox preview where Supabase is network-blocked
+  const vercel = await tryOnce(VERCEL_RELAY_URL);
+  if (vercel) return vercel;
+  // 3) For native APK (file://) explicitly
   if (typeof window !== 'undefined' && window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
-    // file:// / content:// — native APK
     return await tryOnce(VERCEL_RELAY_URL);
   }
-  // also try Vercel as second chance for browser if same-origin failed
-  return await tryOnce(VERCEL_RELAY_URL);
+  return null;
 }
 
 export async function relayLLMRequestViaUS(
