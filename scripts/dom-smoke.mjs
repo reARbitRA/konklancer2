@@ -258,6 +258,7 @@ if (settingsBtn) {
   await sleep(1200);
   const settingsText = $('#root').textContent || '';
   check('settings modal renders', /تنظیمات|کلید|GitHub|API/i.test(settingsText));
+  check('direct provider security notice is visible', !!window.document.querySelector('[data-testid="direct-provider-security-notice"]'));
   const closeBtn = $$('button').find(b => /بستن|انصراف|Close|✕|×/i.test((b.textContent || '').trim()) && b.closest('[class*="fixed"]'));
   closeBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(600);

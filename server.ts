@@ -1395,7 +1395,7 @@ async function startServer() {
     });
   }
 
-  if (!readLLMConfig()) console.warn('[llm] KONKRED_GATEWAY_URL / KONKRED_API_KEY not set: AI endpoints return 503 AI_NOT_CONFIGURED');
+  if (!readLLMConfig()) console.warn('[llm] No server-side LLM credential configured; the app uses direct provider calls from its device key vault.');
 
   // وضعیت اسکنر را در همان لحظه‌ی راه‌اندازی گزارش می‌دهیم تا برای استفاده‌ی شخصی معلوم باشد
   // چه چیزی اسکن می‌شود و فید از کجاست (SPEC-004).

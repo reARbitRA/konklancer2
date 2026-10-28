@@ -98,6 +98,7 @@ jobs:
           retention-days: 90
 
       - name: Publish / Update Latest Android APK Release & Tag
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,7 +107,7 @@ jobs:
           else
             gh release create android-latest KonkLancer-Studio.apk \
               --title "KonkLancer Studio — نسخه بومی تبلت اندروید (APK)" \
-              --notes "نسخه مستقل بومی اندروید (مجهز به CapacitorHttp بدون محدودیت CORS، اسکن مستقیم پونیشا/کارلنسر/پارس‌کدرز/تلگرام روی تبلت و اتصال مستقیم به Gemini / Groq / OpenRouter)."
+              --notes "نسخه بومی اندروید؛ همه درخواست‌های AI فقط از طریق درگاه Konkred انجام می‌شوند. برای فعال‌شدن AI، توکن رله‌ی برنامه را در Settings وارد و KONKRED_API_KEY مجاز را فقط در محیط امن سرور تنظیم کنید. کلیدهای provider داخل APK نیستند. اتصال AI فقط پس از استقرار مسیر سرور و تنظیم اعتبار درگاه فعال می‌شود."
           fi
 
           # Also publish lightweight orphan git tag apk-latest for direct git fetch delivery

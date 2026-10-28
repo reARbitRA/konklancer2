@@ -334,6 +334,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
+          <section
+            aria-label="هشدار امنیت و حریم خصوصی ارائه‌دهنده‌ی هوش مصنوعی"
+            data-testid="direct-provider-security-notice"
+            className="p-3.5 bg-[#FFF4CC] border-[2.5px] border-[#0a0a0a] space-y-2"
+          >
+            <h4 className="text-xs font-black uppercase tracking-wide text-[#0a0a0a] flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-[#9a6500]" /> امنیت کلید و حریم خصوصی AI مستقیم
+            </h4>
+            <ul className="text-[11px] leading-5 text-[#333333] list-disc pr-5 space-y-1">
+              <li>کلیدها در storage مرورگر/WebView همین دستگاه نگه‌داری می‌شوند؛ این storage گاوصندوق رمزگذاری‌شده نیست و دسترسی به دستگاه یا تزریق کد مخرب می‌تواند آن‌ها را در معرض دید بگذارد.</li>
+              <li>پرامپت‌ها و داده‌ی درخواست مستقیماً به provider و مدل انتخابی فرستاده می‌شوند؛ برای استنتاج به سرور Konklancer یا Supabase نمی‌روند. شرایط استفاده و سیاست نگه‌داری داده‌ی provider اعمال می‌شود.</li>
+              <li>کلید را در دستگاه مشترک، APK، کد یا چت وارد/منتشر نکن. برای حذف، از دکمه‌ی حذف پروفایل یا پاک‌سازی صریح کلیدها استفاده کن.</li>
+            </ul>
+          </section>
+
           {/* اعلان‌ها و امنیت API (SPEC-002 / SPEC-003 R5) */}
           <section className="p-3.5 bg-white/80 border-[2.5px] border-[#0a0a0a] space-y-3" data-testid="settings-notifications">
             <h4 className="text-xs font-black uppercase tracking-wide text-[#0a0a0a] flex items-center gap-2">

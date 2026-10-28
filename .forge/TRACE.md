@@ -28,3 +28,23 @@
 - تصمیم‌ها: (۱) دسته فقط متادیتا/فیلتر صریح است، نه گیت؛ (۲) کشف ساختار از خود DOM، نه هاردکد؛ (۳) مسیر HTML مرورگر به‌عنوان تضمین‌گاه همیشه در دسترس؛ (۴) ادعای تأییدنشده بودن نامزدها در کد و مستندات.
 - شواهد: pytest 33/33، npm test 24/24، tsc/build سالم، E2E آفلاین با فیکسچرهای کارت/جدول/SPA.
 - محدودیت صریح: صفر تماس موفق با سایت واقعی در این محیط؛ تأیید زنده = وظیفه‌ی کاربر روی ماشین خودش.
+
+## 2026-10-28 · T-006 continuation · session-007
+- SPEC-006 R1–R3 → `server/llm.ts` (only Konkred `/v1/chat/completions`; taskType/user contract; no provider/model in client), `server/gatewayApi.ts`, `api/llm/relay.ts`, browser callers.
+- SPEC-006 R4/R5/R7 → mock rejection, retry/error mapping, local cache in `server/llm.ts`; `server/llm.test.ts`.
+- SPEC-006 app boundary → `src/services/cloudRelay.ts`, Settings UI, app relay token in `src/utils/apiFetch.ts`; `server/gatewayApi.test.ts`, `server/cloudRelayClient.test.ts`, `server/vercelRelayRoute.test.ts`.
+- Provider selection removal → `LiveModelSwitcher.tsx`, `SettingsModal.tsx`, legacy vault cleanup in `customLLMClient.ts`, `server/relayProxy.ts` removal.
+- Supabase page relay only → `supabase/functions/konklancer-relay/index.ts`; deployment remains pending.
+- Verification → `npm test` 166/166, lint, DOM 101/101, diff check. Live gateway credential and production endpoint remain unverified pending secure `KONKRED_API_KEY` configuration.
+- Readiness mismatch fix → `server/gatewayHealthApi.ts`, `api/llm/relay-health.ts`, `server.ts`, `src/services/cloudRelay.ts`, App/header/status components; health probe authenticates the device token and caller key and checks model capacity without inference. Tests: `server/gatewayHealthApi.test.ts`, `server/vercelRelayHealthRoute.test.ts`, `server/cloudRelayClient.test.ts`.
+- Release safety after feature-branch build → `.github/workflows/android-apk.yml` gates stable APK publication to `main` and updates release notes to gateway-only requirements; verified follow-up branch run succeeded with publish step skipped. Traced to SPEC-003 safety intent and SPEC-006 gateway-only rollout.
+- 2026-10-28 owner scope change → proposed `SPEC-008` DRAFT and `T-008` OPEN for temporary user-entered direct provider access (multi-profile/model selection); implementation is explicitly pending approval. `T-006` / approved SPEC-006 paused without editing its approved text. Supabase work/deployment paused.
+- 2026-10-28 UI/credential clarification → SPEC-008 v0.2.0 records the per-device-key alternative (no APK-bundled secrets); SPEC-009 drafts app-wide modern-brutalist styling, micro-interactions, and reduced-motion/accessibility requirements. Both await approval; T-008/T-009 OPEN, no implementation yet.
+
+## 2026-10-28 · SPEC-008 / T-008 · temporary direct-provider path
+- SPEC-008 R1/R2 and AC-1/AC-2 → restored `src/components/LiveModelSwitcher.tsx`, `src/components/SettingsModal.tsx`, and `src/utils/customLLMClient.ts`: multiple per-device profiles, active profile/model selection, model discovery, manual model entry, connection testing, and configurable failover.
+- SPEC-008 R3/R6 and AC-3 → `src/services/browserLLM.ts` direct provider fetches; AI workflows in `AIEvaluatorModal.tsx`, `ProposalStudioModal.tsx`, `geminiCategorizer.ts`, `deliveryEngine.ts`, and `arbiterEngine.ts`. No LLM relay call to Konkred or Supabase from the app path.
+- SPEC-008 R4 and AC-4 → direct provider errors propagate without mock answers; `server/browserLLM.test.ts` verifies inference/model discovery/failure with mocked fetch.
+- SPEC-008 security notice / AC-7 → `SettingsModal.tsx` disclosure of browser/WebView storage risk and provider data policies; `scripts/dom-smoke.mjs` asserts that the notice is visible.
+- SPEC-008 R7/R8 and AC-5/AC-6 → existing vault profiles/settings preserved; no build-time or APK provider key introduced. Personal setup and `.env.example` document post-install device entry.
+- Verification → 160 Node tests, lint, production build, DOM smoke 102/102; no live provider key or inference used. SPEC-006/T-006 remain paused; SPEC-009/T-009 remain draft/open and unimplemented.

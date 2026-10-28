@@ -55,3 +55,39 @@ E2E آفلاین با دو صفحه‌ی آزمایشی (کارت‌های RTL �
 - Verified: `compile_applet` passed, `lint_applet` passed, `npm test` 24/24 passed.
 - Dev server running on 0.0.0.0:3000.
 
+
+## 2026-10-28 · session-007 · arena/8bfff631-konklancer2
+**Did:** Resumed T-006 on the fixed Arena branch. Replaced provider-relay LLM paths with the approved Konkred gateway contract; added token-gated Vercel/local adapters; removed active provider-key/model UI and legacy browser key use; constrained Supabase Edge relay source to page fetching; updated docs and tests. Configured the local git-ignored `.env` with the app relay token and restarted the preview on port 24678.
+**Verified:** `npm test` 166/166; `npm run lint`; `npm run test:dom` 101/101 (production build included; existing bundle/dynamic-import warnings); `git diff --check`; preview root and `/api/health` return HTTP 200; relay adapter rejects missing device token as expected.
+**Not verified:** no live Konkred request. Local `KONKRED_API_KEY` absent. Vercel environment listing truncated, so presence of a caller key is unknown; no secret values were decrypted. New Vercel route and Supabase page-only function have not been deployed.
+**Status:** T-006 remains DOING. Needs authorized gateway caller credential in Vercel, user-side relay token entry, and deployment/production smoke test.
+
+### session-007 continuation · readiness mismatch
+- Found and fixed an additional Vercel gap: only the inference relay function existed; `/api/llm/relay-health` had only been registered in local Express. Added a Vercel health function, CORS/method/token checks, and a no-inference `/api/models` caller-auth/capacity probe. Browser UI now reports readiness instead of assuming that a saved app relay token means AI is usable.
+- Vercel shared environment metadata contained no shared `KONKRED_API_KEY`; the Konklancer project-specific listing remained truncated, so no conclusion about a project-scoped key. Gateway project has sensitive `USERS_JSON_BASE64`; it was not decrypted or modified. No gateway credential could be securely established from available metadata.
+- Verification after the change: `npm test` 176/176, `npm run lint`, `npm run test:dom` 101/101, and `git diff --check` passed. Local route check with the app token returned health `configured:false`; the inference route returned 503 `AI_NOT_CONFIGURED`. Preview restarted on port 24678. No live gateway call or production deployment.
+
+## 2026-10-28 · session-007 final handoff · arena/8bfff631-konklancer2
+**Branch/PR:** Pushed gateway implementation commit `6627134` and APK-release guard `8e3aad2` to the fixed Arena branch. Draft PR #9 is open: https://github.com/reARbitRA/konklancer2/pull/9.
+**Preview/checks:** Vercel branch preview `dpl_7DSB1M7YjX8hSRVi1ZH9xFYbcs1S` is READY. `npm test` 176/176, lint, DOM smoke 101/101, `git diff --check`, GitHub build-apk all pass; Supabase Preview was skipped. APK build warnings are as listed in STATE.
+**Live AI:** Exact production and preview Vercel deployment environment-name lists include `KONKLANCER_RELAY_TOKEN` but not `KONKRED_API_KEY`. Local health returns `configured:false`; inference returns 503 `AI_NOT_CONFIGURED`. Gateway `USERS_JSON_BASE64` was not decrypted or changed. No live gateway response or Vercel production deployment.
+**APK side effect:** The first feature-branch push triggered the existing Android workflow, which replaced the `android-latest` asset and moved `apk-latest` to a gateway-only build before its production route/key existed. Release notes were updated to disclose this. Added a main-only publish guard; the next branch run passed and skipped release publishing. The asset remains published.
+**Next:** T-006 remains DOING. Provision one dedicated gateway caller in `USERS_JSON` and configure it as sensitive `KONKRED_API_KEY` in Konklancer Vercel (never paste the value in chat). Then redeploy via approved PR flow and run a real gateway readiness/inference smoke test. The user must enter the separate app relay token in Settings on their own device.
+
+## 2026-10-28 · session-008 · owner scope change
+**Request:** Pause SPEC-006 and all further Supabase work; temporarily restore in-app provider keys/model choice and direct provider calls until the gateway is ready.
+**Action:** Did not implement conflicting application behavior before specification approval. Left approved SPEC-006 unchanged, moved T-006 to OPEN/paused, drafted `specs/SPEC-008-temporary-direct-llm.md` as DRAFT, added it to the index, and created OPEN task T-008. Draft assumes user-entered per-device keys; no shared credentials may be committed or bundled.
+**Boundary:** No provider secrets read, copied, or added. No Supabase deployment or Vercel deployment for this request. Earlier gateway-only branch work remains; it was not reverted in this response.
+**Next:** Owner approval/revision of SPEC-008 is required before direct-provider code changes. Confirm that keys are user-entered in app Settings, not shared keys embedded in the APK.
+
+### session-008 clarification · APK credentials and UI direction
+- Owner clarified they want all provider keys inside a personal APK and requested app-wide micro-interactions plus a contemporary 2027 brutalist style, explicitly not MS-DOS/terminal styling.
+- Updated SPEC-008 to v0.2.0 and added SPEC-009 as DRAFT. The repository contract forbids committing/bundling secrets; a personal APK is still extractable. Draft therefore offers user-entered per-device keys after install as the safe alternative. No key was requested or embedded.
+- Added OPEN T-009. Both SPEC-008 and SPEC-009 remain DRAFT; no application implementation or deployment until approval.
+
+## 2026-10-28 · session-009 · T-008 direct-provider implementation
+**Scope:** Implemented approved SPEC-008 after the owner chose per-device key entry. SPEC-006/T-006 remain paused and unchanged at the spec level; SPEC-009/T-009 stay DRAFT/OPEN without UI redesign work.
+**Implemented:** Restored the device key vault and live model controls; `src/services/browserLLM.ts` now sends AI inference/model discovery/connection checks directly to the selected provider, with no Konkred/Supabase LLM fallback or fabricated result. Added `SettingsModal` security/data-retention disclosure and a DOM assertion. Kept existing scanner/cloud-feed helpers separate. Updated README, personal setup, relay, feature matrix, `.env.example`, and server startup notice. Added mocked-fetch tests in `server/browserLLM.test.ts`.
+**Verified:** `npm test` 160 passed; `npm run lint` passed; `npm run test:dom` 102/102 passed and included a successful production build. Existing build warnings: large JS chunk and ineffective dynamic import. The first DOM rerun had `ReferenceError: document is not defined`; the assertion was corrected to `window.document`, and the final run passed.
+**Not verified:** No live provider request (no user key used); direct provider access still depends on CORS/network/region/quota. No Supabase/Vercel deployment or gateway inference was performed. No provider secret was added.
+**Status:** T-008 DONE and committed as `1adb5ea` on the fixed Arena branch; T-006 stays OPEN/paused; T-009 stays OPEN pending UI-spec revision/approval.

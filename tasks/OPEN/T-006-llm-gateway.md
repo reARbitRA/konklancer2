@@ -2,18 +2,19 @@
 id: T-006
 title: LLM access through Konkred gateway (SPEC-006)
 spec: SPEC-006
-status: DONE
-branch: arena/bea82c77-konklancer
-verification: "npm test && npx tsc --noEmit && npx vite build"
+status: OPEN
+branch: arena/8bfff631-konklancer2
+verification: "npm test && npm run lint && npm run test:dom"
 ---
-## Done
-- server/llm.ts: callLLM via gateway /v1/chat/completions; mock guard (AI_UNAVAILABLE); 429 retry with Retry-After; 5xx/network one retry; 401 → AI_AUTH; disk cache by cacheKey (data/cache/llm, gitignored).
-- server.ts: Gemini SDK and cooldown removed; the 3 fabricated fallbacks (analyze, proposal, solution) replaced by 503 errors with aiAvailable:false; categorize falls back to keyword rules.
-- package.json: @google/genai removed; `npm test` runs server/*.test.ts (7 tests).
-- Verified E2E against the konkred gateway (local, no provider keys): analyze and proposal → AI_UNAVAILABLE (mock rejected); categorize → keyword fallback; unconfigured → 503 AI_NOT_CONFIGURED.
-## Not verified
-- A live provider answer (no real keys in sandbox). Covered by the fake-gateway unit test only.
-## Open
-- SPEC-006 R8 (pre-filter before AI) belongs to SPEC-004 R5 (not done).
-- PII redaction (recommended under D2) not approved.
-- geminiCategorizer.ts file name is historical; it calls /api/categorize-job only.
+
+## Current status
+Paused by owner request on 2026-10-28: use direct provider calls temporarily until the Konkred gateway is ready. SPEC-006 remains APPROVED and unchanged. T-008 / SPEC-008 is now APPROVED and implements the temporary direct mode. Do not resume T-006 or use Supabase as an LLM relay until the owner asks.
+
+## Prior gateway attempt (historical)
+- Draft PR #9: https://github.com/reARbitRA/konklancer2/pull/9.
+- Earlier preview work added Konkred inference/readiness adapters and was verified at the time. No live gateway inference was completed: the app relay token and gateway caller key are distinct, and `KONKRED_API_KEY` was absent from the inspected app deployments.
+- No Supabase deployment or Vercel production deployment was made for that attempt.
+- The first feature push unexpectedly updated the public `android-latest` APK asset and `apk-latest` tag. Release notes were corrected; the Android workflow was guarded to publish stable APKs only from `main`. The published APK remains.
+
+## Resume condition
+Resume only when the owner asks to return to the Konkred gateway. At that time, re-check the gateway caller credential and deployment configuration without requesting secrets in chat. SPEC-006 remains the intended longer-term gateway specification.

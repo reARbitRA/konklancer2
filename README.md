@@ -6,7 +6,7 @@
 ## پیش‌نیازها
 - Node.js 22 یا بالاتر
 - Python 3.10+ (فقط برای اسکنر، اختیاری)
-- یک نمونه‌ی در حال اجرا از Konkred gateway (`gateway/` در [reARbitRA/konkred-AI-ecosystem](https://github.com/reARbitRA/konkred-AI-ecosystem)) و یک کلید آن
+- برای AI: کلید API شخصی یک provider که بعد از نصب در Settings وارد شود؛ هیچ کلیدی داخل APK یا کد قرار نمی‌گیرد.
 
 ## راه‌اندازی
 ```bash
@@ -16,12 +16,10 @@ npm start                        # http://localhost:3000
 ```
 
 ### متغیرهای محیطی (`.env`)
+کلیدهای provider برای حالت موقت در `.env` تنظیم نمی‌شوند؛ آن‌ها را خودت بعد از نصب از داخل برنامه وارد کن.
+
 | نام | الزامی | توضیح |
 |-----|--------|-------|
-| `KONKRED_GATEWAY_URL` | بله، برای تحلیل AI | آدرس gateway کانکرد (`gateway/` در [reARbitRA/konkred-AI-ecosystem](https://github.com/reARbitRA/konkred-AI-ecosystem)). |
-| `KONKRED_API_KEY` | بله، برای تحلیل AI | یکی از کلیدهای `USERS_JSON` روی gateway. |
-| `KONKRED_PRIVACY` | خیر | `any` (پیش‌فرض) یا `private` (فقط providerهایی که روی داده آموزش نمی‌دهند). |
-| `KONKRED_TIMEOUT_MS` / `KONKRED_CACHE_TTL_HOURS` | خیر | مهلت هر تماس (پیش‌فرض ۶۰ ثانیه) و عمر کش تحلیل (پیش‌فرض ۱۶۸ ساعت). |
 | `PORT` | خیر | پیش‌فرض `3000` |
 | `KONKLANCER_DEMO` | خیر | اگر `1` باشد، پروژه‌های ساختگی نمایشی تولید می‌شوند. پیش‌فرض خاموش. |
 | `KONKLANCER_API_TOKEN` | خیر | اگر تنظیم شود (حداقل ۸ نویسه)، همه‌ی `/api/*` توکن می‌خواهند: هدر `x-api-token` یا `Bearer` یا `?token=`. توکن را در تنظیمات → «یادآور و امنیت API» هم وارد کنید. |
@@ -30,9 +28,9 @@ npm start                        # http://localhost:3000
 | `KONKLANCER_ALERT_THRESHOLD` | خیر | آستانه‌ی امتیاز برای اعلان (پیش‌فرض ۸۵). |
 | `KONKLANCER_BROWSER` | خیر | `1` = رندر صفحه با مرورگر واقعی Playwright برای سایت‌های JS-محور (نیازمند `pip install playwright && playwright install chromium`). |
 
-**مدل‌ها:** Konklancer هیچ مدلی را به‌صورت ثابت انتخاب نمی‌کند. هر درخواست یک `taskType` دارد (`extraction` برای دسته‌بندی، `general` برای تحلیل و پروپوزال، `code-generation` برای کد)، و gateway بر اساس ظرفیت رایگان کلیدها و اولویت هر وظیفه مدل را انتخاب می‌کند.
+**AI موقت:** در Settings می‌توانی چند پروفایل شخصی (OpenRouter، Gemini، Groq، OpenAI، Ollama یا endpoint سازگار مثل DeepSeek) اضافه کنی، مدل را انتخاب کنی و اتصال را بیازمایی. درخواست‌ها مستقیم از دستگاه به provider می‌روند؛ CORS، محدودیت منطقه‌ای و خطاهای provider ممکن است روی دسترسی اثر بگذارند.
 
-**پاسخ شبیه‌ساز:** اگر هیچ provider زنده‌ای در دسترس نباشد، gateway پاسخ «شبیه‌ساز» برمی‌گرداند. Konklancer این پاسخ را خطا حساب می‌کند (`AI_UNAVAILABLE`) و هرگز آن را به‌عنوان تحلیل نشان نمی‌دهد.
+کلیدها در storage همان دستگاه ذخیره می‌شوند و بخشی از APK نیستند. هیچ کلید مشترکی را در source، `.env` عمومی یا APK نگذار؛ APK قابل بازکردن و استخراج کلید است. این حالت موقت است و SPEC-006 gateway فعلاً متوقف مانده است.
 
 ### توکن گیت‌هاب
 توکن فقط در `sessionStorage` مرورگر نگه‌داری می‌شود و با بستن تب پاک می‌شود. مخزن‌های ساخته‌شده پیش‌فرض **خصوصی** هستند؛ انتشار عمومی نیاز به انتخاب صریح دارد.
@@ -44,7 +42,7 @@ npm start                        # http://localhost:3000
 | `npm run dev` | مثل start، برای توسعه |
 | `npm run build` | ساخت نسخه تولیدی در `dist/` |
 | `npm run lint` | بررسی نوع‌ها با `tsc --noEmit` |
-| `npm test` | تست‌های سرور و کلاینت gateway (Node) |
+| `npm test` | تست‌های Node سرور و درخواست مستقیم provider (با fetch ساختگی) |
 | `npm run test:scanner` | تست‌های آفلاین اسکنر (Python) |
 | `npm run scan` | یک اسکن فقط‌خواندنی طبق تنظیمات `.env` (`KONKLANCER_SCAN_*`) |
 

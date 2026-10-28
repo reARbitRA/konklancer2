@@ -235,5 +235,3 @@ test('Gemini 2.5 thinking parts: ignores thought=true parts and guards against s
   assert.ok(envCfg?.directCustom);
   assert.equal(envCfg?.directCustom?.provider, 'gemini');
 });
-
-

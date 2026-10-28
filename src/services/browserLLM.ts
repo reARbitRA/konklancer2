@@ -7,7 +7,6 @@ import {
   switchActiveKeyOrModel,
 } from '../utils/customLLMClient';
 import { categoryPromptList } from '../../shared/taxonomy';
-import { relayLLMRequestViaUS } from './cloudRelay';
 
 export interface DiscoveredClientModel {
   id: string;
@@ -68,81 +67,16 @@ export function isStandaloneClientMode(): boolean {
   return Boolean((window as any).__KONKLANCER_STANDALONE__);
 }
 
-/**
- * Tries fast direct browser/native fetch first; if blocked by Iran ISP / CORS / Geo-IP
- * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
- * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
- */
-/**
- * Smart LLM fetch — **حیاتی: همیشه از خارج ایران ارسال می‌شود**
- *
- * هیچ درخواستی به Gemini/Groq/OpenAI/OpenRouter نباید از IP ایران برود
- * (Gemini 400 "User location is not supported", Groq/OpenAI 403).
- * بنابراین:
- *   1) اول Supabase Edge (Virginia US) → fallback سرور `/api/llm/relay` (وقتی روی Vercel/US هست)
- *   2) فقط اگر رله کاملاً در دسترس نبود، با خطای شفاف fail می‌کند — نه اینکه بی‌صدا برود مستقیم و دوباره بلاک شود.
- *   3) Ollama (localhost:11434) تنها استثناء است و همیشه مستقیم می‌رود.
- *   4) برای تست محلی با VPN می‌توان `localStorage.setItem('konklancer_allow_direct','1')` را ست کرد تا fallback مستقیم مجاز شود.
- */
+/** Direct browser-to-provider request. No Konkred or Supabase relay is used. */
 async function smartFetchLLM(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
 ): Promise<Response> {
-  const method = init.method || 'GET';
-  const headers = init.headers || {};
-  const isLocalOllama = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
-
-  if (isLocalOllama) {
-    return fetch(url, {
-      method,
-      headers,
-      ...(init.body !== undefined ? { body: init.body } : {}),
-    });
-  }
-
-  const allowDirectFallback = (() => {
-    try {
-      if (localStorage.getItem('konklancer_allow_direct') === '1') return true;
-      if ((import.meta as any).env?.VITE_ALLOW_DIRECT === '1') return true;
-      // In sandbox/preview (e2b.app) Supabase is blocked by network policy — allow direct for demo
-      const h = window.location.hostname || '';
-      if (h.endsWith('.e2b.app') || h.includes('arena.ai')) return true;
-      return false;
-    } catch { return false; }
-  })();
-
-  // 1) US relay FIRST — حیاتی
-  let lastRelayError: unknown = null;
-  try {
-    const relayed = await relayLLMRequestViaUS(url, method, headers, init.body);
-    // Relay responded (even with 4xx) — this IS the answer from outside Iran
-    return relayed;
-  } catch (e) {
-    lastRelayError = e;
-    if (!allowDirectFallback) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `رله خارج از ایران در دسترس نیست — درخواست از IP ایران به گوگل بلاک می‌شود. ` +
-        `علت: ${msg} — ` +
-        `۱) مطمئن شو Edge Function 'konklancer-relay' روی Supabase deploy شده (supabase functions deploy)، ` +
-        `۲) یا اپ روی Vercel/US deploy شده تا /api/llm/relay کار کند. ` +
-        `برای تست با VPN: localStorage.setItem('konklancer_allow_direct','1')`
-      );
-    }
-  }
-
-  // 2) Fallback مستقیم فقط وقتی کاربر صریحاً اجازه داده (VPN)
-  try {
-    const directRes = await fetch(url, {
-      method,
-      headers,
-      ...(init.body !== undefined ? { body: init.body } : {}),
-    });
-    return directRes;
-  } catch (e) {
-    if (lastRelayError) throw lastRelayError;
-    throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
-  }
+  return fetch(url, {
+    method: init.method || 'GET',
+    headers: init.headers || {},
+    ...(init.body !== undefined ? { body: init.body } : {}),
+  });
 }
 
 export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {
@@ -305,12 +239,10 @@ async function executeSingleKeyCall(
     return { text, model: cleanModel, provider: 'gemini', keyLabel: cfg.label };
   }
 
-  const isServerManaged = cfg.apiKey === '__SERVER__';
   const base = normalizeEndpointBaseClient(cfg.endpoint);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cfg.apiKey}`,
-    ...(isServerManaged ? { 'x-server-managed': '1' } : {}),
   };
   if (cfg.provider === 'openrouter') {
     headers['HTTP-Referer'] = 'https://konklancer.app';
@@ -355,11 +287,7 @@ async function executeSingleKeyCall(
   return { text, model: data?.model || cfg.model, provider: cfg.provider, keyLabel: cfg.label };
 }
 
-/**
- * اجرای هوشمند درخواست LLM با پشتیبانی از:
- * ۱. رله خودکار آمریکا (AWS us-east-1) بدون نیاز به VPN
- * ۲. چرخش خودکار بین کلیدهای ذخیره‌شده (Auto-Failover) در صورت خطای سهمیه 429 یا قطعی سرویس‌دهنده
- */
+/** Direct provider calls using the selected device profile, with only the user's enabled failover profiles. */
 export async function callBrowserLLM(opts: {
   prompt: string;
   systemPrompt?: string;
@@ -368,74 +296,27 @@ export async function callBrowserLLM(opts: {
   temperature?: number;
   overrideConfig?: Partial<ActiveCustomLLM>;
 }): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
-  const rawCandidates = getOrderedVaultCandidates(opts.overrideConfig);
-  let candidates = rawCandidates
-    .map((c) => resolveClientLLMConfig(c))
-    .filter((c): c is ActiveCustomLLM => Boolean(c));
-
-  // اگر کلید محلی نیست، از کلیدهای سرور (Supabase Secrets) استفاده کن — APK داخلی
-  const hasServerKeys = true; // کلیدها در Supabase Secrets internal شدن
-  if (candidates.length === 0 && hasServerKeys && !opts.overrideConfig) {
-    // لیست پیش‌فرض سرور — به ترتیب اولویت: Gemini, Groq, OpenRouter
-    candidates = [
-      { provider: 'gemini', endpoint: PROVIDER_DEFAULTS.gemini.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.gemini.defaultModel, label: 'سرور (Gemini)' },
-      { provider: 'groq', endpoint: PROVIDER_DEFAULTS.groq.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.groq.defaultModel, label: 'سرور (Groq)' },
-      { provider: 'openrouter', endpoint: PROVIDER_DEFAULTS.openrouter.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.openrouter.defaultModel, label: 'سرور (OpenRouter)' },
-    ];
-  }
+  const candidates = getOrderedVaultCandidates(opts.overrideConfig)
+    .map((candidate) => resolveClientLLMConfig(candidate))
+    .filter((candidate): candidate is ActiveCustomLLM => Boolean(candidate));
 
   if (candidates.length === 0) {
-    throw new Error(
-      'کلید هوش مصنوعی تنظیم نشده است. از نوار بالا روی سوییچر مدل یا آیکون تنظیمات (چرخ‌دنده) بزنید و کلید API خود را وارد کنید.',
-    );
+    throw new Error('کلید هوش مصنوعی تنظیم نشده است. از سوییچر مدل یا تنظیمات، کلید شخصی خود را روی همین دستگاه وارد کنید.');
   }
 
-  const isDemoSandbox = (() => {
-    try {
-      const h = window.location.hostname || '';
-      return h.endsWith('.e2b.app') || h.includes('arena.ai');
-    } catch { return false; }
-  })();
-
   let lastError: Error | null = null;
-  for (let idx = 0; idx < candidates.length; idx++) {
-    const cfg = candidates[idx];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const config = candidates[index];
     try {
-      const result = await executeSingleKeyCall(cfg, opts);
-      if (idx > 0 && cfg.id && !opts.overrideConfig) {
-        switchActiveKeyOrModel(cfg.id);
-      }
+      const result = await executeSingleKeyCall(config, opts);
+      if (index > 0 && config.id && !opts.overrideConfig) switchActiveKeyOrModel(config.id);
       return result;
-    } catch (err: any) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (idx < candidates.length - 1) {
-        continue;
-      }
-      // In sandbox/preview where outbound to Google is blocked, return mock demo data instead of red error
-      if (isDemoSandbox && opts.json) {
-        const mockJson = JSON.stringify({
-          automatabilityScore: 92,
-          recommendedBid: 4200000,
-          suggestedDuration: '۶ ساعت کاری (تحویل ۲ روزه)',
-          technicalStack: ['Python 3.11', 'FastAPI', 'Structured Markdown'],
-          feasibilityReason: 'دمو: در پیش‌نمایش سندباکس (بدون اینترنت به گوگل) تحلیل نمونه نمایش داده می‌شود — روی دستگاه واقعی و Vercel از رله آمریکا جواب واقعی می‌آید.',
-          riskLevel: 'low',
-          winProbability: '۸۵٪',
-          suggestedKicker: 'ارسال پیش‌طرح معماری و ساختار دقیق خروجی همزمان با ثبت پیشنهاد',
-          proposal: 'سلام، برای پروژه شما یک معماری ماژولار با مستندات کامل و تحویل تست‌شده پیشنهاد می‌دهم. خروجی شامل سورس تمیز و راهنمای اجرا خواهد بود. آیا دیتابیس مورد نظر MySQL است یا PostgreSQL؟',
-          proposedPrice: 4200000,
-          deliveryTime: '۲ روز کاری',
-          category: 'automation',
-        });
-        return { text: mockJson, model: cfg.model + ' (demo-mock)', provider: cfg.provider, keyLabel: cfg.label };
-      }
-      if (isDemoSandbox && !opts.json) {
-        return { text: 'دمو: پاسخ نمونه از رله آمریکا — روی دستگاه واقعی جواب واقعی از Gemini/Groq می‌آید.', model: cfg.model + ' (demo-mock)', provider: cfg.provider, keyLabel: cfg.label };
-      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
 
-  throw lastError || new Error('خطا در اجرای درخواست هوش مصنوعی.');
+  throw lastError || new Error('درخواست مستقیم به provider ناموفق بود.');
 }
 
 export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
