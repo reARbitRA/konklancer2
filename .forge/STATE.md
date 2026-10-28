@@ -1,46 +1,37 @@
 # STATE — as of 2026-10-28
 
-## Milestone
-M1 (Features), safety hardening, approved SPEC-006 gateway-only LLM path, and personal mode.
+## Current owner direction
+- Pause gateway/Supabase LLM work under SPEC-006 while using direct provider access temporarily.
+- SPEC-008 is APPROVED: multiple provider profiles, device-entered keys, model discovery/selection, connection testing, and direct client-to-provider calls. Do not embed, commit, or ask for API secrets.
+- App-wide contemporary 2027 brutalist styling and micro-interactions remain separate in SPEC-009 (DRAFT); the owner requested a UI-spec revision, but clarification/approval is still pending.
 
-## Specs
-- SPEC-001, SPEC-002: DRAFT (implementation exists; specification approval/alignment remains open).
-- SPEC-003 Safety & Hardening: APPROVED; T-003 remains open for its outstanding requirements.
-- SPEC-004 Live Job Feed: APPROVED; remaining work tracked in T-004.
-- SPEC-005 Bid Outcome Tracking: APPROVED; T-005 OPEN.
-- SPEC-006 LLM access through Konkred gateway: APPROVED; T-006 DOING.
-- SPEC-007 Personal mode: DRAFT; owner approval remains open.
+## Active task and approvals
+- T-008 is DONE on `arena/8bfff631-konklancer2` under APPROVED SPEC-008.
+- T-006 is OPEN/paused; approved SPEC-006 text is unchanged. No gateway, Supabase AI relay, or deployment work is being continued.
+- T-009 is OPEN; SPEC-009 remains DRAFT. No redesign work was included in T-008.
 
-## Active focus — T-006 / SPEC-006
-All LLM requests on the feature branch use the server-side Konkred `/v1/chat/completions` endpoint. The old provider-relay path and browser provider-key use are removed. Added a separate, token-gated, no-inference health API that validates the device relay token, gateway caller authorization, and available model capacity. The client UI no longer equates a saved app relay token with working AI.
+## Current implementation boundary
+- `src/services/browserLLM.ts` sends inference, model discovery, and connection tests directly to the selected user-configured provider. The app AI path has no Konkred/Supabase/Vercel LLM fallback and does not show fabricated answers.
+- The existing provider key vault, multiple profiles, `LiveModelSwitcher`, model selection/discovery/manual entry, testing, and opt-in failover are retained. Existing profiles are not purged automatically.
+- Provider keys are entered after installation on the owner's device. Settings warns that browser/WebView storage is not a secure vault and that provider data policies apply. No real provider secret was added.
+- Existing scanner page-fetch/cloud-feed helpers remain separate; they are not used for LLM inference. No Supabase configuration or deployment was changed for SPEC-008.
 
-### Verification
-- `npm test`: 176/176 passed.
+## Branch and PR
+- Fixed branch: `arena/8bfff631-konklancer2`; status `pr_open`. PR #9 remains OPEN/DRAFT: https://github.com/reARbitRA/konklancer2/pull/9.
+- Direct-provider implementation commit: `1adb5ea` (`feat(llm): restore direct provider access [T-008] [SPEC-008]`). The Forge handoff and task transition are recorded on the same fixed branch; no merge was performed.
+- Do not push to `main` or change branches.
+- Historical gateway-only APK preview/release details are below. The `android-latest` artifact published by earlier work is still not confirmed AI-ready; stable APK publishing remains restricted to `main`.
+
+## Verification for T-008
+- `npm test`: 160 passed, including direct-provider tests using mocked fetch and a fake test key.
 - `npm run lint`: passed.
-- `npm run test:dom`: 101/101 passed, including production build. Existing warnings: one >500 kB chunk and ineffective dynamic import in `src/services/deliveryEngine.ts`.
-- `git diff --check`: passed.
-- Local preview on port 24678: with the app relay token, `/api/llm/relay-health` returns HTTP 200 with `configured:false`; `/api/llm/relay` returns HTTP 503 `AI_NOT_CONFIGURED`.
-- GitHub Android build check passed. A follow-up run confirmed the APK release publish step is skipped on the feature branch.
+- `npm run test:dom`: 102/102 passed; this also completed the production build.
+- Build warnings remain: the JavaScript chunk exceeds 500 kB and the dynamic import of `deliveryEngine.ts` is ineffective because it is also statically imported.
+- No live provider request was made: no user key was entered in this environment. Direct browser calls may be affected by provider CORS, network, region, or quota policies.
+- Final staged `git diff --check` passed after the Forge/task updates.
 
-### Branch, PR, and preview
-- Fixed branch: `arena/8bfff631-konklancer2`.
-- Feature commit: `6627134`; APK release guard commit: `8e3aad2`.
-- Draft PR #9: https://github.com/reARbitRA/konklancer2/pull/9 (Vercel check passed; `build-apk` passed; Supabase Preview skipped).
-- Vercel preview is READY at `https://konklancer2-git-arena-8bfff631-kon-943c5b-ari-miyanjis-projects.vercel.app` (deployment `dpl_7DSB1M7YjX8hSRVi1ZH9xFYbcs1S`). It contains both LLM API functions.
-- The current Vercel production deployment remains on `main`; this branch has not been deployed to production.
-
-### Single server-side blocker for live AI
-The exact current production and preview Vercel deployment environment-name lists include `KONKLANCER_RELAY_TOKEN` but not `KONKRED_API_KEY`. The Vercel shared-variable list also has no shared `KONKRED_API_KEY`. The gateway project has a sensitive `USERS_JSON_BASE64` allow-list, which was not decrypted or modified; inspected gateway code has no caller-key self-service route.
-
-Outstanding server-side action: provision one dedicated Konklancer caller credential in the gateway allow-list and configure that same value as sensitive `KONKRED_API_KEY` in the Konklancer Vercel project. Do not request or paste the value in chat. Once the server is configured, the already-provisioned app relay token still needs to be entered in Settings on the user's own browser/device.
-
-### APK publication side effect
-The repository's existing Android workflow publishes a stable APK on every qualifying branch push. The first feature push therefore updated the `android-latest` asset and `apk-latest` tag with the gateway-only feature build before its backend was configured. Release notes were corrected to disclose that AI is not ready. The workflow now restricts stable-release publishing to `main`; the follow-up feature-branch run built successfully and skipped publishing. The APK asset has not been removed. This is separate from Vercel production deployment.
-
-## Other known issues
-- The CodeWorkspace “run test” button is simulated.
-- `freelance_pro_engine.py` remains in the repository root; removal is an owner decision.
-- Non-relay API routes still need the broader SPEC-003 authentication work before exposing the server beyond local/personal use.
+## APK publication side effect (historical)
+The first feature push triggered the repository's Android workflow and updated `android-latest` / `apk-latest` with a gateway-only feature build before live AI was configured. Release notes were corrected. The workflow was restricted to publish stable APKs only from `main`; the follow-up branch run passed and skipped release publishing. The already-published asset remains available and is not confirmed AI-ready.
 
 ## Latest session checkpoint
-`session-007`, branch `arena/8bfff631-konklancer2`. Source commits are pushed; this state, trace, ledger, spec index, and T-006 task move are included in the final Forge handoff commit. T-006 remains DOING: live gateway inference has not been verified and no Vercel production deployment has been made. See `.forge/LEDGER.md` and `.forge/TRACE.md` for details.
+T-008 is implemented, verified, documented, and moved to DONE. The feature commit restores direct user-configured provider access with a Settings security disclosure; provider credentials remain device-entered. T-006/SPEC-006 stay paused and unchanged. T-009/SPEC-009 stay unimplemented and draft/open pending the owner's UI-spec revision. No live provider key, inference, Supabase deployment, or Vercel deployment was used for this work.
