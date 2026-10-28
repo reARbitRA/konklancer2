@@ -28,3 +28,13 @@
 - تصمیم‌ها: (۱) دسته فقط متادیتا/فیلتر صریح است، نه گیت؛ (۲) کشف ساختار از خود DOM، نه هاردکد؛ (۳) مسیر HTML مرورگر به‌عنوان تضمین‌گاه همیشه در دسترس؛ (۴) ادعای تأییدنشده بودن نامزدها در کد و مستندات.
 - شواهد: pytest 33/33، npm test 24/24، tsc/build سالم، E2E آفلاین با فیکسچرهای کارت/جدول/SPA.
 - محدودیت صریح: صفر تماس موفق با سایت واقعی در این محیط؛ تأیید زنده = وظیفه‌ی کاربر روی ماشین خودش.
+
+## 2026-10-28 · T-006 continuation · session-007
+- SPEC-006 R1–R3 → `server/llm.ts` (only Konkred `/v1/chat/completions`; taskType/user contract; no provider/model in client), `server/gatewayApi.ts`, `api/llm/relay.ts`, browser callers.
+- SPEC-006 R4/R5/R7 → mock rejection, retry/error mapping, local cache in `server/llm.ts`; `server/llm.test.ts`.
+- SPEC-006 app boundary → `src/services/cloudRelay.ts`, Settings UI, app relay token in `src/utils/apiFetch.ts`; `server/gatewayApi.test.ts`, `server/cloudRelayClient.test.ts`, `server/vercelRelayRoute.test.ts`.
+- Provider selection removal → `LiveModelSwitcher.tsx`, `SettingsModal.tsx`, legacy vault cleanup in `customLLMClient.ts`, `server/relayProxy.ts` removal.
+- Supabase page relay only → `supabase/functions/konklancer-relay/index.ts`; deployment remains pending.
+- Verification → `npm test` 166/166, lint, DOM 101/101, diff check. Live gateway credential and production endpoint remain unverified pending secure `KONKRED_API_KEY` configuration.
+- Readiness mismatch fix → `server/gatewayHealthApi.ts`, `api/llm/relay-health.ts`, `server.ts`, `src/services/cloudRelay.ts`, App/header/status components; health probe authenticates the device token and caller key and checks model capacity without inference. Tests: `server/gatewayHealthApi.test.ts`, `server/vercelRelayHealthRoute.test.ts`, `server/cloudRelayClient.test.ts`.
+- Release safety after feature-branch build → `.github/workflows/android-apk.yml` gates stable APK publication to `main` and updates release notes to gateway-only requirements; verified follow-up branch run succeeded with publish step skipped. Traced to SPEC-003 safety intent and SPEC-006 gateway-only rollout.

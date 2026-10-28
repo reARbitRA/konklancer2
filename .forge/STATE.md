@@ -1,36 +1,46 @@
-# STATE — as of 2026-10-20
-## Milestone: M1 (Features) + Safety hardening + LLM gateway + Personal mode (فید واقعی) + AI Studio Migration Fix
+# STATE — as of 2026-10-28
+
+## Milestone
+M1 (Features), safety hardening, approved SPEC-006 gateway-only LLM path, and personal mode.
+
 ## Specs
-- SPEC-001, SPEC-002: DRAFT (کد پیاده شده، ولی سند تأیید نشده)
-- SPEC-003 Safety & Hardening: APPROVED (T-003 DOING؛ R5 API auth و R7 حذف فایل قدیمی باز)
-- SPEC-004 Live Feed: APPROVED (T-004: R2/R4/R5/R6 انجام شد؛ R7 اعلان تلگرام باز)
-- SPEC-005 Outcome Tracking: APPROVED (T-005 OPEN — نه SQLite، نه /api/bids، نه /api/stats)
-- SPEC-006 LLM via Konkred gateway: APPROVED (T-006 DONE)
-- SPEC-007 Personal mode: **DRAFT — پیاده‌سازی شده، منتظر تأیید مالک** (T-007 DONE)
-## Decisions (user)
-- 2026-10-10: Gemini فقط از konklancer حذف شد؛ privacy=any؛ fusion=normalization.
-- 2026-10-12: حالت شخصی = فید واقعی اسکنر، بدون داده‌ی ساختگی در مسیر پیش‌فرض؛ مسیر «ذخیره‌ی صفحه در مرورگر» به‌عنوان راه بی‌دردسرِ جمع‌آوری داده.
-- 2026-10-20: آماده‌سازی محیط AI Studio (تنظیم allowedHosts، جداسازی کامپایل تایپ‌اسکریپت برای mobile/).
-## Next up (ordered)
-1. تأیید SPEC-007 (Q1) و سپس SPEC-001/002 را از DRAFT خارج کن یا کد را با سند هم‌راست کن.
-2. T-004 R7: اعلان اختیاری تلگرام برای پروژه‌های بالای آستانه.
-3. T-003 R5: احراز هویت `/api/*` (+ هدر در فرانت) برای اینکه سرور را بتوان روی شبکه گذاشت.
-4. T-005: SQLite + `POST /api/bids` + `GET /api/stats` (تمایز اصلی محصول و مبنای قیمت‌گذاری).
-5. کالیبراسیون انتخابگر یک پلتفرم واقعی (parscoders/ponisha) و ثبت آن در platforms.json.
-## Known issues
-- دکمه‌ی «اجرای تست» در CodeWorkspace شبیه‌سازی‌شده است و باید حذف یا واقعی شود.
-- `freelance_pro_engine.py` هنوز در ریشه است (اجرا نمی‌شود؛ حذفش تصمیم مالک است).
-- احراز هویت ندارد؛ پیش‌فرض فقط برای اجرای محلی شخصی مناسب است.
+- SPEC-001, SPEC-002: DRAFT (implementation exists; specification approval/alignment remains open).
+- SPEC-003 Safety & Hardening: APPROVED; T-003 remains open for its outstanding requirements.
+- SPEC-004 Live Job Feed: APPROVED; remaining work tracked in T-004.
+- SPEC-005 Bid Outcome Tracking: APPROVED; T-005 OPEN.
+- SPEC-006 LLM access through Konkred gateway: APPROVED; T-006 DOING.
+- SPEC-007 Personal mode: DRAFT; owner approval remains open.
 
-## 2026-10-12 (session-005): اسکن همه‌ی دسته‌ها + خودکالیبراسیون DOM
-- دامنه‌ی اسکن از «کد/ربات» به همه‌ی دسته‌های قابل تولید با AI باز شد (`shared/taxonomy.json`، منبع واحد سه‌لایه).
-- مسیر واقعی اسکن: `autoscan` (زنده + کشف ساختار) / `probe --save` / `autoscan --html` (مرورگر).
-- **باز و مهم:** تأیید انتخابگرها روی HTML زنده باید روی کامپیوتر کاربر انجام شود؛ این محیط به سایت‌ها TCP ندارد.
-- **باز:** Playwright برای سایت‌های JS-محور (کارلنسر) پیاده نشده.
+## Active focus — T-006 / SPEC-006
+All LLM requests on the feature branch use the server-side Konkred `/v1/chat/completions` endpoint. The old provider-relay path and browser provider-key use are removed. Added a separate, token-gated, no-inference health API that validates the device relay token, gateway caller authorization, and available model capacity. The client UI no longer equates a saved app relay token with working AI.
 
-### اسکنر — کالیبراسیون واقعی و مسیر ابری (2026-10-12)
-- انتخابگرهای کارلنسر/پونیشا روی HTML واقعی تأیید و در `platforms.json` ثبت شد (`scan_selectors_verified`).
-- گارد «آیتم ناوبری نیست» + الگوی مسیر پروژه (`project_path_pattern`) + دستور `prune`؛ ۴۷ ردیف زباله از فید واقعی حذف شد (۱۵۵→۱۰۸).
-- مسیر شبکه‌ی کامل دومرتبه اثبات شد: روی سایت آزمایشی محلی (`http://127.0.0.1:8123`) ربات‌ها/robots خوانده شد، ساختار خودکار کشف شد (`main.listing > div`, امتیاز ۸۶٫۸) و ۶ پروژه با بودجه/پیشنهاد/زمان و دسته‌های گرافیک/ترجمه/اتوماسیون/مستندسازی/ویدیو/صدا نوشته شد.
-- مسیر ابری: `POST /api/bridge/cloud-scan` → کامیت `scan-request.json` → رانر گیت‌هاب. باگ: پیام کامیت `[skip ci]` داشت و ورک‌فلو اجرا نمی‌شد؛ اصلاح شد.
-- محیط سندباکس: `fetch` نود گواهی TLS را تأیید نمی‌کند → مسیر پشتیبان `gh api` اضافه شد؛ `transport` در `/api/bridge/cloud` گزارش می‌شود.
+### Verification
+- `npm test`: 176/176 passed.
+- `npm run lint`: passed.
+- `npm run test:dom`: 101/101 passed, including production build. Existing warnings: one >500 kB chunk and ineffective dynamic import in `src/services/deliveryEngine.ts`.
+- `git diff --check`: passed.
+- Local preview on port 24678: with the app relay token, `/api/llm/relay-health` returns HTTP 200 with `configured:false`; `/api/llm/relay` returns HTTP 503 `AI_NOT_CONFIGURED`.
+- GitHub Android build check passed. A follow-up run confirmed the APK release publish step is skipped on the feature branch.
+
+### Branch, PR, and preview
+- Fixed branch: `arena/8bfff631-konklancer2`.
+- Feature commit: `6627134`; APK release guard commit: `8e3aad2`.
+- Draft PR #9: https://github.com/reARbitRA/konklancer2/pull/9 (Vercel check passed; `build-apk` passed; Supabase Preview skipped).
+- Vercel preview is READY at `https://konklancer2-git-arena-8bfff631-kon-943c5b-ari-miyanjis-projects.vercel.app` (deployment `dpl_7DSB1M7YjX8hSRVi1ZH9xFYbcs1S`). It contains both LLM API functions.
+- The current Vercel production deployment remains on `main`; this branch has not been deployed to production.
+
+### Single server-side blocker for live AI
+The exact current production and preview Vercel deployment environment-name lists include `KONKLANCER_RELAY_TOKEN` but not `KONKRED_API_KEY`. The Vercel shared-variable list also has no shared `KONKRED_API_KEY`. The gateway project has a sensitive `USERS_JSON_BASE64` allow-list, which was not decrypted or modified; inspected gateway code has no caller-key self-service route.
+
+Outstanding server-side action: provision one dedicated Konklancer caller credential in the gateway allow-list and configure that same value as sensitive `KONKRED_API_KEY` in the Konklancer Vercel project. Do not request or paste the value in chat. Once the server is configured, the already-provisioned app relay token still needs to be entered in Settings on the user's own browser/device.
+
+### APK publication side effect
+The repository's existing Android workflow publishes a stable APK on every qualifying branch push. The first feature push therefore updated the `android-latest` asset and `apk-latest` tag with the gateway-only feature build before its backend was configured. Release notes were corrected to disclose that AI is not ready. The workflow now restricts stable-release publishing to `main`; the follow-up feature-branch run built successfully and skipped publishing. The APK asset has not been removed. This is separate from Vercel production deployment.
+
+## Other known issues
+- The CodeWorkspace “run test” button is simulated.
+- `freelance_pro_engine.py` remains in the repository root; removal is an owner decision.
+- Non-relay API routes still need the broader SPEC-003 authentication work before exposing the server beyond local/personal use.
+
+## Latest session checkpoint
+`session-007`, branch `arena/8bfff631-konklancer2`. Source commits are pushed; this state, trace, ledger, spec index, and T-006 task move are included in the final Forge handoff commit. T-006 remains DOING: live gateway inference has not been verified and no Vercel production deployment has been made. See `.forge/LEDGER.md` and `.forge/TRACE.md` for details.
