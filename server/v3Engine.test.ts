@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { detectCategory } from '../shared/taxonomy.js';
 import { evaluateProjectRelevance } from '../shared/relevanceEngine.js';
 import { createZipBlob } from '../src/utils/zipBuilder.js';
-import { countLegacyApiKeys, purgeAllApiKeys } from '../src/utils/customLLMClient.js';
+import {
+  readKeyVault,
+  switchActiveKeyOrModel,
+  writeKeyVault,
+  getOrderedVaultCandidates,
+} from '../src/utils/customLLMClient.js';
 
 // In-memory localStorage shim for Node test runtime
 const memStore = new Map<string, string>();
@@ -59,21 +64,40 @@ describe('KonkLancer v3 — 6-Part Overhaul Verification Suite', () => {
     assert.equal(prime.tier, 'prime');
   });
 
-  it('3. Legacy provider keys can be identified and removed without deleting the gateway token', () => {
-    memStore.set('konklancer_key_vault_v2', JSON.stringify({ profiles: [{ apiKey: 'legacy-provider-secret' }] }));
-    memStore.set('konklancer_settings', JSON.stringify({
-      apiToken: 'app-relay-token',
-      customLLM: { apiKey: 'legacy-provider-secret' },
-      notificationsEnabled: true,
-    }));
-    assert.equal(countLegacyApiKeys(), 1);
+  it('3. Multi-Key API Vault switches active key & model in 0ms and orders failover candidates accurately', () => {
+    writeKeyVault(
+      [
+        {
+          id: 'k-gemini',
+          label: 'Gemini Pro Main',
+          provider: 'gemini',
+          endpoint: 'https://generativelanguage.googleapis.com/v1beta',
+          apiKey: 'AIzaTestKey1111',
+          selectedModel: 'gemini-2.5-pro',
+          enabled: true,
+        },
+        {
+          id: 'k-groq',
+          label: 'Groq Fast',
+          provider: 'groq',
+          endpoint: 'https://api.groq.com/openai/v1',
+          apiKey: 'gsk_TestKey2222',
+          selectedModel: 'llama-3.3-70b-versatile',
+          enabled: true,
+        },
+      ],
+      'k-gemini',
+      true,
+    );
 
-    purgeAllApiKeys();
-    assert.equal(countLegacyApiKeys(), 0);
-    const settings = JSON.parse(memStore.get('konklancer_settings') || '{}');
-    assert.equal(settings.apiToken, 'app-relay-token');
-    assert.equal(settings.notificationsEnabled, true);
-    assert.equal('customLLM' in settings, false);
+    switchActiveKeyOrModel('k-groq', 'deepseek-r1-distill-llama-70b');
+    const vault = readKeyVault();
+    assert.equal(vault.activeProfileId, 'k-groq');
+
+    const candidates = getOrderedVaultCandidates();
+    assert.equal(candidates[0].id, 'k-groq');
+    assert.equal(candidates[0].model, 'deepseek-r1-distill-llama-70b');
+    assert.equal(candidates[1].id, 'k-gemini');
   });
 
   it('4. Binary PKZIP Builder generates valid ZIP archive with PK\\x03\\x04 header and full content', async () => {

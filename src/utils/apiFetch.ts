@@ -1,34 +1,39 @@
-/** Shared browser helpers for the application's authenticated API routes. */
+/**
+ * fetch یکدست برای `/api/*` که توکن اختیاری سرور را هم می‌فرستد (SPEC-003 R5).
+ *
+ * اگر `KONKLANCER_API_TOKEN` روی سرور تنظیم شده باشد، همه‌ی درخواست‌های API
+ * باید توکن داشته باشند. توکن در تنظیمات (و در localStorage) نگه‌داری می‌شود.
+ */
 import { getAuthAccessToken } from '../services/authToken';
 
 export const API_TOKEN_STORAGE_KEY = 'konklancer_api_token';
-export const API_TOKEN_CHANGED_EVENT = 'konklancer:api-token-updated';
-let memoryApiToken = '';
 
 export function readApiToken(): string {
   try {
-    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(API_TOKEN_STORAGE_KEY) : null;
-    if (stored) return stored;
+    return window.localStorage.getItem(API_TOKEN_STORAGE_KEY) ?? '';
   } catch {
-    // Fall back to memory for Android WebViews/file-based clients that block storage.
+    return '';
   }
-  return memoryApiToken;
 }
 
 export function writeApiToken(token: string): void {
-  const clean = token.trim();
-  memoryApiToken = clean;
-  if (typeof window === 'undefined') return;
   try {
+    const clean = token.trim();
     if (clean) window.localStorage.setItem(API_TOKEN_STORAGE_KEY, clean);
     else window.localStorage.removeItem(API_TOKEN_STORAGE_KEY);
   } catch {
-    // The current session can still use the in-memory token.
+    // توکن اختیاری است؛ نبودِ storage نباید برنامه را بشکند
   }
-  window.dispatchEvent(new Event(API_TOKEN_CHANGED_EVENT));
 }
 
-/** Build application API headers. This token is not a provider/gateway key. */
+/**
+ * هدرهای پایه‌ی API همراه توکن‌ها.
+ *
+ * دو راه احراز هویت پشتیبانی می‌شوند:
+ * 1. `x-api-token` — توکن محلی سرور (`KONKLANCER_API_TOKEN`)
+ * 2. `Authorization: Bearer <supabase jwt>` — نشست ورود کاربر
+ * هر کدام که موجود باشد فرستاده می‌شود؛ هر دو هم می‌توانند باشند.
+ */
 export function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = readApiToken();
   const jwt = getAuthAccessToken();
@@ -39,7 +44,7 @@ export function apiHeaders(extra: Record<string, string> = {}): Record<string, s
   };
 }
 
-/** Fetch an internal API route with the current relay token and optional user JWT. */
+/** fetch روی مسیرهای داخلی با توکن. مسیرهای خارجی (http…) دست‌نخورده می‌مانند. */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const isInternalApi = path.startsWith('/api');
   const headers = isInternalApi ? apiHeaders((init.headers as Record<string, string>) ?? {}) : init.headers;

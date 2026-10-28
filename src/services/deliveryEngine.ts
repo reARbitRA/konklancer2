@@ -211,7 +211,6 @@ ${extraNotes}
 متن را مستقیم با فرمت Markdown تمیز، خوش‌فرم و کامل بنویسید (بدون بلاک JSON).`;
 
   const res1 = await callBrowserLLM({
-    taskType: 'general',
     prompt: stage1Prompt,
     maxTokens: 3000,
     temperature: 0.35,
@@ -244,7 +243,6 @@ ${res1.text.slice(0, 1800)}
 - هیچ بخشی را خلاصه یا با عبارت «الی آخر / ...» رها نکنید. مستقیماً متن کامل Markdown را تولید کنید.`;
 
   const res2 = await callBrowserLLM({
-    taskType: 'general',
     prompt: stage2Prompt,
     maxTokens: 5500,
     temperature: 0.3,
@@ -309,7 +307,6 @@ ${res2.text.slice(0, 3000)}
 </anthropic_execution_mandates>`;
 
   const res3 = await callBrowserLLM({
-    taskType: 'code-generation',
     prompt: stage3Prompt,
     json: false,
     maxTokens: 8192,
@@ -364,7 +361,6 @@ ${params.currentContent}
 </rules>`;
 
   const res = await callBrowserLLM({
-    taskType: 'code-generation',
     prompt,
     maxTokens: 8192,
     temperature: 0.2,

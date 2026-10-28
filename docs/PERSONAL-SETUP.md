@@ -14,7 +14,7 @@
 |---|---|---|
 | ۱. نصب | `npm install --legacy-peer-deps` + `pip install httpx beautifulsoup4 pytest` | ~۳ دقیقه |
 | ۲. تنظیم `.env` | `cp .env.example .env` و پر کردن مقدارها | ~۲ دقیقه |
-| ۳. (اختیاری) موتور AI | اجرای gateway کُنکرد با یک کلید provider رایگان | ~۵ دقیقه |
+| ۳. (اختیاری) AI مستقیم | واردکردن کلید شخصی و انتخاب مدل در Settings بعد از نصب | ~۲ دقیقه |
 | ۴. فعال‌کردن یک منبع | صفحه‌ی ذخیره‌شده در مرورگر (فوری) / تلگرام / کالیبراسیون یک پلتفرم | ۲ تا ۲۰ دقیقه |
 | ۵. اسکن | دکمه‌ی «اسکن زنده» در UI یا `npm run scan` | چند ثانیه تا چند دقیقه |
 
@@ -44,7 +44,7 @@ KONKLANCER_PROJECTS_FILE=scanner/tests/fixtures/feed_sample.jsonl npm start
   ```bash
   pip install httpx beautifulsoup4 pytest        # یا: python3 -m venv .venv && .venv/bin/pip install ...
   ```
-- (اختیاری، برای تحلیل AI) یک نمونه‌ی در حال اجرا از **Konkred gateway** — بخش ۳.
+- (اختیاری، برای AI) یک کلید API شخصی از provider مورد نظرت که بعد از نصب در Settings وارد می‌کنی؛ لازم نیست gateway یا Supabase را راه‌اندازی کنی.
 
 > اگر پایتون را در venv نصب کردید، مسیرش را به Konklancer بگویید:
 > `KONKLANCER_PYTHON=".venv/bin/python"`
@@ -88,44 +88,26 @@ npm start                           # http://localhost:3000
 
 ---
 
-## ۳) موتور AI (اختیاری، ولی برای تحلیل/پروپوزال/کد لازم است)
+## ۳) AI مستقیم از provider (حالت موقت)
 
-Konklancer هیچ کلید provider ندارد و همه‌ی تماس‌ها را به **gateway کُنکرد** می‌فرستد.
+تا وقتی gateway آماده شود، درخواست‌های تحلیل، دسته‌بندی، پیشنهاد و تولید فایل مستقیماً از مرورگر/APK
+به provider انتخاب‌شده فرستاده می‌شوند؛ مسیر AI از Konkred یا Supabase نمی‌گذرد.
 
-**۳.۱ حالت بدون AI (فقط شکار و فهرست):** هیچ کاری لازم نیست. اسکن، فیلتر، امتیازدهی، لینک پروژه،
-پایپ‌لاین و لاگ‌ها کار می‌کنند؛ دکمه‌های تحلیل/پروپوزال/کد پیام `AI_NOT_CONFIGURED` می‌دهند.
+1. در هدر روی سوییچر کلید/مدل یا در Settings روی گاوصندوق API بزن.
+2. یک پروفایل اضافه کن و provider را انتخاب کن: OpenRouter، Google Gemini، Groq، OpenAI، Ollama/local،
+   یا endpoint سازگار مثل DeepSeek.
+3. کلید شخصی خودت را در همان دستگاه وارد کن؛ اتصال را آزمایش کن و فهرست مدل‌ها را اسکن کن.
+4. پروفایل و مدل دلخواه را فعال کن. می‌توان چند پروفایل داشت؛ failover اختیاری است.
 
-**۳.۲ حالت کامل:** مخزن [`reARbitRA/konkred-AI-ecosystem`](https://github.com/reARbitRA/konkred-AI-ecosystem) را کلون کنید و gateway را بالا بیاورید
-(فقط gateway لازم است، نه bot و Redis):
+**کلید را بعد از نصب، در خود برنامه روی دستگاه وارد کن؛ داخل APK یا کد قرارش نده.** APK حتی برای
+استفاده‌ی شخصی قابل بازکردن است و کلید bundleشده قابل استخراج خواهد بود. کلیدهای پروفایل در storage
+همان دستگاه نگه‌داری می‌شوند و درخواست‌ها مستقیم به provider می‌روند. هرگز آن‌ها را در چت نفرست.
 
-```bash
-git clone https://github.com/reARbitRA/konkred-AI-ecosystem.git
-cd konkred-AI-ecosystem
-PORT=4100 \
-USERS_JSON='[{"key":"konklancer-local","userId":"konklancer","tier":"internal"}]' \
-GEMINI_KEY_P1="<کلید رایگان Gemini خودت>" \
-node gateway/src/server.mjs
-```
+در حالت direct، دسترسی به provider به CORS، شبکه، منطقه و محدودیت سهمیه‌ی همان provider وابسته است.
+اگر درخواست مسدود شود، برنامه خطای واقعی را نشان می‌دهد؛ رله‌ی Supabase/Vercel یا پاسخ ساختگی جایگزین
+نمی‌شود. بدون پروفایل فعال، قابلیت‌های فید و اسکن کار می‌کنند و عملیات AI خطای نیاز به کلید می‌دهد.
 
-سپس در `.env` خود Konklancer (روی سرور، نه در bundle وب/APK):
-
-```env
-KONKRED_GATEWAY_URL="http://localhost:4100"
-KONKRED_API_KEY="konklancer-local"
-KONKLANCER_RELAY_TOKEN="<یک مقدار تصادفی و خصوصی با حداقل ۸ نویسه>"
-```
-
-همان مقدار `KONKLANCER_RELAY_TOKEN` را در Settings دستگاه وارد کنید. در استقرار Vercel این دو سرورمتغیر را جداگانه تنظیم کنید: `KONKRED_API_KEY` باید از قبل در `USERS_JSON` درگاه مجاز شده باشد؛ `KONKLANCER_RELAY_TOKEN` فقط دستگاه کاربر را به endpoint برنامه احراز می‌کند و جایگزین کلید gateway نیست.
-
-نکته‌های مهم:
-
-- **پورت‌ها نباید یکی باشند.** Konklancer پیش‌فرض روی `3000` است، پس gateway را روی `4100` بگذارید
-  (یا `PORT=4000` در `.env` خود Konklancer).
-- **بدون هیچ کلید provider**، gateway پاسخ «شبیه‌ساز» (`mock:*`) می‌دهد و Konklancer عمداً آن را خطا
-  حساب می‌کند (`AI_UNAVAILABLE`) تا هیچ‌وقت متن جعلی به‌عنوان تحلیل نشان داده نشود. برای خروجی واقعی،
-  حداقل یک کلید (Gemini / Groq / Cerebras / Mistral / OpenRouter / Cloudflare / GitHub Models) بگذارید.
-- اگر ظرفیت رایگان تمام شد، پیام `AI_RATE_LIMITED` می‌بینید؛ چند دقیقه بعد دوباره تلاش کنید.
-- کش تحلیل روی دیسک (`data/ai-cache/`) ذخیره می‌شود؛ تحلیل یک پروژه‌ی تکراری هزینه‌ی AI ندارد.
+متغیرهای gateway در `.env` برای این حالت لازم نیستند؛ SPEC-006 تا درخواست بعدی مالک متوقف است.
 
 ---
 
@@ -366,13 +348,14 @@ python -m scanner.konklancer_scan prune --file scanner/cloud-feed.jsonl --apply 
 - **ثبت نتیجه و نرخ برد (SPEC-005)**: هنوز SQLite و `/api/bids` وجود ندارد؛ وضعیت‌ها در
   `localStorage` مرورگر ذخیره می‌شوند (پاک‌کردن داده‌ی مرورگر = از دست رفتن وضعیت‌ها).
 - **دکمه‌ی «اجرای تست» در تب کدنویسی** یک لاگ نمایشی تولید می‌کند و کد را واقعاً اجرا نمی‌کند.
-- احراز هویت رله‌ی LLM با `KONKLANCER_RELAY_TOKEN` اجباری است. احراز هویت عمومی `/api/*` در سرور Express با `KONKLANCER_API_TOKEN` اختیاری است؛ برای سرویس اینترنتی آن را هم در نظر بگیرید.
+- **احراز هویت روی `/api/*`** هنوز اضافه نشده؛ اگر سرور را روی شبکه/اینترنت باز می‌کنید، این کار
+  را نکنید (یا خودتان یک reverse proxy با auth بگذارید).
 - **Playwright پیاده نشده است**؛ سایت‌های JS-محور (احتمالاً کارلنسر) با `autoscan` خالی می‌مانند —
   مسیر جایگزین: ذخیره‌ی صفحه در مرورگر و `autoscan --html`.
 - **دسته‌بندی، فیلتر نیست:** دسته‌ی هر پروژه فقط برای نمایش/فیلتر UI است؛ اسکنر هیچ دسته‌ای را
   پیش‌فرض کنار نمی‌گذارد.
-- تحلیل و پروپوزال از طریق Konkred gateway انجام می‌شود؛ ممکن است وقتی ظرفیت پر است پیام
-  `AI_RATE_LIMIT` ببینید. Provider و مدل را خود gateway انتخاب می‌کند.
+- تحلیل و پروپوزال با providerهای رایگان انجام می‌شود؛ ممکن است وقتی ظرفیت پر است پیام
+  `AI_RATE_LIMITED` ببینید.
 
 ---
 
@@ -383,13 +366,11 @@ python -m scanner.konklancer_scan prune --file scanner/cloud-feed.jsonl --apply 
 | فید خالی و پیام «هیچ منبعی فعال نیست» | `KONKLANCER_SCAN_PLATFORMS`/`KONKLANCER_SCAN_TELEGRAM` تنظیم نشده یا منابع فعال نشده‌اند (بخش ۴). |
 | `اجرای مفسر پایتون ناموفق بود` | پایتون یا بسته‌ها نصب نیستند؛ `KONKLANCER_PYTHON` را به مفسر درست بدهید. |
 | `هیچ پلتفرم/کانالی فعال نیست` | برای تلگرام: `enable --telegram <username>`؛ برای پلتفرم: اول انتخابگرها. |
-| `RELAY_NOT_CONFIGURED` / `INVALID_RELAY_TOKEN` | `KONKLANCER_RELAY_TOKEN` روی سرور تنظیم نشده یا مقدار Settings دستگاه با آن یکی نیست. |
-| `AI_NOT_CONFIGURED` | `KONKRED_API_KEY` سرور تنظیم نشده یا اعتبار gateway در دسترس نیست (بخش ۳). |
-| `AI_AUTH` | gateway اعتبار `KONKRED_API_KEY` را نپذیرفته؛ وجود آن در `USERS_JSON` را بررسی کنید. |
-| `AI_UNAVAILABLE` | gateway در دسترس نیست یا فقط پاسخ mock/offline داده؛ provider مستقیم را تنظیم نکنید. |
+| `AI_NOT_CONFIGURED` | در Settings همین دستگاه پروفایل کلید فعال ندارید؛ یک کلید شخصی اضافه و فعال کنید (بخش ۳). |
+| `AI_UNAVAILABLE` | درخواست مستقیم provider با خطای شبکه/CORS، اعتبار یا مدل روبه‌رو شده؛ «آزمایش اتصال» را اجرا و provider/model را بررسی کنید. |
 | `robots.txt این مسیر را ممنوع کرده است` | سایت با ابزارهای خودکار موافق نیست؛ آن سایت/مسیر را اسکن نکنید و مسیر «ذخیره‌ی صفحه در مرورگر» (بخش ۴-الف) را امتحان کنید. |
 | `robots.txt ... خوانده نشد (خطای شبکه یا بی‌دسترسی)` | یعنی دسترسی به `robots.txt` ممکن نشد؛ اسکنر محافظه‌کارانه متوقف می‌شود. اتصال/فیلترشکن را بررسی کنید. |
-| پورت اشغال (`EADDRINUSE`) | یا gateway روی ۳۰۰۰ است، یا یک اجرای قبلی باز است: `PORT=4000 npm start`. |
+| پورت اشغال (`EADDRINUSE`) | سرور یا اجرای قبلی پورت پیش‌فرض ۳۰۰۰ را گرفته است: `PORT=4000 npm start`. |
 
 ---
 

@@ -8,6 +8,8 @@ export type JobCategoryTag = string;
 
 export type RelevanceTier = 'prime' | 'digital' | 'junk';
 
+export type LLMProviderId = 'openrouter' | 'gemini' | 'groq' | 'openai' | 'ollama' | 'custom';
+
 export type DeliverableBlueprintMode =
   | 'auto'
   | 'deep_technical_spec'
@@ -92,6 +94,37 @@ export interface ActivityLogItem {
   meta?: string;
 }
 
+export interface ScannedModelItem {
+  id: string;
+  name: string;
+  isFree: boolean;
+  contextLength?: number;
+  description?: string;
+}
+
+export interface CustomLLMConfig {
+  enabled: boolean;
+  provider: LLMProviderId;
+  endpoint: string;
+  apiKey: string;
+  selectedModel: string;
+  availableModels?: ScannedModelItem[];
+  lastPingMs?: number;
+}
+
+export interface SavedApiKeyProfile {
+  id: string;
+  label: string;
+  provider: LLMProviderId;
+  endpoint: string;
+  apiKey: string;
+  selectedModel: string;
+  availableModels?: ScannedModelItem[];
+  lastPingMs?: number;
+  lastError?: string;
+  enabled: boolean;
+}
+
 export interface UserSettings {
   githubToken: string;
   githubUseSSH?: boolean;
@@ -101,8 +134,12 @@ export interface UserSettings {
   cyborgMode: boolean;
   preferredTone: 'friendly_expert' | 'direct_urgent' | 'technical_detailed';
   dailyEarningsGoal: number;
+  customLLM?: CustomLLMConfig;
+  apiKeyProfiles?: SavedApiKeyProfile[];
+  activeProfileId?: string;
+  autoFailoverKeys?: boolean;
   /** یادآور مرورگر برای پیشنهادهای بی‌نتیجه (SPEC-002) */
   notificationsEnabled?: boolean;
-  /** توکن دسترسی رله‌ی برنامه؛ در localStorage مستقل از تنظیمات غیرحساس نگه‌داری می‌شود. */
+  /** توکن اختیاری API سرور (SPEC-003 R5) — در صورت تنظیم KONKLANCER_API_TOKEN */
   apiToken?: string;
 }

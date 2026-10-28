@@ -13,7 +13,6 @@ interface BrutalHeaderProps {
   totalEarningsToday: number;
   activeJobsCount: number;
   socketConnected: boolean;
-  aiAvailable: boolean | null;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }
@@ -55,7 +54,6 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
   totalEarningsToday,
   activeJobsCount,
   socketConnected,
-  aiAvailable,
   sidebarCollapsed,
   onToggleSidebar,
 }) => {
@@ -148,7 +146,7 @@ export const BrutalHeader: React.FC<BrutalHeaderProps> = ({
             <AccountMenu />
 
             {/* Live API-key / model switcher — فشرده زیر ۱۲۸۰px تا هدر از قاب بیرون نزند */}
-            <LiveModelSwitcher onOpenFullSettings={onOpenSettings} aiAvailable={aiAvailable} compact={!isWide} />
+            <LiveModelSwitcher onOpenFullSettings={onOpenSettings} compact={!isWide} />
 
             <button
               onClick={onOpenCommandPalette}

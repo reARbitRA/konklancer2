@@ -11,3 +11,5 @@ The linked specification files are the source of truth. Do not change a specific
 | SPEC-005 | [Bid Outcome Tracking](SPEC-005-outcome-tracking.md) | APPROVED |
 | SPEC-006 | [LLM access through Konkred gateway](SPEC-006-llm-gateway-routing.md) | APPROVED |
 | SPEC-007 | [Personal mode](SPEC-007-personal-mode.md) | DRAFT |
+| SPEC-008 | [Temporary direct LLM provider access](SPEC-008-temporary-direct-llm.md) | APPROVED |
+| SPEC-009 | [Modern brutalist UI and app-wide micro-interactions](SPEC-009-modern-brutalist-ui.md) | DRAFT |

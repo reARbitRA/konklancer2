@@ -204,7 +204,6 @@ ${fileManifest}
 </adjudication_orders>`;
 
   const res = await callBrowserLLM({
-    taskType: 'code-generation',
     prompt: arbiterPrompt,
     json: false,
     maxTokens: 8192,
