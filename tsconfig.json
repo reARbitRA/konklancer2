@@ -31,6 +31,7 @@
     "src",
     "server",
     "shared",
+    "api",
     "server.ts",
     "vite.config.ts"
   ],

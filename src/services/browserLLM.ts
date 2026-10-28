@@ -1,13 +1,8 @@
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
-import {
-  ActiveCustomLLM,
-  getOrderedVaultCandidates,
-  readStoredCustomLLM,
-  switchActiveKeyOrModel,
-} from '../utils/customLLMClient';
 import { categoryPromptList } from '../../shared/taxonomy';
-import { relayLLMRequestViaUS } from './cloudRelay';
+import { readApiToken } from '../utils/apiFetch';
+import { requestKonkredGateway, type GatewayTaskType } from './cloudRelay';
 
 export interface DiscoveredClientModel {
   id: string;
@@ -17,35 +12,10 @@ export interface DiscoveredClientModel {
   description?: string;
 }
 
-const PROVIDER_DEFAULTS: Record<string, { endpoint: string; defaultModel: string }> = {
-  openrouter: {
-    endpoint: 'https://openrouter.ai/api/v1',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-  },
-  groq: {
-    endpoint: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.3-70b-versatile',
-  },
-  gemini: {
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta',
-    defaultModel: 'gemini-2.5-flash',
-  },
-  openai: {
-    endpoint: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
-  },
-  ollama: {
-    endpoint: 'http://localhost:11434/v1',
-    defaultModel: 'llama3.2',
-  },
-  custom: {
-    endpoint: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-chat',
-  },
-};
-
 export function hasConfiguredBrowserKey(): boolean {
-  return Boolean(readStoredCustomLLM()?.apiKey?.trim());
+  // This legacy name is retained for the app shell; only the gateway relay token
+  // is required in the client. Provider keys never belong in this browser vault.
+  return Boolean(readApiToken());
 }
 
 export function isNativeAndroidApp(): boolean {
@@ -59,133 +29,11 @@ export function isNativeAndroidApp(): boolean {
 export function isStandaloneClientMode(): boolean {
   if (isNativeAndroidApp()) return true;
   if (typeof window === 'undefined') return false;
-  const proto = window.location.protocol;
-  if (proto === 'file:' || proto === 'content:' || !window.location.host) return true;
-  const host = window.location.hostname || '';
-  if (host.endsWith('.github.io') || host.endsWith('.pages.dev') || host.endsWith('.netlify.app')) {
-    return true;
-  }
+  const protocol = window.location.protocol;
+  if (protocol === 'file:' || protocol === 'content:' || !window.location.host) return true;
+  const hostname = window.location.hostname || '';
+  if (hostname.endsWith('.github.io') || hostname.endsWith('.pages.dev') || hostname.endsWith('.netlify.app')) return true;
   return Boolean((window as any).__KONKLANCER_STANDALONE__);
-}
-
-/**
- * Tries fast direct browser/native fetch first; if blocked by Iran ISP / CORS / Geo-IP
- * (e.g. Gemini 400 "User location is not supported", Groq/OpenAI 403 Forbidden, or network TypeError),
- * seamlessly relays through KonkLancer's US-East-1 cloud relay over Cloudflare HTTPS.
- */
-/**
- * Smart LLM fetch — **حیاتی: همیشه از خارج ایران ارسال می‌شود**
- *
- * هیچ درخواستی به Gemini/Groq/OpenAI/OpenRouter نباید از IP ایران برود
- * (Gemini 400 "User location is not supported", Groq/OpenAI 403).
- * بنابراین:
- *   1) اول Supabase Edge (Virginia US) → fallback سرور `/api/llm/relay` (وقتی روی Vercel/US هست)
- *   2) فقط اگر رله کاملاً در دسترس نبود، با خطای شفاف fail می‌کند — نه اینکه بی‌صدا برود مستقیم و دوباره بلاک شود.
- *   3) Ollama (localhost:11434) تنها استثناء است و همیشه مستقیم می‌رود.
- *   4) برای تست محلی با VPN می‌توان `localStorage.setItem('konklancer_allow_direct','1')` را ست کرد تا fallback مستقیم مجاز شود.
- */
-async function smartFetchLLM(
-  url: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string },
-): Promise<Response> {
-  const method = init.method || 'GET';
-  const headers = init.headers || {};
-  const isLocalOllama = url.includes('localhost:11434') || url.includes('127.0.0.1:11434');
-
-  if (isLocalOllama) {
-    return fetch(url, {
-      method,
-      headers,
-      ...(init.body !== undefined ? { body: init.body } : {}),
-    });
-  }
-
-  const allowDirectFallback = (() => {
-    try {
-      if (localStorage.getItem('konklancer_allow_direct') === '1') return true;
-      if ((import.meta as any).env?.VITE_ALLOW_DIRECT === '1') return true;
-      // In sandbox/preview (e2b.app) Supabase is blocked by network policy — allow direct for demo
-      const h = window.location.hostname || '';
-      if (h.endsWith('.e2b.app') || h.includes('arena.ai')) return true;
-      return false;
-    } catch { return false; }
-  })();
-
-  // 1) US relay FIRST — حیاتی
-  let lastRelayError: unknown = null;
-  try {
-    const relayed = await relayLLMRequestViaUS(url, method, headers, init.body);
-    // Relay responded (even with 4xx) — this IS the answer from outside Iran
-    return relayed;
-  } catch (e) {
-    lastRelayError = e;
-    if (!allowDirectFallback) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `رله خارج از ایران در دسترس نیست — درخواست از IP ایران به گوگل بلاک می‌شود. ` +
-        `علت: ${msg} — ` +
-        `۱) مطمئن شو Edge Function 'konklancer-relay' روی Supabase deploy شده (supabase functions deploy)، ` +
-        `۲) یا اپ روی Vercel/US deploy شده تا /api/llm/relay کار کند. ` +
-        `برای تست با VPN: localStorage.setItem('konklancer_allow_direct','1')`
-      );
-    }
-  }
-
-  // 2) Fallback مستقیم فقط وقتی کاربر صریحاً اجازه داده (VPN)
-  try {
-    const directRes = await fetch(url, {
-      method,
-      headers,
-      ...(init.body !== undefined ? { body: init.body } : {}),
-    });
-    return directRes;
-  } catch (e) {
-    if (lastRelayError) throw lastRelayError;
-    throw new Error('عدم برقراری ارتباط با سرویس هوش مصنوعی (مستقیم و رله ابری).');
-  }
-}
-
-export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {
-  const ep = (endpoint || '').trim().toLowerCase();
-  const key = (apiKey || '').trim();
-  if (key.startsWith('AIza')) return 'gemini';
-  if (key.startsWith('gsk_')) return 'groq';
-  if (key.startsWith('sk-or-')) return 'openrouter';
-  if (explicitProvider && explicitProvider !== 'custom') return explicitProvider;
-  if (ep.includes('generativelanguage.googleapis.com')) return 'gemini';
-  if (ep.includes('openrouter.ai')) return 'openrouter';
-  if (ep.includes('api.groq.com')) return 'groq';
-  if (ep.includes('api.openai.com')) return 'openai';
-  if (ep.includes(':11434')) return 'ollama';
-  return explicitProvider || 'openrouter';
-}
-
-export function normalizeEndpointBaseClient(endpoint: string): string {
-  let clean = endpoint.trim().replace(/\/+$/, '');
-  if (clean.endsWith('/chat/completions')) clean = clean.slice(0, -'/chat/completions'.length);
-  if (clean.endsWith('/models')) clean = clean.slice(0, -'/models'.length);
-  return clean;
-}
-
-export function resolveClientLLMConfig(raw?: Partial<ActiveCustomLLM> | null): ActiveCustomLLM | null {
-  const source = raw?.apiKey ? raw : readStoredCustomLLM();
-  if (!source || !source.apiKey?.trim()) return null;
-
-  const provider = detectProviderClient(source.endpoint, source.provider, source.apiKey);
-  const defaults = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openrouter;
-  let model = (source.model || defaults.defaultModel).trim();
-  if (provider === 'openrouter' && model === 'google/gemini-2.0-flash-lite-preview-02-05:free') {
-    model = defaults.defaultModel;
-  }
-
-  return {
-    id: source.id,
-    label: source.label,
-    provider,
-    endpoint: (source.endpoint || defaults.endpoint).trim() || defaults.endpoint,
-    apiKey: source.apiKey.trim(),
-    model,
-  };
 }
 
 export function parseJsonLooseClient<T = unknown>(raw: string): T | null {
@@ -199,358 +47,64 @@ export function parseJsonLooseClient<T = unknown>(raw: string): T | null {
     try {
       return JSON.parse(candidate) as T;
     } catch {
-      // try next candidate
+      // Try the next candidate.
     }
   }
   return null;
 }
 
 function extractBalancedBlock(text: string): string | null {
-  const startObj = text.indexOf('{');
-  const startArr = text.indexOf('[');
-  const start =
-    startObj === -1 ? startArr : startArr === -1 ? startObj : Math.min(startObj, startArr);
+  const startObject = text.indexOf('{');
+  const startArray = text.indexOf('[');
+  const start = startObject === -1 ? startArray : startArray === -1 ? startObject : Math.min(startObject, startArray);
   if (start === -1) return null;
   const open = text[start];
   const close = open === '{' ? '}' : ']';
   let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (esc) {
-      esc = false;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
       continue;
     }
-    if (ch === '\\') {
-      esc = true;
+    if (char === '\\') {
+      escaped = true;
       continue;
     }
-    if (ch === '"') {
-      inStr = !inStr;
+    if (char === '"') {
+      inString = !inString;
       continue;
     }
-    if (inStr) continue;
-    if (ch === open) depth++;
-    else if (ch === close && --depth === 0) return text.slice(start, i + 1);
+    if (inString) continue;
+    if (char === open) depth += 1;
+    else if (char === close && --depth === 0) return text.slice(start, index + 1);
   }
   return null;
 }
 
-async function safeReadError(res: Response): Promise<string> {
-  try {
-    const data: any = await res.json();
-    return data?.error?.message || data?.message || JSON.stringify(data).slice(0, 220);
-  } catch {
-    try {
-      return (await res.text()).slice(0, 220);
-    } catch {
-      return `HTTP ${res.status}`;
-    }
-  }
-}
-
-async function executeSingleKeyCall(
-  cfg: ActiveCustomLLM,
-  opts: {
-    prompt: string;
-    systemPrompt?: string;
-    json?: boolean;
-    maxTokens?: number;
-    temperature?: number;
-  },
-): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
-  const maxTokens = opts.maxTokens ?? 4096;
-  const temperature = opts.temperature ?? 0.35;
-
-  if (cfg.provider === 'gemini') {
-    const cleanModel = cfg.model.startsWith('models/') ? cfg.model.slice(7) : cfg.model;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
-    const body: Record<string, unknown> = {
-      contents: [{ role: 'user', parts: [{ text: opts.prompt }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature,
-        ...(opts.json ? { responseMimeType: 'application/json' } : {}),
-      },
-    };
-    if (opts.systemPrompt) {
-      body.systemInstruction = { parts: [{ text: opts.systemPrompt }] };
-    }
-
-    const res = await smartFetchLLM(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const detail = await safeReadError(res);
-      const err: any = new Error(`خطای Gemini (${res.status}): ${detail}`);
-      err.status = res.status;
-      throw err;
-    }
-
-    const data: any = await res.json();
-    const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
-    const text = parts
-      .filter((p) => typeof p?.text === 'string' && !p?.thought)
-      .map((p) => p.text)
-      .join('')
-      .trim();
-
-    if (!text) {
-      throw new Error('پاسخ متنی از مدل Gemini دریافت نشد.');
-    }
-    return { text, model: cleanModel, provider: 'gemini', keyLabel: cfg.label };
-  }
-
-  const isServerManaged = cfg.apiKey === '__SERVER__';
-  const base = normalizeEndpointBaseClient(cfg.endpoint);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${cfg.apiKey}`,
-    ...(isServerManaged ? { 'x-server-managed': '1' } : {}),
-  };
-  if (cfg.provider === 'openrouter') {
-    headers['HTTP-Referer'] = 'https://konklancer.app';
-    headers['X-Title'] = 'KonkLancer Studio';
-  }
-
-  const messages: Array<{ role: string; content: string }> = [];
-  if (opts.systemPrompt) {
-    messages.push({ role: 'system', content: opts.systemPrompt });
-  }
-  messages.push({
-    role: 'user',
-    content: opts.json
-      ? `${opts.prompt}\n\n[خروجی را حتماً و فقط به شکل یک شیء JSON معتبر بدون توضیحات اضافی بنویسید]`
-      : opts.prompt,
-  });
-
-  const res = await smartFetchLLM(`${base}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      max_tokens: maxTokens,
-      temperature,
-    }),
-  });
-
-  if (!res.ok) {
-    const detail = await safeReadError(res);
-    const err: any = new Error(`خطای سرویس هوش مصنوعی (${res.status}): ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-
-  const data: any = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  const text = typeof content === 'string' ? content.trim() : '';
-  if (!text) {
-    throw new Error('پاسخ خالی از مدل هوش مصنوعی دریافت شد.');
-  }
-  return { text, model: data?.model || cfg.model, provider: cfg.provider, keyLabel: cfg.label };
-}
-
-/**
- * اجرای هوشمند درخواست LLM با پشتیبانی از:
- * ۱. رله خودکار آمریکا (AWS us-east-1) بدون نیاز به VPN
- * ۲. چرخش خودکار بین کلیدهای ذخیره‌شده (Auto-Failover) در صورت خطای سهمیه 429 یا قطعی سرویس‌دهنده
- */
-export async function callBrowserLLM(opts: {
+export async function callBrowserLLM(options: {
   prompt: string;
   systemPrompt?: string;
+  taskType?: GatewayTaskType;
   json?: boolean;
   maxTokens?: number;
   temperature?: number;
-  overrideConfig?: Partial<ActiveCustomLLM>;
-}): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
-  const rawCandidates = getOrderedVaultCandidates(opts.overrideConfig);
-  let candidates = rawCandidates
-    .map((c) => resolveClientLLMConfig(c))
-    .filter((c): c is ActiveCustomLLM => Boolean(c));
-
-  // اگر کلید محلی نیست، از کلیدهای سرور (Supabase Secrets) استفاده کن — APK داخلی
-  const hasServerKeys = true; // کلیدها در Supabase Secrets internal شدن
-  if (candidates.length === 0 && hasServerKeys && !opts.overrideConfig) {
-    // لیست پیش‌فرض سرور — به ترتیب اولویت: Gemini, Groq, OpenRouter
-    candidates = [
-      { provider: 'gemini', endpoint: PROVIDER_DEFAULTS.gemini.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.gemini.defaultModel, label: 'سرور (Gemini)' },
-      { provider: 'groq', endpoint: PROVIDER_DEFAULTS.groq.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.groq.defaultModel, label: 'سرور (Groq)' },
-      { provider: 'openrouter', endpoint: PROVIDER_DEFAULTS.openrouter.endpoint, apiKey: '__SERVER__', model: PROVIDER_DEFAULTS.openrouter.defaultModel, label: 'سرور (OpenRouter)' },
-    ];
-  }
-
-  if (candidates.length === 0) {
-    throw new Error(
-      'کلید هوش مصنوعی تنظیم نشده است. از نوار بالا روی سوییچر مدل یا آیکون تنظیمات (چرخ‌دنده) بزنید و کلید API خود را وارد کنید.',
-    );
-  }
-
-  const isDemoSandbox = (() => {
-    try {
-      const h = window.location.hostname || '';
-      return h.endsWith('.e2b.app') || h.includes('arena.ai');
-    } catch { return false; }
-  })();
-
-  let lastError: Error | null = null;
-  for (let idx = 0; idx < candidates.length; idx++) {
-    const cfg = candidates[idx];
-    try {
-      const result = await executeSingleKeyCall(cfg, opts);
-      if (idx > 0 && cfg.id && !opts.overrideConfig) {
-        switchActiveKeyOrModel(cfg.id);
-      }
-      return result;
-    } catch (err: any) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (idx < candidates.length - 1) {
-        continue;
-      }
-      // In sandbox/preview where outbound to Google is blocked, return mock demo data instead of red error
-      if (isDemoSandbox && opts.json) {
-        const mockJson = JSON.stringify({
-          automatabilityScore: 92,
-          recommendedBid: 4200000,
-          suggestedDuration: '۶ ساعت کاری (تحویل ۲ روزه)',
-          technicalStack: ['Python 3.11', 'FastAPI', 'Structured Markdown'],
-          feasibilityReason: 'دمو: در پیش‌نمایش سندباکس (بدون اینترنت به گوگل) تحلیل نمونه نمایش داده می‌شود — روی دستگاه واقعی و Vercel از رله آمریکا جواب واقعی می‌آید.',
-          riskLevel: 'low',
-          winProbability: '۸۵٪',
-          suggestedKicker: 'ارسال پیش‌طرح معماری و ساختار دقیق خروجی همزمان با ثبت پیشنهاد',
-          proposal: 'سلام، برای پروژه شما یک معماری ماژولار با مستندات کامل و تحویل تست‌شده پیشنهاد می‌دهم. خروجی شامل سورس تمیز و راهنمای اجرا خواهد بود. آیا دیتابیس مورد نظر MySQL است یا PostgreSQL؟',
-          proposedPrice: 4200000,
-          deliveryTime: '۲ روز کاری',
-          category: 'automation',
-        });
-        return { text: mockJson, model: cfg.model + ' (demo-mock)', provider: cfg.provider, keyLabel: cfg.label };
-      }
-      if (isDemoSandbox && !opts.json) {
-        return { text: 'دمو: پاسخ نمونه از رله آمریکا — روی دستگاه واقعی جواب واقعی از Gemini/Groq می‌آید.', model: cfg.model + ' (demo-mock)', provider: cfg.provider, keyLabel: cfg.label };
-      }
-    }
-  }
-
-  throw lastError || new Error('خطا در اجرای درخواست هوش مصنوعی.');
+  cacheKey?: string;
+}): Promise<{ text: string; model: string; provider: string; cached: boolean }> {
+  return requestKonkredGateway({
+    taskType: options.taskType || 'general',
+    prompt: options.prompt,
+    ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
+    ...(options.json !== undefined ? { json: options.json } : {}),
+    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    ...(options.cacheKey ? { cacheKey: options.cacheKey } : {}),
+  });
 }
 
-export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
-  success: boolean;
-  models: DiscoveredClientModel[];
-  defaultModel?: string;
-  detectedProvider?: string;
-  endpoint?: string;
-  latencyMs?: number;
-  error?: string;
-}> {
-  const cfg = resolveClientLLMConfig(raw);
-  if (!cfg) {
-    return { success: false, models: [], error: 'لطفاً ابتدا کلید API معتبر وارد کنید.' };
-  }
-
-  const start = Date.now();
-  try {
-    if (cfg.provider === 'gemini') {
-      const res = await smartFetchLLM(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cfg.apiKey)}`,
-        { method: 'GET' },
-      );
-      if (!res.ok) {
-        const detail = await safeReadError(res);
-        return { success: false, models: [], error: `خطای کلید Gemini (${res.status}): ${detail}` };
-      }
-      const data: any = await res.json();
-      const models: DiscoveredClientModel[] = (data.models || [])
-        .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
-        .map((m: any) => {
-          const id = String(m.name || '').replace(/^models\//, '');
-          const isFree = id.includes('flash') || id.includes('gemma');
-          return {
-            id,
-            name: `${m.displayName || id}${isFree ? ' [رایگان / Free]' : ''}`,
-            isFree,
-            contextLength: m.inputTokenLimit,
-            description: m.description,
-          };
-        })
-        .sort((a: DiscoveredClientModel, b: DiscoveredClientModel) => Number(b.isFree) - Number(a.isFree));
-
-      const preferred =
-        models.find((m) => m.id === 'gemini-2.5-flash') ||
-        models.find((m) => m.id === 'gemini-2.0-flash') ||
-        models[0];
-
-      return {
-        success: true,
-        models,
-        defaultModel: preferred?.id || 'gemini-2.5-flash',
-        detectedProvider: 'gemini',
-        endpoint: cfg.endpoint,
-        latencyMs: Date.now() - start,
-      };
-    }
-
-    const res = await smartFetchLLM(`${normalizeEndpointBaseClient(cfg.endpoint)}/models`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${cfg.apiKey}` },
-    });
-    if (!res.ok) {
-      const detail = await safeReadError(res);
-      return { success: false, models: [], error: `خطا در دریافت لیست مدل‌ها (${res.status}): ${detail}` };
-    }
-
-    const data: any = await res.json();
-    const rawList: any[] = data?.data || (Array.isArray(data) ? data : []);
-    const isOpenRouter = cfg.provider === 'openrouter';
-    const isGroq = cfg.provider === 'groq';
-
-    const models: DiscoveredClientModel[] = rawList
-      .map((m: any) => {
-        const id = typeof m === 'string' ? m : m.id || m.name;
-        const promptPrice = String(m?.pricing?.prompt ?? '1');
-        const completionPrice = String(m?.pricing?.completion ?? '1');
-        const isFree = isOpenRouter
-          ? (promptPrice === '0' && completionPrice === '0') || String(id).endsWith(':free') || id === 'openrouter/free'
-          : isGroq;
-        return {
-          id,
-          name: `${m?.name || id}${isFree ? ' [رایگان / Free]' : ''}`,
-          isFree,
-          contextLength: m?.context_length || m?.context_window,
-          description: m?.description,
-        };
-      })
-      .sort((a, b) => Number(b.isFree) - Number(a.isFree));
-
-    const preferred =
-      models.find((m) => m.isFree && m.id.includes('llama-3.3-70b')) ||
-      models.find((m) => m.isFree && m.id.includes('deepseek')) ||
-      models.find((m) => m.isFree && m.id.includes('qwen')) ||
-      models.find((m) => m.isFree) ||
-      models[0];
-
-    return {
-      success: true,
-      models,
-      defaultModel: preferred?.id || cfg.model,
-      detectedProvider: cfg.provider,
-      endpoint: cfg.endpoint,
-      latencyMs: Date.now() - start,
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      models: [],
-      error: `عدم ارتباط با سرویس (${err?.message || err}).`,
-    };
-  }
-}
-
-export async function testConnectionDirect(raw: Partial<ActiveCustomLLM>): Promise<{
+export async function testConnectionDirect(): Promise<{
   success: boolean;
   latencyMs: number;
   model: string;
@@ -558,18 +112,18 @@ export async function testConnectionDirect(raw: Partial<ActiveCustomLLM>): Promi
   reply: string;
 }> {
   const start = Date.now();
-  const res = await callBrowserLLM({
+  const result = await callBrowserLLM({
+    taskType: 'general',
     prompt: 'فقط بنویس: اتصال برقرار شد',
     maxTokens: 256,
     temperature: 0.1,
-    overrideConfig: raw,
   });
   return {
     success: true,
     latencyMs: Date.now() - start,
-    model: res.model,
-    provider: res.provider,
-    reply: res.text,
+    model: result.model,
+    provider: result.provider,
+    reply: result.text,
   };
 }
 
@@ -594,19 +148,24 @@ export async function analyzeJobDirect(job: FreelanceJob): Promise<AIAnalysis & 
   "suggestedKicker": "قلاب فنی دقیق برای خط اول پیشنهاد (اشاره به یک ریسک یا نکته فنی ظریف در همین پروژه که نشان دهد شما معمار واقعی کار هستید)"
 }`;
 
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1500 });
-  const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
-  const recommendedBid = Number(parsed.recommendedBid) || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
+  const result = await callBrowserLLM({
+    taskType: 'general',
+    prompt,
+    json: true,
+    maxTokens: 1_500,
+    cacheKey: `analyze:${job.id}`,
+  });
+  const parsed = parseJsonLooseClient<any>(result.text) ?? {};
+  const recommendedBid = Number(parsed.recommendedBid) || (job.budget ? Math.round(job.budget * 0.85) : 3_500_000);
 
   return {
-    model: llm.model,
+    model: result.model,
     automatabilityScore: Number(parsed.automatabilityScore) || 90,
     recommendedBid,
     recommendedBidFormatted: `${recommendedBid.toLocaleString('fa-IR')} تومان`,
     suggestedDuration: parsed.suggestedDuration || '۱ الی ۲ روز کاری',
     technicalStack: Array.isArray(parsed.technicalStack) ? parsed.technicalStack : ['AI Architecture', 'Automation'],
-    feasibilityReason:
-      parsed.feasibilityReason || 'پروژه کاملاً دیجیتال بوده و با معماری ماژولار و مستندات مهندسی قابل تحویل یک‌ضرب است.',
+    feasibilityReason: parsed.feasibilityReason || 'پروژه کاملاً دیجیتال بوده و با معماری ماژولار و مستندات مهندسی قابل تحویل یک‌ضرب است.',
     riskLevel: parsed.riskLevel === 'high' || parsed.riskLevel === 'medium' ? parsed.riskLevel : 'low',
     winProbability: parsed.winProbability || '۸۵٪',
     suggestedKicker: parsed.suggestedKicker || 'ارسال پیش‌طرح معماری و ساختار دقیق خروجی همزمان با ثبت پیشنهاد',
@@ -618,7 +177,7 @@ export async function generateProposalDirect(
   tone: string,
   budget: number,
 ): Promise<{ proposal: string; proposedPrice: number; deliveryTime: string; model: string }> {
-  const targetPrice = budget || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
+  const targetPrice = budget || (job.budget ? Math.round(job.budget * 0.85) : 3_500_000);
   const toneInstructionsMap: Record<string, string> = {
     friendly_expert: 'لحن: متخصص ارشد با تجربه کاری بین‌المللی، خوش‌فکر، شفاف، بدون اغراق و کاملاً مسلط به کار.',
     direct_urgent: 'لحن: بسیار موجز، نتیجه‌گرا و متمرکز بر تحویل سریع نسخه نهایی و تست‌شده.',
@@ -644,22 +203,20 @@ ${toneInstructionsMap[tone] || toneInstructionsMap.friendly_expert}
   "deliveryTime": "۲ روز کاری"
 }`;
 
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1600 });
-  const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
+  const result = await callBrowserLLM({ taskType: 'general', prompt, json: true, maxTokens: 1_600 });
+  const parsed = parseJsonLooseClient<any>(result.text) ?? {};
   return {
-    model: llm.model,
-    proposal: parsed.proposal || llm.text,
+    model: result.model,
+    proposal: parsed.proposal || result.text,
     proposedPrice: Number(parsed.proposedPrice) || targetPrice,
     deliveryTime: parsed.deliveryTime || '۲ روز کاری',
   };
 }
 
-export async function generateSolutionDirect(
-  job: FreelanceJob,
-): Promise<{ files: Record<string, string>; model: string }> {
+export async function generateSolutionDirect(job: FreelanceJob): Promise<{ files: Record<string, string>; model: string }> {
   const { generateEnterpriseDeliverablePackage } = await import('./deliveryEngine');
-  const res = await generateEnterpriseDeliverablePackage(job);
-  return { files: res.files, model: res.model };
+  const result = await generateEnterpriseDeliverablePackage(job);
+  return { files: result.files, model: result.model };
 }
 
 export async function categorizeJobDirect(
@@ -667,9 +224,16 @@ export async function categorizeJobDirect(
   description: string,
   tags: string[] = [],
 ): Promise<string> {
-  if (!readStoredCustomLLM()) return tags[0] || 'other';
+  if (!readApiToken()) return tags[0] || 'other';
   const prompt = `از بین کلیدهای زیر دقیق‌ترین دسته را برای این پروژه انتخاب کن:\n${categoryPromptList()}\nعنوان: ${title}\nتوضیح: ${description}\nفقط JSON برگردان: {"category":"key"}`;
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 256, temperature: 0.1 });
-  const parsed = parseJsonLooseClient<any>(llm.text);
+  const result = await callBrowserLLM({
+    taskType: 'extraction',
+    prompt,
+    json: true,
+    maxTokens: 256,
+    temperature: 0.1,
+    cacheKey: `categorize:${title}:${description}`,
+  });
+  const parsed = parseJsonLooseClient<any>(result.text);
   return parsed?.category || tags[0] || 'other';
 }

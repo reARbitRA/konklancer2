@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/llm/relay.ts": {
+      "maxDuration": 60
+    },
+    "api/llm/relay-health.ts": {
+      "maxDuration": 10
+    }
+  }
+}

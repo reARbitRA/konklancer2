@@ -25,10 +25,11 @@ import { categoryLabel, detectCategory } from '../shared/taxonomy';
 import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
 import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
-import { subscribeVaultChanges, readStoredCustomLLM } from './utils/customLLMClient';
+import { isKonkredGatewayReady } from './services/cloudRelay';
+import { API_TOKEN_CHANGED_EVENT, readApiToken, writeApiToken } from './utils/apiFetch';
 import { loadInitialFeedUnified, runDirectTabletLiveScan, syncCloudFeedDirectFromGitHub } from './services/standaloneFeed';
-import { createBid, updateBid, writeApiTokenToStorage } from './services/outcomeApi';
-import { safeGetJSON, safeGetItem, safeSetJSON } from './utils/safeStorage';
+import { createBid, updateBid } from './services/outcomeApi';
+import { safeGetJSON, safeSetJSON } from './utils/safeStorage';
 import { dueBidReminders, notificationPermission, readNotifiedIds, rememberNotifiedIds, requestNotificationPermission, showReminderNotification } from './utils/reminders';
 
 const MANUAL_VAULT_STORAGE_KEY = 'konklancer_manual_jobs_v2';
@@ -136,7 +137,7 @@ const Layout: React.FC<{
   handleMoveStatus: (id:string, s:FreelanceJob['status'])=>void;
   handleUpdatePriority: (id:string, p:PriorityLevel)=>void;
   handleUpdateSettings: (p:Partial<UserSettings>)=>void;
-  aiAvailable: boolean;
+  aiAvailable: boolean | null;
   selectedJobForCoding: FreelanceJob | null;
   onUpdateJob: (j:FreelanceJob)=>void;
   onUpdateJobFiles: (id:string, files:Record<string,string>)=>void;
@@ -181,6 +182,7 @@ const Layout: React.FC<{
         totalEarningsToday={props.totalEarningsToday}
         activeJobsCount={props.activeJobsCount}
         socketConnected={props.socketConnected}
+        aiAvailable={props.aiAvailable}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={()=>setSidebarCollapsed(v=>!v)}
       />
@@ -277,6 +279,7 @@ const Layout: React.FC<{
         feedSource={props.feed.source}
         jobCount={props.jobs.length}
         activeTab={activeTab}
+        aiAvailable={props.aiAvailable}
         onOpenSettings={props.onOpenSettings}
         onOpenCommandPalette={props.onOpenCommandPalette}
       />
@@ -299,24 +302,46 @@ export default function App() {
   });
 
   const [feed, setFeed] = useState<{ source: FeedSource; scannedAt: string | null; scannedProjects: number }>({ source: 'unknown', scannedAt: null, scannedProjects: 0 });
-  const [aiAvailable, setAiAvailable] = useState<boolean>(()=> hasConfiguredBrowserKey());
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [settings, setSettings] = useState<UserSettings>(()=>{
     const defaults: UserSettings = { githubToken:'', githubUseSSH:false, githubSSHKey:'', defaultDiscountRate:18, autoBidThreshold:85, cyborgMode:true, preferredTone:'friendly_expert', dailyEarningsGoal:5000000 };
     let parsed: Partial<UserSettings> = {};
-    let standaloneCustomLLM: UserSettings['customLLM'] | undefined;
     try {
       const saved = localStorage.getItem('konklancer_settings') || localStorage.getItem('freelanceflow_settings');
       if (saved) parsed = JSON.parse(saved);
-      const savedCustom = safeGetItem('freelanceflow_custom_llm');
-      if (savedCustom) standaloneCustomLLM = JSON.parse(savedCustom);
     } catch {}
-    const { githubToken: legacyToken, ...rest } = parsed as any;
+    const { githubToken: legacyToken, apiToken: legacyApiToken, customLLM: _legacyCustomLLM, ...rest } = parsed as any;
+    const storedApiToken = readApiToken() || (typeof legacyApiToken === 'string' ? legacyApiToken : '');
+    if (!readApiToken() && storedApiToken) writeApiToken(storedApiToken);
     const sessionToken = sessionStorage.getItem('freelanceflow_github_token') || '';
     if (legacyToken && !sessionToken) sessionStorage.setItem('freelanceflow_github_token', legacyToken);
-    return { ...defaults, ...rest, ...(rest.customLLM || standaloneCustomLLM ? { customLLM: rest.customLLM || standaloneCustomLLM } : {}), githubToken: sessionToken || legacyToken || '' };
+    return { ...defaults, ...rest, apiToken: storedApiToken, githubToken: sessionToken || legacyToken || '' };
   });
 
-  useEffect(()=>{ const unsub = subscribeVaultChanges(()=> setAiAvailable(hasConfiguredBrowserKey())); return unsub; }, []);
+  useEffect(()=>{
+    let active = true;
+    let generation = 0;
+    const update = () => {
+      const current = ++generation;
+      if (!hasConfiguredBrowserKey()) {
+        setAiAvailable(false);
+        return;
+      }
+      setAiAvailable(null);
+      void isKonkredGatewayReady().then((ready) => {
+        if (active && current === generation) setAiAvailable(ready);
+      });
+    };
+    update();
+    window.addEventListener(API_TOKEN_CHANGED_EVENT, update);
+    window.addEventListener('storage', update);
+    return () => {
+      active = false;
+      generation += 1;
+      window.removeEventListener(API_TOKEN_CHANGED_EVENT, update);
+      window.removeEventListener('storage', update);
+    };
+  }, []);
   const [logs, setLogs] = useState<ActivityLogItem[]>([{ id:'log-1', timestamp: new Date().toLocaleTimeString('fa-IR', { hour:'2-digit', minute:'2-digit' }), type:'scan', message:'موتور v4 نئو-بروتالیست (اسکن عمیق + گاوصندوق دائمی + استودیو ۳ مرحله‌ای) آماده است.' }]);
   const socketRef = useRef<Socket | null>(null);
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
@@ -336,7 +361,15 @@ export default function App() {
   const selectedJobForCoding = jobs.find(j=> j.id===selectedJobForCodingId) || null;
 
   useEffect(()=>{ try{ safeSetJSON('freelanceflow_jobs', jobs); const protectedJobs = jobs.filter(j=> j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-')); writePermanentManualVault(protectedJobs); } catch{} }, [jobs]);
-  useEffect(()=>{ try{ const { githubToken, ...persisted } = settings; if(githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken); safeSetJSON('konklancer_settings', persisted); safeSetJSON('freelanceflow_settings', persisted); } catch{} }, [settings]);
+  useEffect(()=>{
+    try {
+      const { githubToken, apiToken, customLLM: _legacyCustomLLM, ...persisted } = settings as any;
+      if (githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken);
+      writeApiToken(typeof apiToken === 'string' ? apiToken : '');
+      safeSetJSON('konklancer_settings', persisted);
+      safeSetJSON('freelanceflow_settings', persisted);
+    } catch {}
+  }, [settings]);
 
   const refreshCloudStatus = useCallback(async ()=>{ setCloudInfo({ enabled:true, repo:'reARbitRA/konklancer2' }); return { enabled:true }; }, []);
   const refreshFeed = useCallback(async (): Promise<void> =>{
@@ -440,10 +473,6 @@ export default function App() {
       }
     }
   };
-  // توکن API (SPEC-003 R5): هر تغییر در تنظیمات، در حافظه‌ی مرورگر هم می‌نشیند
-  // تا سرویس‌های شبکه‌ای بدون خواندن کل تنظیمات آن را در هدر بفرستند.
-  useEffect(() => { writeApiTokenToStorage(settings.apiToken || ''); }, [settings.apiToken]);
-
   // یادآور مرورگر برای پیشنهادهای بی‌نتیجه (SPEC-002 / AC-1):
   // هر دقیقه بررسی می‌شود؛ هر پیشنهاد حداکثر یک بار اعلان می‌گیرد.
   useEffect(() => {
@@ -468,8 +497,8 @@ export default function App() {
   const handleAddNewManualJob = async (newJob: Partial<FreelanceJob>)=>{
     const fullJob = newJob as FreelanceJob;
     const categoryKey = detectCategory(fullJob.title, fullJob.description).key;
-    const hasApiKey = Boolean(readStoredCustomLLM()?.apiKey?.trim());
-    const categorizedTag = fullJob.categorizedTag || (hasApiKey ? await categorizeJobWithGemini(fullJob.title, fullJob.description) : categoryLabel(categoryKey));
+    const hasGatewayToken = aiAvailable === true;
+    const categorizedTag = fullJob.categorizedTag || (hasGatewayToken ? await categorizeJobWithGemini(fullJob.title, fullJob.description) : categoryLabel(categoryKey));
     const priority: PriorityLevel = fullJob.priority || (fullJob.budget >=6000000?'High': fullJob.budget>=4000000?'Medium':'Low');
     const enrichedJob: FreelanceJob = enrichJob({ ...fullJob, isManual:true, pinned:true, categoryKey, category: categoryLabel(categoryKey), categorizedTag, priority, tags: Array.from(new Set([...(fullJob.tags||[]), categorizedTag])) });
     const existingVault = readPermanentManualVault().filter(v=> v.id!==enrichedJob.id);

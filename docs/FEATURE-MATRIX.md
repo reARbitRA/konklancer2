@@ -4,7 +4,7 @@
 وضعیت واقعی + نحوه‌ی تأیید نوشته شده است. اگر چیزی کار نمی‌کند، همین‌جا با کلمه‌ی «نشد» آمده،
 نه با عبارت مبهم.
 
-آخرین به‌روزرسانی: ۲۰۲۶-۱۰-۲۶ · شاخه `arena/c7be3325-konklancer2`
+آخرین به‌روزرسانی: ۲۰۲۶-۱۰-۲۸ · شاخه `arena/8bfff631-konklancer2`
 
 ## ۱) قابلیت‌هایی که در این نشست پیاده و تأیید شدند
 
@@ -14,7 +14,7 @@
 | آمار نرخ برد به تفکیک پلتفرم/دسته/بازه‌ی بودجه + برچسب «نمونه ناکافی» زیر ۳۰ نتیجه | SPEC-005 R2/R3 | `GET /api/stats` | جدول‌های بروتالیست + نوار نرخ برد + هشدار صادقانه | `server/outcomes.test.ts` + چک‌های DOM («analytics shows the insufficient-sample warning honestly») |
 | ذخیره‌سازی پایدار روی سرور (نه فقط مرورگر) | SPEC-005 | SQLite، جداول `bids` و `projects_seen` | پنل «ذخیره‌سازی» در کارنامه | فایل `data/konklancer.db` پس از اولین درخواست ساخته می‌شود (تأیید با `ls`) |
 | یادآور مرورگر برای پیشنهاد بیش از ۴ ساعت بی‌نتیجه | SPEC-002 / T-002 AC-1 | منطق خالص در `src/utils/reminders.ts`، زمان‌بندی هر ۶۰ ثانیه در App | کلید فعال‌سازی + نمایش وضعیت مجوز در تنظیمات، بخش «یادآور و امنیت API» | ۷ تست واحد در `server/reminders.test.ts` |
-| احراز هویت اختیاری API با `KONKLANCER_API_TOKEN` | SPEC-003 R5 | میدل‌ور `server/apiAuth.ts` روی `/api` (هدر `x-api-token` / `Bearer` / `?token=`) | فیلد «توکن API سرور» در تنظیمات؛ توکن با هدر فرستاده می‌شود | `server/bidRoutes.test.ts` («درخواست بدون توکن ۴۰۱ می‌گیرد») |
+| احراز هویت اختیاری API با `KONKLANCER_API_TOKEN` | SPEC-003 R5 | میدل‌ور `server/apiAuth.ts` روی `/api` (هدر `x-api-token` / `Bearer` / `?token=`) | این توکن در محیط سرور تنظیم می‌شود؛ Settings فقط توکن اختصاصی رله‌ی AI را می‌گیرد | `server/bidRoutes.test.ts` («درخواست بدون توکن ۴۰۱ می‌گیرد») |
 | اعلان تلگرام برای پروژه‌های بالای آستانه | SPEC-004 R7 | `server/notifier.ts` + `GET /api/alerts/status`، ارسال پس از هر اسکن موفق | پنل «اعلان‌ها» در کارنامه با دلیل خاموش‌بودن | ۴ تست `outcomes.test.ts` + چک DOM «analytics explains telegram alert state» |
 | رندر مرورگری برای سایت‌های JS-محور | SPEC-007 (شکاف قبلی) | `render_html_with_browser` در اسکنر (Playwright، robots + محدودیت دامنه) | فلگ `--browser` روی `scan/probe/autodetect/autoscan` و env `KONKLANCER_BROWSER=1` | ۴ تست آفلاین `scanner/tests/test_browser_mode.py`؛ **اجرای واقعی مرورگر در این محیط تأیید نشد** (Playwright نصب نیست) |
 | زمان‌بند اسکن قابل کنترل از UI (توقف/فواصل رصد) — قبلاً state محلی و بی‌اثر بود | SPEC-004/007 §2.2 | `POST/GET /api/scheduler` + `POST /api/scheduler/run-now`، وضعیت در SQLite (`settings.scan_scheduler`) پایدار می‌ماند | دکمه‌ی توقف/روشن و انتخاب بازه در صفحه‌ی سایبورگ + نمایش آخرین اجرا | ۸ تست `server/scheduler.test.ts` + چک DOM «engine toggle changes real scheduled-scan state» + تأیید curl/SQLite |
@@ -30,8 +30,9 @@
 | فید واقعی اسکنر (`/api/jobs` با `source: scanner`)، اسکن دستی/ابری/همگام‌سازی | `/api/jobs` با ۱۰۱۸ پروژه؛ دکمه‌های UI در DOM smoke |
 | درخت فایل، ادیتور هایلایت‌شده، جست‌وجوی پروژه در استودیو | ۱۵ چک DOM + ۱۰ تست واحد |
 | موتور تحویل ۳ مرحله‌ای + ARBITER + خروجی ZIP/HTML/Word | گردش استودیو در DOM smoke |
-| تحلیل AI / پروپوزال / دسته‌بندی (با کلید) | اندپوینت‌ها فعال؛ بدون کلید به‌صورت صادقانه ۵۰۳ می‌دهند |
-| مدیریت گردش‌کار GitHub، دیسپچر، سوییچر مدل زنده | مونتاژ + بازشدن در DOM smoke |
+| تحلیل AI / پروپوزال / دسته‌بندی / تولید کد | مسیر فقط از Konkred `/v1/chat/completions` عبور می‌کند؛ model/provider/key در UI قابل‌انتخاب نیستند؛ 503/401 صادقانه گزارش می‌شوند |
+| اتصال UI به درگاه و حذف پنل provider/model قدیمی | سوئیچر هدر فقط وضعیت/Settings را نشان می‌دهد؛ تست DOM بازشدن پنل و Settings |
+| API gateway (SPEC-006) | 166 تست Node + `npm run lint` + `npm run build` + 101 چک DOM؛ درخواست واقعی به gateway/تأیید تنظیم Vercel credential هنوز جداگانه لازم است |
 | طراحی بروتالیست همه‌ی دیالوگ‌ها/صفحه‌ها | گارد `server/uiDesignGuard.test.ts` + ممیزی DOM در ۷ صفحه/دیالوگ |
 
 ## ۳) شکاف‌هایی که هنوز باقی‌اند (به‌صراحت)

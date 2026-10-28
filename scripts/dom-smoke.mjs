@@ -141,14 +141,19 @@ check('price sort toggled (asc)', bAsc.every((v, i) => i === 0 || v >= bAsc[i-1]
 // rendering 1000+ cards takes >1s in jsdom → wait on the condition, not a timer
 // The feed size is data, not code: derive the expectation from the API instead of
 // hard-coding 1000 (the scanner bot legitimately moves between ~900 and ~1100).
-const feedTotal = await (async () => {
+const feedInfo = await (async () => {
   try {
     const body = await (await globalThis.fetch(`${BASE_URL}/api/jobs`)).json();
-    return Array.isArray(body.jobs) ? body.jobs.length : Number(body.scannedProjects) || 0;
+    const jobs = Array.isArray(body.jobs) ? body.jobs : [];
+    return {
+      total: jobs.length || Number(body.scannedProjects) || 0,
+      maxBudget: jobs.reduce((max, job) => Math.max(max, Number(job.budget) || 0), 0),
+    };
   } catch {
-    return 0;
+    return { total: 0, maxBudget: 0 };
   }
 })();
+const feedTotal = feedInfo.total;
 const expectedCards = Math.max(100, Math.floor(feedTotal * 0.9));
 await clickUntil('همه (', () => $$('.job-brutal').length >= expectedCards, '"همه" full feed render');
 const allCards = $$('.job-brutal').length;
@@ -168,9 +173,9 @@ const priceBtn = $$('button').find(b => (b.textContent || '').includes('قیمت
 const priceCardActive = priceBtn && /bg-\[#00E599\]/.test(priceBtn.className);
 if (!priceCardActive) { priceBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await sleep(600); }
 wantDesc(); await sleep(700);
-if (!budgets().filter(v => v !== null).length || budgets().filter(v => v !== null)[0] !== 1000000000) { wantDesc(); await sleep(700); }
+if (!budgets().filter(v => v !== null).length || budgets().filter(v => v !== null)[0] !== feedInfo.maxBudget) { wantDesc(); await sleep(700); }
 const allBudgets = budgets().filter(v => v !== null);
-check('max budget surfaces under "همه" filter', allBudgets[0] === 1000000000, `top=${allBudgets[0]}`);
+check('max budget surfaces under "همه" filter', allBudgets[0] === feedInfo.maxBudget, `top=${allBudgets[0]} expected=${feedInfo.maxBudget}`);
 check('price desc monotonic across full feed', allBudgets.every((v, i) => i === 0 || v <= allBudgets[i-1]));
 clickByText('button', 'مرتبط (');
 await sleep(700);
@@ -277,14 +282,14 @@ if (analyseBtn) {
 }
 
 
-// 6b2) live model/key switcher must be mounted and openable
-const switcherBtn = $$('button').find(b => /افزودن کلید API|کلید|سوئیچر/.test((b.textContent || '') + (b.getAttribute('title') || '')) && (b.getAttribute('title') || '').includes('تعویض'));
-check('live model/key switcher is mounted in the header', !!switcherBtn);
+// 6b2) Konkred gateway status control must be mounted and openable
+const switcherBtn = $$('button').find(b => b.getAttribute('aria-label') === 'وضعیت درگاه هوش مصنوعی');
+check('Konkred gateway status control is mounted in the header', !!switcherBtn);
 if (switcherBtn) {
   switcherBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(900);
   const panelText = $('#root').textContent || '';
-  check('model switcher panel opens', /سوئیچر زنده کلید و مدل|کلیدهای ذخیره‌شده|کلید جدید فوری/.test(panelText));
+  check('gateway status panel opens without provider/model selection', /درگاه مرکزی Konkred|مدل و provider را درگاه انتخاب می‌کند/.test(panelText));
   switcherBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(400);
 }

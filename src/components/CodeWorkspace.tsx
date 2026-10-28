@@ -249,7 +249,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({ job, onUpdateJob, 
               <div className="h-2 bg-white border-[2px] border-white overflow-hidden"><div className="h-full bg-[#FFDE03] transition-all" style={{ width: `${Math.round((progress.stage/progress.totalStages)*100)}%` }} /></div>
             </div>
           )}
-          {aiAvailable===false && <div className="p-3 bg-[#FFDE03] border-[2.5px] border-black flex items-center justify-between text-[12px] font-bold"><span>کلید API تنظیم نشده است.</span><button onClick={onOpenSettings} className="brutal-btn brutal-btn--ink brutal-btn--sm">مدیریت کلیدها</button></div>}
+          {aiAvailable===false && <div className="p-3 bg-[#FFDE03] border-[2.5px] border-black flex items-center justify-between gap-3 text-[12px] font-bold"><span>اتصال هوش مصنوعی آماده نیست؛ توکن رله و دسترسی درگاه را بررسی کنید.</span><button onClick={onOpenSettings} className="brutal-btn brutal-btn--ink brutal-btn--sm shrink-0">تنظیم اتصال</button></div>}
           {errorMessage && <div className="p-3 bg-[#FF3B30] text-white border-[2.5px] border-black font-bold text-[12px] flex items-start justify-between gap-3"><span>{errorMessage}</span><button onClick={()=>setErrorMessage(null)} aria-label="بستن خطا" className="shrink-0"><X className="w-4 h-4" /></button></div>}
         </div>
       </BrutalCollapsible>

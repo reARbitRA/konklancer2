@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
-import { callLLM, LLMError, parseJsonLoose, readLLMConfig, scanModels, type CustomLLMCallConfig } from './server/llm';
+import { callLLM, LLMError, parseJsonLoose, readLLMConfig } from './server/llm';
+import { executeGatewayApiRequest } from './server/gatewayApi';
+import { executeGatewayHealthApiRequest } from './server/gatewayHealthApi';
 import { checkContent } from './server/contentFilter';
 import { ALL_CATEGORIES, categoryLabel, categoryPromptList } from './shared/taxonomy';
 import { fetchAndParseUrl, parseHtmlProjects } from './server/urlScraper';
@@ -412,37 +414,6 @@ function appendProjectsToFeed(outFile: string, projects: ScannedProject[]): numb
   return added;
 }
 
-/**
- * استخراج پیکربندی اختصاصی مدل هوش مصنوعی از هدر یا بدنه درخواست
- */
-function extractCustomLLM(req: Request): CustomLLMCallConfig | null {
-  let custom: any = req.body?.customLLM ?? null;
-  if (!custom && req.headers['x-custom-llm-b64']) {
-    try {
-      const decoded = Buffer.from(String(req.headers['x-custom-llm-b64']), 'base64').toString('utf8');
-      custom = JSON.parse(decoded);
-    } catch {
-      custom = null;
-    }
-  }
-  if (!custom && req.headers['x-custom-llm']) {
-    try {
-      custom = JSON.parse(String(req.headers['x-custom-llm']));
-    } catch {
-      custom = null;
-    }
-  }
-  if (custom && typeof custom === 'object' && custom.apiKey) {
-    return {
-      endpoint: String(custom.endpoint || ''),
-      apiKey: String(custom.apiKey || '').trim(),
-      model: custom.selectedModel || custom.model,
-      provider: custom.provider,
-    };
-  }
-  return null;
-}
-
 function enabledTargets() {
   return readScanTargets(SCAN_CONFIG.cwd).filter((target) => target.enabled);
 }
@@ -563,14 +534,10 @@ const scanScheduler = new ScanScheduler({
  * دسته‌بندی یک پروژه به یکی از دسته‌های مشترک (shared/taxonomy.json).
  * قبلاً فقط Frontend/Backend/DevOps/Design بود و کارهای ترجمه/گرافیک/صدا دسته‌ی درست نمی‌گرفتند.
  */
-async function categorizeJobServer(
-  title: string,
-  description: string,
-  customLLM?: CustomLLMCallConfig | null,
-): Promise<string> {
+async function categorizeJobServer(title: string, description: string): Promise<string> {
   const fallback = categorize(title, description).key;
   const serverCfg = readLLMConfig();
-  if (!serverCfg && !customLLM) return fallback;
+  if (!serverCfg) return fallback;
   try {
     const prompt = `دسته‌ی این پروژه‌ی فریلنسری را دقیقاً یکی از دسته‌های زیر انتخاب کن:
 ${categoryPromptList()}
@@ -581,10 +548,9 @@ ${categoryPromptList()}
 فقط JSON برگردان:
 {"category": "<key>"}`;
     const llm = await callLLM(
-      { taskType: 'extraction', prompt, json: true, maxTokens: 64, temperature: 0 },
+      { taskType: 'extraction', user: prompt, json: true, maxTokens: 64, temperature: 0 },
       serverCfg,
       fetch,
-      customLLM,
     );
     const parsed = parseJsonLoose(llm.text) ?? {};
     const valid = ALL_CATEGORIES.map((category) => category.key);
@@ -798,8 +764,7 @@ app.post('/api/bridge/cloud-scan', async (req: Request, res: Response) => {
 app.post('/api/categorize-job', async (req: Request, res: Response) => {
   try {
     const { title = '', description = '' } = req.body;
-    const customLLM = extractCustomLLM(req);
-    const tag = await categorizeJobServer(title, description, customLLM);
+    const tag = await categorizeJobServer(title, description);
     res.json({ success: true, tag });
   } catch (error: any) {
     console.error('Error in categorize-job:', error);
@@ -874,7 +839,7 @@ app.get('/api/bridge/status', (_req: Request, res: Response) => {
   });
 });
 
-// Endpoint: AI Analysis using Gemini 3.8 Flash / Custom LLM
+// Endpoint: AI analysis through the Konkred gateway (SPEC-006).
 app.post('/api/analyze-job', async (req: Request, res: Response) => {
   try {
     const { title, description, budget, platform } = req.body;
@@ -887,12 +852,11 @@ app.post('/api/analyze-job', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Job title and description are required' });
     }
 
-    const customLLM = extractCustomLLM(req);
     const serverCfg = readLLMConfig();
-    if (!serverCfg && !customLLM) {
+    if (!serverCfg) {
       return sendLLMError(
         res,
-        new LLMError('AI_NOT_CONFIGURED', 'کلید هوش مصنوعی اختصاصی تنظیم نشده است؛ لطفاً در بخش تنظیمات کلید خود را وارد کنید.', 503),
+        new LLMError('AI_NOT_CONFIGURED', 'اعتبار درگاه Konkred روی سرور تنظیم نشده است.', 503),
         'AI not configured',
       );
     }
@@ -916,10 +880,9 @@ app.post('/api/analyze-job', async (req: Request, res: Response) => {
 }`;
 
     const llm = await callLLM(
-      { taskType: 'general', prompt, json: true, cacheKey: `analyze:${platform}|${title}|${description}|${budget}` },
+      { taskType: 'general', user: prompt, json: true, cacheKey: `analyze:${platform}|${title}|${description}|${budget}` },
       serverCfg,
       fetch,
-      customLLM,
     );
     const parsed = parseJsonLoose(llm.text) ?? {};
     const recommendedBid = parsed.recommendedBid || (budget ? Math.round(budget * 0.85) : 3000000);
@@ -958,12 +921,11 @@ app.post('/api/generate-proposal', async (req: Request, res: Response) => {
     }
 
     const targetPrice = budget ? Math.round(budget * 0.82) : 2500000;
-    const customLLM = extractCustomLLM(req);
     const serverCfg = readLLMConfig();
-    if (!serverCfg && !customLLM) {
+    if (!serverCfg) {
       return sendLLMError(
         res,
-        new LLMError('AI_NOT_CONFIGURED', 'کلید هوش مصنوعی اختصاصی تنظیم نشده است؛ لطفاً در بخش تنظیمات کلید خود را وارد کنید.', 503),
+        new LLMError('AI_NOT_CONFIGURED', 'اعتبار درگاه Konkred روی سرور تنظیم نشده است.', 503),
         'AI not configured',
       );
     }
@@ -995,7 +957,7 @@ ${toneInstructions}
   "deliveryTime": "۴ ساعت"
 }`;
 
-    const llm = await callLLM({ taskType: 'general', prompt, json: true }, serverCfg, fetch, customLLM);
+    const llm = await callLLM({ taskType: 'general', user: prompt, json: true }, serverCfg, fetch);
     const parsed = parseJsonLoose(llm.text) ?? {};
 
     return res.json({
@@ -1026,12 +988,11 @@ app.post('/api/generate-solution', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Job title is required' });
     }
 
-    const customLLM = extractCustomLLM(req);
     const serverCfg = readLLMConfig();
-    if (!serverCfg && !customLLM) {
+    if (!serverCfg) {
       return sendLLMError(
         res,
-        new LLMError('AI_NOT_CONFIGURED', 'کلید هوش مصنوعی اختصاصی تنظیم نشده است؛ لطفاً در بخش تنظیمات کلید خود را وارد کنید.', 503),
+        new LLMError('AI_NOT_CONFIGURED', 'اعتبار درگاه Konkred روی سرور تنظیم نشده است.', 503),
         'AI not configured',
       );
     }
@@ -1055,10 +1016,9 @@ app.post('/api/generate-solution', async (req: Request, res: Response) => {
 }`;
 
     const llm = await callLLM(
-      { taskType: 'coding', prompt, json: true, maxTokens: 8000 },
+      { taskType: 'code-generation', user: prompt, json: true, maxTokens: 8000 },
       serverCfg,
       fetch,
-      customLLM,
     );
     const parsed = parseJsonLoose(llm.text) ?? {};
 
@@ -1074,155 +1034,44 @@ app.post('/api/generate-solution', async (req: Request, res: Response) => {
   }
 });
 
-// Endpoint: اسکن و استخراج مدل‌های اندپوینت هوش مصنوعی با مشخص‌کردن مدل‌های رایگان
-app.post('/api/llm/scan', async (req: Request, res: Response) => {
-  try {
-    const { endpoint, apiKey, provider } = req.body || {};
-    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-      return res.status(400).json({ success: false, error: 'لطفاً کلید API را وارد کنید.' });
-    }
-    const result = await scanModels({ endpoint, apiKey, provider });
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || 'خطا در اسکن مدل‌ها' });
-  }
+// Provider/model discovery is intentionally disabled: task routing belongs to the Konkred gateway.
+app.post('/api/llm/scan', (_req: Request, res: Response) => {
+  return res.status(410).json({
+    success: false,
+    aiAvailable: false,
+    code: 'MODEL_SELECTION_DISABLED',
+    error: 'Provider keys and model selection are managed by the Konkred gateway.',
+  });
 });
 
-// Endpoint: تست اتصال زنده به مدل هوش مصنوعی انتخابی
-app.post('/api/llm/test', async (req: Request, res: Response) => {
+// Test the server-held Konkred gateway credential without accepting provider keys from the client.
+app.post('/api/llm/test', async (_req: Request, res: Response) => {
   try {
-    const { endpoint, apiKey, model, provider } = req.body || {};
-    if (!apiKey) {
-      return res.status(400).json({ success: false, error: 'کلید API الزامی است.' });
+    const config = readLLMConfig();
+    if (!config) {
+      return sendLLMError(res, new LLMError('AI_NOT_CONFIGURED', 503, 'اعتبار درگاه Konkred روی سرور تنظیم نشده است.'), 'AI not configured');
     }
     const startTime = Date.now();
     const result = await callLLM(
-      {
-        taskType: 'general',
-        prompt: 'فقط بنویس: اتصال برقرار شد',
-        maxTokens: 256,
-        temperature: 0.1,
-      },
-      null,
+      { taskType: 'general', user: 'فقط بنویس: اتصال برقرار شد', maxTokens: 256, temperature: 0.1 },
+      config,
       fetch,
-      { endpoint, apiKey, model, provider },
     );
-    const latencyMs = Date.now() - startTime;
-    return res.json({
-      success: true,
-      latencyMs,
-      model: result.model,
-      provider: result.provider,
-      reply: result.text.trim(),
-    });
-  } catch (err: any) {
-    return res.status(502).json({
-      success: false,
-      error: err.message || 'خطا در تست اتصال به مدل',
-    });
+    return res.json({ success: true, latencyMs: Date.now() - startTime, model: result.model, provider: result.provider, reply: result.text.trim() });
+  } catch (error: any) {
+    return sendLLMError(res, error, 'Gateway connection test failed');
   }
 });
 
-// ── رله عمومی LLM (fallback روی خودِ سرور؛ مشابه Supabase Edge Relay)
-// اگر کلاینت نخواهد مستقیماً با گوگل صحبت کند (یا IP ایران بلاک شده)، درخواست را
-// از همین سرور (Vercel/US) فوروارد می‌کنیم. فقط هاست‌های allow-list قبول می‌شوند تا SSRF بسته بماند.
-const LLM_RELAY_ALLOWED_HOSTS = new Set([
-  'generativelanguage.googleapis.com',
-  'api.groq.com',
-  'api.openai.com',
-  'api.openrouter.ai',
-  'openrouter.ai',
-  'api.deepseek.com',
-  'api.anthropic.com',
-  'api.cohere.ai',
-  'api.mistral.ai',
-  'generativelanguage.googleapis.com',
-]);
-const LLM_RELAY_ALLOWED_SUFFIXES = ['.googleapis.com', '.openai.azure.com'];
-function isLLMRelayAllowed(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (LLM_RELAY_ALLOWED_HOSTS.has(h)) return true;
-  return LLM_RELAY_ALLOWED_SUFFIXES.some((s) => h.endsWith(s));
-}
+// Public app adapter: validates the app relay token, then sends the request only to Konkred.
 app.post('/api/llm/relay', async (req: Request, res: Response) => {
-  try {
-    const targetUrl: string = (req.body?.target_url || req.body?.targetUrl || '').trim?.() || '';
-    if (!targetUrl) return res.status(400).json({ ok: false, error: 'target_url required' });
-    let parsed: URL;
-    try { parsed = new URL(targetUrl); } catch { return res.status(400).json({ ok: false, error: 'Invalid target_url' }); }
-    if (!isLLMRelayAllowed(parsed.hostname)) {
-      return res.status(403).json({ ok: false, error: `Host not allow-listed: ${parsed.hostname}` });
-    }
-    const reqMethod: string = (req.body?.req_method || req.body?.method || 'POST').toUpperCase();
-    const reqHeadersIn: Record<string, string> = req.body?.req_headers || req.body?.headers || {};
-    const reqBody: string | null = req.body?.req_body ?? req.body?.body ?? null;
-    const forwardHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(reqHeadersIn)) {
-      const lk = k.toLowerCase();
-      if (lk === 'host' || lk === 'content-length' || lk === 'connection') continue;
-      forwardHeaders[k] = String(v);
-    }
-    if (!forwardHeaders['Content-Type'] && !forwardHeaders['content-type']) forwardHeaders['Content-Type'] = 'application/json';
-
-    // Inject server-managed keys if client sent placeholder (APK بدون کلید)
-    const injectServerKeysNode = (url: string, headers: Record<string, string>) => {
-      const isPlaceholder = (headers['Authorization'] || headers['authorization'] || '') === 'Bearer __SERVER__' || headers['x-server-managed'] === '1';
-      const urlHasRealKey = url.includes('key=') && !url.includes('key=__SERVER__');
-      const host = (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } })();
-      let nUrl = url; let nH = { ...headers };
-      if (nUrl.includes('__SERVER__')) { try { const u = new URL(nUrl); if (u.searchParams.get('key') === '__SERVER__') u.searchParams.delete('key'); nUrl = u.toString(); } catch {} }
-      if (nH['Authorization'] === 'Bearer __SERVER__') delete nH['Authorization'];
-      if (nH['authorization'] === 'Bearer __SERVER__') delete nH['authorization'];
-      if (!isPlaceholder && urlHasRealKey && (nH['Authorization'] || nH['authorization'])) return { url: nUrl, headers: nH };
-      if (host === 'api.groq.com') { const k = process.env.GROQ_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host === 'api.openai.com') { const k = process.env.OPENAI_API_KEY || process.env.AGNES_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host === 'api.openrouter.ai' || host === 'openrouter.ai') { const k = process.env.OPENROUTER_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host === 'api.deepseek.com') { const k = process.env.DEEPSEEK_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host === 'api.mistral.ai') { const k = process.env.MISTRAL_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host === 'api.cerebras.ai') { const k = process.env.CEREBRAS_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host.includes('generativelanguage.googleapis.com') && !nUrl.includes('key=')) { const k = process.env.GEMINI_KEY_P3 || process.env.GEMINI_API_KEY || ''; if (k) { try { const u = new URL(nUrl); u.searchParams.set('key', k); nUrl = u.toString(); } catch {} } }
-      return { url: nUrl, headers: nH };
-    };
-    let effectiveUrl = targetUrl; let effectiveHeaders: Record<string,string> = { ...forwardHeaders };
-    try { const inj = injectServerKeysNode(targetUrl, forwardHeaders); effectiveUrl = inj.url; effectiveHeaders = inj.headers; } catch {}
-
-    const upstream = await fetch(effectiveUrl, {
-      method: reqMethod,
-      headers: effectiveHeaders,
-      body: reqBody != null ? reqBody : undefined,
-      signal: AbortSignal.timeout(25_000),
-    });
-    const bodyText = await upstream.text();
-    return res.json({ ok: upstream.ok, status: upstream.status, bodyText, headers: Object.fromEntries(upstream.headers.entries()) });
-  } catch (e: any) {
-    return res.status(502).json({ ok: false, status: 0, bodyText: '', error: e?.message || String(e) });
-  }
+  const result = await executeGatewayApiRequest(req);
+  return res.status(result.status).json(result.body);
 });
 
-// Health check for US relay — verifies requests go from outside Iran
-app.get('/api/llm/relay-health', async (_req: Request, res: Response) => {
-  const checks: Record<string, any> = {
-    serverRelay: { enabled: true, path: '/api/llm/relay', allowListedHosts: [...LLM_RELAY_ALLOWED_HOSTS] },
-    supabaseRelay: {
-      enabled: true,
-      url: 'https://rwuyuhjkitcnekpwmoml.supabase.co/functions/v1/konklancer-relay',
-      deployedFile: 'supabase/functions/konklancer-relay/index.ts',
-      note: 'باید با supabase functions deploy konklancer-relay روی Supabase deploy شود تا درخواست‌ها از Virginia/US برود',
-    },
-  };
-  try {
-    const probe = await fetch('https://rwuyuhjkitcnekpwmoml.supabase.co/functions/v1/konklancer-relay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs', Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs' },
-      body: JSON.stringify({ target_url: 'https://generativelanguage.googleapis.com/v1beta/models', mode: 'page' }),
-      signal: AbortSignal.timeout(6_000),
-    });
-    checks.supabaseRelay.probe = { httpStatus: probe.status, ok: probe.ok, deployed: probe.status !== 404 };
-    if (probe.status === 404) checks.supabaseRelay.deployedHint = 'هنوز deploy نشده — supabase functions deploy konklancer-relay';
-  } catch (e: any) {
-    checks.supabaseRelay.probe = { error: e?.message || String(e), note: 'سندباکس به supabase.co دسترسی شبکه ندارد — در پروداکشن چک کن' };
-  }
-  res.json({ success: true, relay: checks, vital: 'تمام درخواست‌های AI باید از رله خارج ایران برود — مستقیم از IP ایران به Gemini بلاک است' });
+app.get('/api/llm/relay-health', async (req: Request, res: Response) => {
+  const result = await executeGatewayHealthApiRequest(req);
+  return res.status(result.status).json(result.body);
 });
 
 // Endpoint: واکشی مستقیم URL و استخراج خودکار پروژه‌ها

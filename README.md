@@ -20,15 +20,18 @@ npm start                        # http://localhost:3000
 |-----|--------|-------|
 | `KONKRED_GATEWAY_URL` | بله، برای تحلیل AI | آدرس gateway کانکرد (`gateway/` در [reARbitRA/konkred-AI-ecosystem](https://github.com/reARbitRA/konkred-AI-ecosystem)). |
 | `KONKRED_API_KEY` | بله، برای تحلیل AI | یکی از کلیدهای `USERS_JSON` روی gateway. |
-| `KONKRED_PRIVACY` | خیر | `any` (پیش‌فرض) یا `private` (فقط providerهایی که روی داده آموزش نمی‌دهند). |
-| `KONKRED_TIMEOUT_MS` / `KONKRED_CACHE_TTL_HOURS` | خیر | مهلت هر تماس (پیش‌فرض ۶۰ ثانیه) و عمر کش تحلیل (پیش‌فرض ۱۶۸ ساعت). |
+| `KONKRED_PRIVACY` | خیر | `any` (پیش‌فرض مورد تأیید) یا `strict`. |
+| `KONKRED_TIMEOUT_MS` / `KONKRED_CACHE_TTL_MINUTES` | خیر | مهلت هر تماس (پیش‌فرض ۴۵ ثانیه) و عمر کش تحلیل (پیش‌فرض ۱۴۴۰ دقیقه). |
+| `KONKLANCER_RELAY_TOKEN` | بله، برای LLM از وب/APK | توکن برنامه→سرور؛ باید در Vercel تنظیم و در Settings همان دستگاه وارد شود. با `KONKRED_API_KEY` فرق دارد. |
 | `PORT` | خیر | پیش‌فرض `3000` |
 | `KONKLANCER_DEMO` | خیر | اگر `1` باشد، پروژه‌های ساختگی نمایشی تولید می‌شوند. پیش‌فرض خاموش. |
-| `KONKLANCER_API_TOKEN` | خیر | اگر تنظیم شود (حداقل ۸ نویسه)، همه‌ی `/api/*` توکن می‌خواهند: هدر `x-api-token` یا `Bearer` یا `?token=`. توکن را در تنظیمات → «یادآور و امنیت API» هم وارد کنید. |
+| `KONKLANCER_API_TOKEN` | خیر | اختیاری؛ اگر تنظیم شود، همه‌ی `/api/*` مسیرهای Express به توکن نیاز دارند. برای Vercel relay از `KONKLANCER_RELAY_TOKEN` استفاده کنید. |
 | `KONKLANCER_DB_PATH` | خیر | مسیر دیتابیس SQLite (پیش‌فرض `data/konklancer.db`، مسیر `:memory:` هم پذیرفته است). |
 | `KONKLANCER_TELEGRAM_BOT_TOKEN` / `KONKLANCER_TELEGRAM_CHAT_ID` | خیر | اعلان پروژه‌های بالای آستانه در تلگرام (SPEC-004 R7). |
 | `KONKLANCER_ALERT_THRESHOLD` | خیر | آستانه‌ی امتیاز برای اعلان (پیش‌فرض ۸۵). |
 | `KONKLANCER_BROWSER` | خیر | `1` = رندر صفحه با مرورگر واقعی Playwright برای سایت‌های JS-محور (نیازمند `pip install playwright && playwright install chromium`). |
+
+`KONKRED_API_KEY` باید یک credential مجاز gateway باشد و فقط در محیط امن سرور/Vercel تنظیم شود؛ provider keyها و مدل‌ها از سمت Konklancer پذیرفته نمی‌شوند. در Settings دستگاه فقط `KONKLANCER_RELAY_TOKEN` وارد می‌شود.
 
 **مدل‌ها:** Konklancer هیچ مدلی را به‌صورت ثابت انتخاب نمی‌کند. هر درخواست یک `taskType` دارد (`extraction` برای دسته‌بندی، `general` برای تحلیل و پروپوزال، `code-generation` برای کد)، و gateway بر اساس ظرفیت رایگان کلیدها و اولویت هر وظیفه مدل را انتخاب می‌کند.
 

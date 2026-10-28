@@ -1,23 +1,12 @@
-// SPEC-006: client for a Konkred-compatible AI gateway (Konkred's POST /api/v1/ai/run
-// contract), direct env provider keys (GEMINI_API_KEY / OPENROUTER_API_KEY / GROQ_API_KEY /
-// OPENAI_API_KEY), and user-supplied custom LLM keys (OpenRouter, Groq, Google Gemini, Custom).
-
+// SPEC-006: every production LLM request goes through the Konkred gateway.
+// Provider selection, keys, quotas, failover, caching, and model routing belong
+// to the gateway; Konklancer stores only the gateway credential on its server.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export type TaskType = 'general' | 'coding' | 'code-generation' | 'analysis' | 'creative' | 'extraction';
+export type TaskType = 'extraction' | 'summarization' | 'general' | 'code-generation';
 export type Privacy = 'any' | 'strict';
-export type ProviderKind = 'gateway' | 'openrouter' | 'groq' | 'gemini' | 'custom';
-
-export interface CustomLLMInput {
-  provider?: 'openrouter' | 'groq' | 'gemini' | 'custom' | string;
-  endpoint?: string;
-  apiKey?: string;
-  model?: string;
-}
-
-export type CustomLLMCallConfig = CustomLLMInput;
 
 export interface LLMConfig {
   gatewayUrl: string;
@@ -26,197 +15,26 @@ export interface LLMConfig {
   privacy: Privacy;
   cacheDir: string | null;
   cacheTtlMs: number;
-  directCustom?: CustomLLMInput;
-}
-
-export const PROVIDER_DEFAULTS: Record<Exclude<ProviderKind, 'gateway'>, { endpoint: string; defaultModel: string }> = {
-  openrouter: {
-    endpoint: 'https://openrouter.ai/api/v1',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-  },
-  groq: {
-    endpoint: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.3-70b-versatile',
-  },
-  gemini: {
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta',
-    defaultModel: 'gemini-2.5-flash',
-  },
-  custom: {
-    endpoint: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
-  },
-};
-
-export function sanitizeModelId(rawModel?: string): string {
-  if (!rawModel) return '';
-  return rawModel
-    .trim()
-    .replace(/^⭐\s*/, '')
-    .replace(/\s*\[رایگان\s*\/\s*Free\]\s*$/i, '')
-    .trim();
-}
-
-export function normalizeEndpointBase(rawEndpoint?: string): string {
-  if (!rawEndpoint) return '';
-  return rawEndpoint
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/models$/i, '');
-}
-
-export function detectProviderFromKeyOrEndpoint(
-  rawProvider?: string,
-  rawEndpoint?: string,
-  rawApiKey?: string,
-): Exclude<ProviderKind, 'gateway'> {
-  const key = (rawApiKey || '').trim();
-  const ep = normalizeEndpointBase(rawEndpoint);
-  const prov = (rawProvider || '').trim().toLowerCase();
-
-  // Key prefixes are unambiguous and fix the common case where a user pastes a Gemini/Groq/OpenRouter
-  // key without switching the dropdown first.
-  if (key.startsWith('AIza')) return 'gemini';
-  if (key.startsWith('gsk_')) return 'groq';
-  if (key.startsWith('sk-or-')) return 'openrouter';
-
-  if (ep.includes('generativelanguage.googleapis.com')) return 'gemini';
-  if (ep.includes('api.groq.com')) return 'groq';
-  if (ep.includes('openrouter.ai')) return 'openrouter';
-
-  if (prov === 'gemini' || prov === 'groq' || prov === 'openrouter' || prov === 'custom') {
-    return prov;
-  }
-  return 'openrouter';
-}
-
-export function normalizeCustomLLM(custom?: CustomLLMInput | null): Required<CustomLLMInput> | null {
-  if (!custom?.apiKey || !custom.apiKey.trim()) return null;
-  const apiKey = custom.apiKey.trim();
-  const provider = detectProviderFromKeyOrEndpoint(custom.provider, custom.endpoint, apiKey);
-  const rawEp = normalizeEndpointBase(custom.endpoint);
-
-  // If the user switched key types (e.g. AIza... while endpoint still said openrouter.ai), reset endpoint to match provider.
-  let endpoint = rawEp || PROVIDER_DEFAULTS[provider].endpoint;
-  if (provider === 'gemini' && !endpoint.includes('generativelanguage.googleapis.com')) {
-    endpoint = PROVIDER_DEFAULTS.gemini.endpoint;
-  } else if (provider === 'groq' && (endpoint.includes('openrouter.ai') || endpoint.includes('googleapis.com'))) {
-    endpoint = PROVIDER_DEFAULTS.groq.endpoint;
-  } else if (provider === 'openrouter' && (endpoint.includes('api.groq.com') || endpoint.includes('googleapis.com'))) {
-    endpoint = PROVIDER_DEFAULTS.openrouter.endpoint;
-  }
-
-  let model = sanitizeModelId(custom.model);
-  if (provider === 'gemini') {
-    model = model.replace(/^models\//, '');
-    // Guard against stale OpenRouter/Groq model IDs stored in localStorage
-    if (!model || model.includes('/') || model.includes(':free') || !model.startsWith('gemini')) {
-      model = PROVIDER_DEFAULTS.gemini.defaultModel;
-    }
-  } else if (provider === 'groq') {
-    if (!model || model.includes(':free') || model.startsWith('meta-llama/') || model.startsWith('gemini-')) {
-      model = PROVIDER_DEFAULTS.groq.defaultModel;
-    }
-  } else if (!model) {
-    model = PROVIDER_DEFAULTS[provider].defaultModel;
-  }
-
-  return { provider, endpoint, apiKey, model };
 }
 
 export function readLLMConfig(env: NodeJS.ProcessEnv = process.env): LLMConfig | null {
-  const timeoutMs = Math.max(1000, Number(env.KONKRED_TIMEOUT_MS) || 45_000);
+  const apiKey = env.KONKRED_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  const timeoutMs = Math.max(1_000, Number(env.KONKRED_TIMEOUT_MS) || 45_000);
   const privacy: Privacy = env.KONKRED_PRIVACY === 'strict' ? 'strict' : 'any';
   const cacheDir = env.KONKRED_CACHE_DIR === '' ? null : env.KONKRED_CACHE_DIR || path.join('data', 'ai-cache');
-  const cacheTtlMs = Math.max(0, (Number(env.KONKRED_CACHE_TTL_MINUTES) ?? 1440) * 60_000);
+  const configuredTtlMinutes = Number(env.KONKRED_CACHE_TTL_MINUTES);
+  const cacheTtlMs = Math.max(0, (Number.isFinite(configuredTtlMinutes) ? configuredTtlMinutes : 1_440) * 60_000);
 
-  const gatewayKey = env.KONKRED_API_KEY?.trim();
-  if (gatewayKey) {
-    return {
-      gatewayUrl: (env.KONKRED_GATEWAY_URL || 'http://127.0.0.1:3001').replace(/\/+$/, ''),
-      apiKey: gatewayKey,
-      timeoutMs,
-      privacy,
-      cacheDir,
-      cacheTtlMs,
-    };
-  }
-
-  // Fallback to direct provider keys injected by AI Studio / VPS .env when KONKRED_API_KEY is not set
-  const geminiKey = (env.GEMINI_API_KEY || env.GOOGLE_API_KEY)?.trim();
-  if (geminiKey) {
-    return {
-      gatewayUrl: PROVIDER_DEFAULTS.gemini.endpoint,
-      apiKey: geminiKey,
-      timeoutMs,
-      privacy,
-      cacheDir,
-      cacheTtlMs,
-      directCustom: {
-        provider: 'gemini',
-        endpoint: PROVIDER_DEFAULTS.gemini.endpoint,
-        apiKey: geminiKey,
-        model: env.GEMINI_MODEL?.trim() || PROVIDER_DEFAULTS.gemini.defaultModel,
-      },
-    };
-  }
-
-  const openRouterKey = env.OPENROUTER_API_KEY?.trim();
-  if (openRouterKey) {
-    return {
-      gatewayUrl: PROVIDER_DEFAULTS.openrouter.endpoint,
-      apiKey: openRouterKey,
-      timeoutMs,
-      privacy,
-      cacheDir,
-      cacheTtlMs,
-      directCustom: {
-        provider: 'openrouter',
-        endpoint: PROVIDER_DEFAULTS.openrouter.endpoint,
-        apiKey: openRouterKey,
-        model: env.OPENROUTER_MODEL?.trim() || PROVIDER_DEFAULTS.openrouter.defaultModel,
-      },
-    };
-  }
-
-  const groqKey = env.GROQ_API_KEY?.trim();
-  if (groqKey) {
-    return {
-      gatewayUrl: PROVIDER_DEFAULTS.groq.endpoint,
-      apiKey: groqKey,
-      timeoutMs,
-      privacy,
-      cacheDir,
-      cacheTtlMs,
-      directCustom: {
-        provider: 'groq',
-        endpoint: PROVIDER_DEFAULTS.groq.endpoint,
-        apiKey: groqKey,
-        model: env.GROQ_MODEL?.trim() || PROVIDER_DEFAULTS.groq.defaultModel,
-      },
-    };
-  }
-
-  const openAIKey = env.OPENAI_API_KEY?.trim();
-  if (openAIKey) {
-    return {
-      gatewayUrl: PROVIDER_DEFAULTS.custom.endpoint,
-      apiKey: openAIKey,
-      timeoutMs,
-      privacy,
-      cacheDir,
-      cacheTtlMs,
-      directCustom: {
-        provider: 'custom',
-        endpoint: normalizeEndpointBase(env.OPENAI_BASE_URL) || PROVIDER_DEFAULTS.custom.endpoint,
-        apiKey: openAIKey,
-        model: env.OPENAI_MODEL?.trim() || PROVIDER_DEFAULTS.custom.defaultModel,
-      },
-    };
-  }
-
-  return null;
+  return {
+    gatewayUrl: (env.KONKRED_GATEWAY_URL || 'https://api.konkred.xyz').trim().replace(/\/+$/, ''),
+    apiKey,
+    timeoutMs,
+    privacy,
+    cacheDir,
+    cacheTtlMs,
+  };
 }
 
 export type LLMErrorCode =
@@ -251,6 +69,7 @@ export class LLMError extends Error {
           ? messageOrHttpStatus
           : String(code);
     super(resolvedMessage);
+    this.name = 'LLMError';
     this.httpStatus = resolvedStatus;
     this.status = resolvedStatus;
     this.retryAfterSeconds = retryAfterSeconds;
@@ -259,12 +78,13 @@ export class LLMError extends Error {
 
 export interface LLMRequest {
   taskType: TaskType;
-  prompt: string;
+  user: string;
   system?: string;
   json?: boolean;
   temperature?: number;
   maxTokens?: number;
   cacheKey?: string;
+  privacy?: Privacy;
 }
 
 export interface LLMResult {
@@ -272,246 +92,156 @@ export interface LLMResult {
   model: string;
   cached: boolean;
   provider?: string;
+  attempts: number;
 }
 
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1;
+const GATEWAY_MODELS_TIMEOUT_MS = 15_000;
 
 export async function callLLM(
   req: LLMRequest,
   cfg: LLMConfig | null,
   fetchImpl: typeof fetch = fetch,
-  customLLM?: CustomLLMInput | null,
 ): Promise<LLMResult> {
-  const normalizedCustom = normalizeCustomLLM(customLLM) ?? normalizeCustomLLM(cfg?.directCustom);
-  const useCustom = Boolean(normalizedCustom);
-
-  if (!useCustom && !cfg) {
+  if (!cfg) {
     throw new LLMError(
       'AI_NOT_CONFIGURED',
       503,
-      'کلید هوش مصنوعی تنظیم نشده است. از بخش «تنظیمات ⬅ اتصال هوش مصنوعی» کلید رایگان (OpenRouter / Groq / Gemini) خود را وارد کنید یا GEMINI_API_KEY / KONKRED_API_KEY را در سرور تنظیم کنید.',
+      'درگاه هوش مصنوعی تنظیم نشده است؛ KONKRED_GATEWAY_URL و KONKRED_API_KEY را در محیط امن سرور تنظیم کنید.',
     );
   }
-
-  const effectiveTimeout = cfg?.timeoutMs || 45_000;
-  const effectiveCacheDir = cfg?.cacheDir === undefined ? path.join('data', 'ai-cache') : cfg.cacheDir;
-  const effectiveCacheTtl = cfg?.cacheTtlMs ?? 1440 * 60_000;
-
-  const modelCacheSalt = normalizedCustom ? `${normalizedCustom.provider}:${normalizedCustom.model}` : 'gateway';
-  const cached = req.cacheKey ? readCache(effectiveCacheDir, `${modelCacheSalt}:${req.cacheKey}`, effectiveCacheTtl) : null;
-  if (cached) return { ...cached, cached: true, provider: normalizedCustom?.provider ?? 'gateway' };
-
-  // Google Gemini Native API path
-  if (normalizedCustom && normalizedCustom.provider === 'gemini') {
-    const result = await callGeminiNative(req, normalizedCustom, effectiveTimeout, fetchImpl);
-    if (req.cacheKey) writeCache(effectiveCacheDir, `${modelCacheSalt}:${req.cacheKey}`, result);
-    return { ...result, cached: false, provider: 'gemini' };
+  if (!isTaskType(req.taskType) || typeof req.user !== 'string' || !req.user.trim()) {
+    throw new LLMError('AI_BAD_RESPONSE', 400, 'درخواست هوش مصنوعی معتبر نیست.');
   }
 
-  const isOpenRouter = Boolean(normalizedCustom && normalizedCustom.provider === 'openrouter');
-  let url: string;
-  let headers: Record<string, string>;
+  const effectiveCacheDir = cfg.cacheDir === undefined ? path.join('data', 'ai-cache') : cfg.cacheDir;
+  const effectiveCacheTtl = cfg.cacheTtlMs ?? 1_440 * 60_000;
+  const fingerprint = crypto
+    .createHash('sha256')
+    .update(`${req.taskType}\0${req.system ?? ''}\0${req.user}\0${req.json ? 'json' : 'text'}`)
+    .digest('hex');
+  const cacheKey = `${req.taskType}:${req.cacheKey ?? ''}:${fingerprint}`;
+  const cached = readCache(effectiveCacheDir, cacheKey, effectiveCacheTtl);
+  if (cached) return { ...cached, cached: true, provider: 'gateway', attempts: 0 };
 
-  if (normalizedCustom) {
-    const base = normalizeEndpointBase(normalizedCustom.endpoint);
-    url = `${base}/chat/completions`;
-    headers = {
-      'content-type': 'application/json',
-      authorization: `Bearer ${normalizedCustom.apiKey}`,
-    };
-    if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://konklancer.local';
-      headers['X-Title'] = 'KonkLancer Studio';
-    }
-  } else {
-    url = `${cfg!.gatewayUrl}/api/v1/ai/run`;
-    headers = {
-      'content-type': 'application/json',
-      authorization: `Bearer ${cfg!.apiKey}`,
-    };
-  }
-
+  const url = `${cfg.gatewayUrl.replace(/\/+$/, '')}/v1/chat/completions`;
   const messages = [
     ...(req.system ? [{ role: 'system', content: req.system }] : []),
-    { role: 'user', content: req.prompt },
+    { role: 'user', content: req.user },
   ];
+  const payload = {
+    taskType: req.taskType,
+    privacy: req.privacy ?? cfg.privacy,
+    messages,
+    temperature: req.temperature ?? 0.3,
+    ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+    ...(req.json ? { response_format: { type: 'json_object' } } : {}),
+  };
 
-  // Candidate models: for OpenRouter `:free` requests, provide automatic fallback free models if the chosen upstream is overloaded/404.
-  const primaryModel = normalizedCustom?.model || 'meta-llama/llama-3.3-70b-instruct:free';
-  const modelCandidates =
-    isOpenRouter && (primaryModel.endsWith(':free') || primaryModel === 'openrouter/free')
-      ? Array.from(
-          new Set([
-            primaryModel,
-            'openrouter/free',
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'qwen/qwen-2.5-72b-instruct:free',
-          ]),
-        )
-      : [primaryModel];
-
-  let lastError: LLMError | null = null;
-
-  for (let mIdx = 0; mIdx < modelCandidates.length; mIdx++) {
-    const candidateModel = modelCandidates[mIdx];
-    const isLastCandidate = mIdx === modelCandidates.length - 1;
-
-    // Reasoning/free models need enough token headroom to emit final content after chain-of-thought.
-    const safeMaxTokens = normalizedCustom
-      ? Math.max(req.maxTokens ?? 2048, isOpenRouter || /r1|reason|qwq|o1|o3/i.test(candidateModel) ? 256 : req.maxTokens ?? 256)
-      : req.maxTokens;
-
-    const body: Record<string, unknown> = normalizedCustom
-      ? {
-          model: candidateModel,
-          messages,
-          temperature: req.temperature ?? 0.3,
-          ...(safeMaxTokens ? { max_tokens: safeMaxTokens } : {}),
-          ...(req.json && !candidateModel.endsWith(':free') && candidateModel !== 'openrouter/free'
-            ? { response_format: { type: 'json_object' } }
-            : {}),
-        }
-      : {
-          taskType: req.taskType,
-          privacy: cfg!.privacy,
-          messages,
-          temperature: req.temperature ?? 0.3,
-          ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-          ...(req.json ? { response_format: { type: 'json_object' } } : {}),
-        };
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      let res: Response;
-      try {
-        res = await fetchImpl(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(effectiveTimeout),
-        });
-      } catch (e: any) {
-        const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
-        if (!timedOut && attempt < MAX_RETRIES) {
-          await sleep(backoffMs(attempt));
-          continue;
-        }
-        throw new LLMError(
-          timedOut ? 'AI_TIMEOUT' : 'AI_UNAVAILABLE',
-          504,
-          timedOut ? `پاسخ هوش مصنوعی بیش از ${effectiveTimeout}ms طول کشید.` : `ارتباط با سرور هوش مصنوعی برقرار نشد (${e?.message || e}).`,
-        );
-      }
-
-      if (res.status === 401 || res.status === 403) {
-        const errTxt = await safeErrorMessage(res);
-        throw new LLMError(
-          'AI_AUTH',
-          502,
-          `کلید API هوش مصنوعی رد شد (HTTP ${res.status})${errTxt ? `: ${errTxt}` : ''}. کلید خود را بررسی کنید.`,
-        );
-      }
-
-      if (res.status === 429) {
-        const retryAfter = Number(res.headers?.get?.('retry-after')) || undefined;
-        if (attempt < 1) {
-          await sleep((retryAfter ? Math.min(retryAfter, 5) : 1) * 1000);
-          continue;
-        }
-        const errTxt = await safeErrorMessage(res);
-        lastError = new LLMError(
-          'AI_RATE_LIMIT',
-          429,
-          `سقف درخواست مدل (${candidateModel}) پر شده است.${errTxt ? ` (${errTxt})` : ''}`,
-          retryAfter,
-        );
-        if (!isLastCandidate) break;
-        throw lastError;
-      }
-
-      if (res.status === 404 && !isLastCandidate) {
-        lastError = new LLMError('AI_UNAVAILABLE', 502, `مدل ${candidateModel} در دسترس نیست (HTTP 404).`);
-        break;
-      }
-
-      if (res.status >= 500) {
-        if (attempt < MAX_RETRIES) {
-          await sleep(backoffMs(attempt));
-          continue;
-        }
-        const detail = await safeErrorMessage(res);
-        lastError = new LLMError('AI_UNAVAILABLE', 502, `سرور هوش مصنوعی خطای ${res.status} برگرداند.${detail ? ` (${detail})` : ''}`);
-        if (!isLastCandidate) break;
-        throw lastError;
-      }
-
-      if (!res.ok) {
-        const detail = await safeErrorMessage(res);
-        lastError = new LLMError(
-          'AI_UNAVAILABLE',
-          502,
-          `پاسخ غیرمنتظره (${res.status}) از سرور هوش مصنوعی.${detail ? ` جزئیات: ${detail}` : ''}`,
-        );
-        if (!isLastCandidate) break;
-        throw lastError;
-      }
-
-      let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        throw new LLMError('AI_BAD_RESPONSE', 502, 'پاسخ JSON معتبر نبود.');
-      }
-
-      const model: string = data?.model || candidateModel || 'unknown';
-      if (!normalizedCustom && model.startsWith('mock:')) {
-        throw new LLMError(
-          'AI_UNAVAILABLE',
-          503,
-          'درگاه Konkred به شبیه‌ساز آفلاین (mock) افتاده است؛ خروجی واقعی نیست و نمایش داده نمی‌شود.',
-        );
-      }
-
-      const rawMsg = data?.choices?.[0]?.message;
-      let text: string | undefined =
-        typeof rawMsg?.content === 'string' && rawMsg.content.trim()
-          ? rawMsg.content
-          : Array.isArray(rawMsg?.content)
-            ? rawMsg.content
-                .map((part: any) => (typeof part === 'string' ? part : part?.text || ''))
-                .join('')
-            : undefined;
-
-      // Fallback if a reasoning model placed plain answer in reasoning field when max_tokens clipped early
-      if ((!text || !text.trim()) && typeof rawMsg?.reasoning === 'string' && rawMsg.reasoning.trim() && !req.json) {
-        text = rawMsg.reasoning.trim();
-      }
-
-      if (!text || !text.trim()) {
-        lastError = new LLMError('AI_BAD_RESPONSE', 502, `پاسخ متنی مدل (${model}) خالی بود.`);
-        if (!isLastCandidate) break;
-        throw lastError;
-      }
-
-      if (req.cacheKey) writeCache(effectiveCacheDir, `${modelCacheSalt}:${req.cacheKey}`, { text, model });
-      return { text, model, cached: false, provider: normalizedCustom?.provider ?? 'gateway' };
-    }
-  }
-
-  throw lastError ?? new LLMError('AI_UNAVAILABLE', 502, 'پاسخی از سرویس هوش مصنوعی دریافت نشد.');
-}
-
-async function safeErrorMessage(res: Response): Promise<string> {
-  try {
-    const raw = await res.text();
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    let response: Response;
     try {
-      const parsed = JSON.parse(raw);
-      return parsed?.error?.message || parsed?.message || raw.slice(0, 180);
-    } catch {
-      return raw.slice(0, 180);
+      response = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(cfg.timeoutMs),
+      });
+    } catch (error: any) {
+      const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+      if (attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      throw new LLMError(
+        timedOut ? 'AI_TIMEOUT' : 'AI_UNAVAILABLE',
+        timedOut ? 504 : 502,
+        timedOut
+          ? `پاسخ درگاه هوش مصنوعی بیش از ${cfg.timeoutMs} میلی‌ثانیه طول کشید.`
+          : `ارتباط با درگاه هوش مصنوعی برقرار نشد (${error?.message || error}).`,
+      );
     }
-  } catch {
-    return '';
+
+    if (response.status === 401 || response.status === 403) {
+      const detail = await safeErrorMessage(response);
+      throw new LLMError(
+        'AI_AUTH',
+        401,
+        `اعتبار دسترسی به درگاه Konkred رد شد${detail ? `: ${detail}` : ''}. تنظیم KONKRED_API_KEY را بررسی کنید.`,
+      );
+    }
+
+    if (response.status === 429) {
+      const detail = await readErrorPayload(response);
+      const retryAfter = parseRetryAfter(response.headers.get('retry-after'), detail?.retryAfterSec);
+      if (attempt < MAX_RETRIES) {
+        await sleep(retryAfter * 1_000);
+        continue;
+      }
+      throw new LLMError(
+        'AI_RATE_LIMIT',
+        429,
+        detail?.message || 'سقف درخواست درگاه هوش مصنوعی پر شده است.',
+        retryAfter,
+      );
+    }
+
+    if (response.status >= 500) {
+      if (attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      const detail = await safeErrorMessage(response);
+      throw new LLMError(
+        'AI_UNAVAILABLE',
+        502,
+        `درگاه هوش مصنوعی خطای ${response.status} برگرداند${detail ? `: ${detail}` : ''}.`,
+      );
+    }
+
+    if (!response.ok) {
+      const detail = await safeErrorMessage(response);
+      throw new LLMError(
+        'AI_UNAVAILABLE',
+        502,
+        `پاسخ غیرمنتظره (${response.status}) از درگاه هوش مصنوعی${detail ? `: ${detail}` : ''}.`,
+      );
+    }
+
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      throw new LLMError('AI_BAD_RESPONSE', 502, 'پاسخ درگاه Konkred JSON معتبر نبود.');
+    }
+
+    const model = typeof data?.model === 'string' && data.model.trim() ? data.model.trim() : 'unknown';
+    const provider = typeof data?.provider === 'string' ? data.provider.toLowerCase() : '';
+    if (model.toLowerCase().startsWith('mock:') || provider === 'mock') {
+      throw new LLMError(
+        'AI_UNAVAILABLE',
+        503,
+        'درگاه Konkred فقط پاسخ شبیه‌ساز آفلاین برگرداند؛ این خروجی به‌عنوان تحلیل نمایش داده نمی‌شود.',
+      );
+    }
+
+    const content = data?.choices?.[0]?.message?.content;
+    const text = typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content)
+        ? content.map((part: any) => typeof part === 'string' ? part : part?.text || '').join('').trim()
+        : '';
+    if (!text) throw new LLMError('AI_BAD_RESPONSE', 502, `پاسخ متنی مدل (${model}) خالی بود.`);
+
+    const result = { text, model, cached: false, provider: provider || providerFromModel(model), attempts: attempt + 1 };
+    writeCache(effectiveCacheDir, cacheKey, result);
+    return result;
   }
+
+  throw new LLMError('AI_UNAVAILABLE', 502, 'پاسخی از درگاه هوش مصنوعی دریافت نشد.');
 }
 
 export interface DiscoveredModel {
@@ -522,246 +252,72 @@ export interface DiscoveredModel {
   description?: string;
 }
 
+/** Models are discovered from the gateway, but selection remains its job. */
 export async function scanModels(
-  custom: CustomLLMInput,
+  cfg: LLMConfig | null,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ success: boolean; models: DiscoveredModel[]; defaultModel?: string; detectedProvider?: string; endpoint?: string; error?: string }> {
-  const normalized = normalizeCustomLLM(custom);
-  if (!normalized) {
-    return { success: false, models: [], error: 'کلید API وارد نشده است.' };
-  }
-
-  const { provider, endpoint, apiKey } = normalized;
-
+): Promise<{ success: boolean; models: DiscoveredModel[]; error?: string }> {
+  if (!cfg) return { success: false, models: [], error: 'درگاه Konkred تنظیم نشده است.' };
   try {
-    // 1. Google Gemini Native Models Scan
-    if (provider === 'gemini') {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) {
-        const err = await safeErrorMessage(res);
-        return { success: false, models: [], error: `خطا در احراز هویت Gemini (${res.status}): ${err}` };
-      }
-      const data: any = await res.json();
-      const rawModels: any[] = data?.models || [];
-      const models: DiscoveredModel[] = rawModels
-        .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-        .map((m) => {
-          const id = String(m.name || '').replace(/^models\//, '');
-          const isFree = id.includes('flash') || id.includes('gemma');
-          return {
-            id,
-            name: `${m.displayName || id}${isFree ? ' [رایگان / Free]' : ''}`,
-            isFree,
-            contextLength: m.inputTokenLimit,
-            description: m.description,
-          };
-        })
-        .sort((a, b) => Number(b.isFree) - Number(a.isFree));
-
-      const preferred =
-        models.find((m) => m.id === 'gemini-2.5-flash') ||
-        models.find((m) => m.id === 'gemini-2.0-flash') ||
-        models.find((m) => m.isFree) ||
-        models[0];
-
-      return {
-        success: true,
-        models,
-        defaultModel: preferred?.id || 'gemini-2.5-flash',
-        detectedProvider: provider,
-        endpoint,
-      };
-    }
-
-    // 2. OpenRouter Models Scan (detect `:free` and pricing === "0")
-    if (provider === 'openrouter') {
-      const res = await fetchImpl(`${endpoint}/models`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) {
-        const err = await safeErrorMessage(res);
-        return { success: false, models: [], error: `خطا از OpenRouter (${res.status}): ${err}` };
-      }
-      const data: any = await res.json();
-      const rawModels: any[] = data?.data || [];
-      const models: DiscoveredModel[] = rawModels
-        .map((m) => {
-          const promptPrice = String(m?.pricing?.prompt ?? '1');
-          const completionPrice = String(m?.pricing?.completion ?? '1');
-          const isFree =
-            (promptPrice === '0' && completionPrice === '0') ||
-            String(m.id).endsWith(':free') ||
-            String(m.id) === 'openrouter/free';
-          return {
-            id: m.id,
-            name: `${m.name || m.id}${isFree ? ' [رایگان / Free]' : ''}`,
-            isFree,
-            contextLength: m.context_length,
-            description: m.description,
-          };
-        })
-        .sort((a, b) => {
-          if (a.isFree !== b.isFree) return Number(b.isFree) - Number(a.isFree);
-          return a.name.localeCompare(b.name);
-        });
-
-      const preferred =
-        models.find((m) => m.isFree && m.id.includes('llama-3.3-70b')) ||
-        models.find((m) => m.isFree && m.id.includes('qwen')) ||
-        models.find((m) => m.isFree && m.id.includes('gemini')) ||
-        models.find((m) => m.isFree) ||
-        models[0];
-
-      return {
-        success: true,
-        models,
-        defaultModel: preferred?.id,
-        detectedProvider: provider,
-        endpoint,
-      };
-    }
-
-    // 3. Groq / OpenAI / Compatible Endpoint Scan
-    const res = await fetchImpl(`${endpoint}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
+    const response = await fetchImpl(`${cfg.gatewayUrl.replace(/\/+$/, '')}/v1/models`, {
+      headers: { authorization: `Bearer ${cfg.apiKey}` },
+      signal: AbortSignal.timeout(GATEWAY_MODELS_TIMEOUT_MS),
     });
-    if (!res.ok) {
-      const err = await safeErrorMessage(res);
-      return { success: false, models: [], error: `خطا در اسکن مدل‌ها (${res.status}): ${err}` };
+    if (!response.ok) {
+      const detail = await safeErrorMessage(response);
+      return { success: false, models: [], error: `خطای درگاه (${response.status}): ${detail}` };
     }
-    const data: any = await res.json();
-    const rawModels: any[] = data?.data || (Array.isArray(data) ? data : []);
-    const isGroq = provider === 'groq';
-    const models: DiscoveredModel[] = rawModels.map((m) => {
-      const id = typeof m === 'string' ? m : m.id || m.name;
-      return {
-        id,
-        name: `${id}${isGroq ? ' [رایگان در پلن Groq / Free Tier]' : ''}`,
-        isFree: isGroq,
-        contextLength: m?.context_window || m?.context_length,
-      };
-    });
-
-    const preferred =
-      models.find((m) => m.id.includes('llama-3.3-70b')) ||
-      models.find((m) => m.id.includes('gpt-4o-mini')) ||
-      models[0];
-
+    const data: any = await response.json();
+    const rawModels: any[] = Array.isArray(data?.data) ? data.data : [];
     return {
       success: true,
-      models,
-      defaultModel: preferred?.id,
-      detectedProvider: provider,
-      endpoint,
+      models: rawModels
+        .filter((model) => typeof model?.id === 'string')
+        .map((model) => ({ id: model.id, name: model.id, isFree: false })),
     };
-  } catch (e: any) {
+  } catch (error: any) {
+    return { success: false, models: [], error: error?.message || 'عدم ارتباط با درگاه Konkred.' };
+  }
+}
+
+async function readErrorPayload(response: Response): Promise<{ message?: string; retryAfterSec?: number }> {
+  try {
+    const payload: any = await response.clone().json();
     return {
-      success: false,
-      models: [],
-      error: `عدم برقراری ارتباط با Endpoint: ${e?.message || e}`,
+      message: payload?.error?.message || payload?.message,
+      retryAfterSec: Number(payload?.error?.retryAfterSec ?? payload?.retryAfterSec) || undefined,
     };
+  } catch {
+    return {};
   }
 }
 
-async function callGeminiNative(
-  req: LLMRequest,
-  custom: Required<CustomLLMInput>,
-  timeoutMs: number,
-  fetchImpl: typeof fetch,
-): Promise<{ text: string; model: string }> {
-  const modelName = sanitizeModelId(custom.model).replace(/^models\//, '') || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(custom.apiKey)}`;
-
-  // Prevent Gemini 2.5 thinking tokens from consuming the entire small maxOutputTokens budget (e.g. maxTokens: 60 / 64).
-  const isFlash25 = modelName.startsWith('gemini-2.5-flash');
-  const generationConfig: Record<string, unknown> = {
-    temperature: req.temperature ?? 0.3,
-    maxOutputTokens: Math.max(req.maxTokens ?? 2048, 512),
-    ...(req.json ? { responseMimeType: 'application/json' } : {}),
-    ...(isFlash25 && (req.maxTokens ?? 2048) <= 256 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-  };
-
-  const payload: Record<string, unknown> = {
-    contents: [{ role: 'user', parts: [{ text: req.prompt }] }],
-    ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
-    generationConfig,
-  };
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    let res: Response;
-    try {
-      res = await fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (e: any) {
-      const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
-      if (!timedOut && attempt < MAX_RETRIES) {
-        await sleep(backoffMs(attempt));
-        continue;
-      }
-      throw new LLMError(
-        timedOut ? 'AI_TIMEOUT' : 'AI_UNAVAILABLE',
-        504,
-        timedOut ? `پاسخ Gemini بیش از ${timeoutMs}ms طول کشید.` : `عدم ارتباط با Gemini (${e?.message || e}).`,
-      );
-    }
-
-    if (res.status === 401 || res.status === 403 || res.status === 400) {
-      const errTxt = await safeErrorMessage(res);
-      if (res.status === 400 && !errTxt.toLowerCase().includes('api key')) {
-        throw new LLMError('AI_UNAVAILABLE', 502, `خطای پارامتر Gemini (${modelName}): ${errTxt}`);
-      }
-      throw new LLMError('AI_AUTH', 502, `کلید API گوگل Gemini نامعتبر است یا دسترسی ندارد: ${errTxt}`);
-    }
-
-    if (res.status === 429) {
-      if (attempt < 1) {
-        await sleep(1000);
-        continue;
-      }
-      throw new LLMError('AI_RATE_LIMIT', 429, 'سقف رایگان Gemini موقتاً پر شده است؛ چند ثانیه صبر کنید.');
-    }
-
-    if (res.status >= 500 && attempt < MAX_RETRIES) {
-      await sleep(backoffMs(attempt));
-      continue;
-    }
-
-    if (!res.ok) {
-      const errTxt = await safeErrorMessage(res);
-      throw new LLMError('AI_UNAVAILABLE', 502, `خطای Gemini (${res.status}): ${errTxt}`);
-    }
-
-    const data: any = await res.json();
-    const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
-    const text = parts
-      .filter((p) => !p?.thought && typeof p?.text === 'string')
-      .map((p) => p.text)
-      .join('')
-      .trim();
-
-    if (!text) {
-      const blockReason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || '';
-      throw new LLMError(
-        'AI_BAD_RESPONSE',
-        502,
-        `Gemini پاسخ متنی خالی برگرداند${blockReason ? ` (${blockReason})` : ''}.`,
-      );
-    }
-
-    return { text, model: modelName };
+async function safeErrorMessage(response: Response): Promise<string> {
+  const detail = await readErrorPayload(response);
+  if (detail.message) return detail.message.slice(0, 240);
+  try {
+    return (await response.clone().text()).slice(0, 240);
+  } catch {
+    return '';
   }
-
-  throw new LLMError('AI_UNAVAILABLE', 502, 'پاسخی از Gemini دریافت نشد.');
 }
 
-// Models frequently wrap JSON in ```json fences or add a sentence around it even with json mode.
+function parseRetryAfter(headerValue: string | null, bodyValue?: number): number {
+  const headerSeconds = headerValue ? Number(headerValue) : Number.NaN;
+  const selected = Number.isFinite(headerSeconds) && headerSeconds >= 0 ? headerSeconds : Number(bodyValue);
+  return Number.isFinite(selected) && selected >= 0 ? Math.min(60, selected) : 1;
+}
+
+function isTaskType(value: string): value is TaskType {
+  return value === 'extraction' || value === 'summarization' || value === 'general' || value === 'code-generation';
+}
+
+function providerFromModel(model: string): string {
+  const separator = model.indexOf(':');
+  return separator > 0 ? model.slice(0, separator) : 'gateway';
+}
+
+// Models frequently wrap JSON in ```json fences or add a sentence around it even with JSON mode.
 export function parseJsonLoose<T = any>(raw: string): T | null {
   const trimmed = raw.trim();
   const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -770,16 +326,16 @@ export function parseJsonLoose<T = any>(raw: string): T | null {
     try {
       return JSON.parse(candidate) as T;
     } catch {
-      /* try next */
+      // Try the next candidate.
     }
   }
   return null;
 }
 
-function sliceFirstObject(s: string): string | null {
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  return start >= 0 && end > start ? s.slice(start, end + 1) : null;
+function sliceFirstObject(source: string): string | null {
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+  return start >= 0 && end > start ? source.slice(start, end + 1) : null;
 }
 
 function cachePath(dir: string, key: string): string {
@@ -796,20 +352,20 @@ function readCache(dir: string | null, key: string, ttlMs: number): { text: stri
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
     if (typeof parsed?.text === 'string' && typeof parsed?.model === 'string') return parsed;
   } catch {
-    /* miss */
+    // Cache miss.
   }
   return null;
 }
 
-function writeCache(dir: string | null, key: string, value: { text: string; model: string }): void {
+function writeCache(dir: string | null, key: string, value: { text: string; model: string; cached?: boolean; provider?: string }): void {
   if (!dir) return;
   try {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(cachePath(dir, key), JSON.stringify(value), 'utf-8');
   } catch {
-    /* cache is best-effort */
+    // Cache is best-effort; inference should still succeed.
   }
 }
 
 const backoffMs = (attempt: number) => 400 * Math.pow(2, attempt);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
