@@ -86,7 +86,8 @@ export async function smartFetchLLM(
     if (controller.signal.aborted) {
       throw new Error('زمان اتصال به سرویس هوش مصنوعی پایان یافت. ورودی شما حفظ شده است؛ دوباره تلاش کنید.');
     }
-    throw error;
+    // Network errors can include provider URLs and credentials (e.g. Gemini query keys).
+    throw new Error('Failed to fetch: اتصال به سرویس برقرار نشد. شبکه، CORS و آدرس سرویس را بررسی کنید.');
   } finally {
     clearTimeout(timer);
   }
@@ -187,6 +188,8 @@ function extractBalancedBlock(text: string): string | null {
 // Provider payloads may echo credentials or prompts. Never display them in the UI.
 async function safeReadError(res: Response): Promise<string> {
   if (res.status === 401 || res.status === 403) return 'کلید یا دسترسی سرویس را بررسی کنید.';
+  if (res.status === 402) return 'اعتبار یا وضعیت پرداخت سرویس را بررسی کنید.';
+  if (res.status === 404) return 'مدل یا آدرس سرویس پیدا نشد؛ شناسه مدل و دسترسی حساب را بررسی کنید.';
   if (res.status === 429) return 'سهمیه یا محدودیت درخواست سرویس تمام شده است؛ کمی بعد دوباره تلاش کنید.';
   if (res.status >= 500) return 'سرویس موقتاً در دسترس نیست؛ دوباره تلاش کنید.';
   return 'تنظیمات مدل و درخواست را بررسی کنید.';
