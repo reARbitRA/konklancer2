@@ -9,8 +9,8 @@ export function saveManagedModel(model: ManagedModel) { localStorage.setItem(STO
 export function clearManagedModel() { localStorage.removeItem(STORAGE); }
 async function request(init:RequestInit = {}) {
   const token = getAuthAccessToken();
-  if (!token) throw new Error('برای استفاده از مدل‌ها ابتدا وارد حساب مجاز شوید.');
-  const response = await fetch('/api/models',{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},cache:'no-store'});
+  const response = await fetch('/api/models',{...init,headers:{'Content-Type':'application/json',...(token ? {Authorization:`Bearer ${token}`} : {})},cache:'no-store'});
+  if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('پاسخ سرور مدل‌ها نامعتبر است؛ دسترسی به پیش‌نمایش یا وضعیت استقرار را بررسی کنید.');
   if (!response.ok) { const error = await response.json().catch(()=>({})); const id = response.headers.get('x-request-id'); const suffix = id && /^[0-9a-f-]{36}$/i.test(id) ? ` (شناسه درخواست: ${id})` : ''; throw new Error((typeof error.error === 'string' ? error.error : 'خطا در ارتباط با سرویس مدل‌ها.') + suffix); }
   return response.json();
 }

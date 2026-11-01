@@ -60,20 +60,23 @@ async function listProvider(name: string) {
   } catch { return {provider:name, models:[], error:'provider_unreachable'}; }
 }
 
-async function reserve(req: IncomingMessage) {
+async function reserve(req: IncomingMessage, openPreview: boolean) {
   const token = req.headers.authorization || '';
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
   const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
   try {
     const origin = new URL(url).origin;
-    const r = await fetch(`${origin}/rest/v1/rpc/konklancer_reserve_managed_request`, {method:'POST',headers:{apikey:key,Authorization:token,'Content-Type':'application/json'},body:'{}',redirect:'error',signal:AbortSignal.timeout(8000)});
+    const rpc = openPreview ? 'konklancer_reserve_preview_request' : 'konklancer_reserve_managed_request';
+    const r = await fetch(`${origin}/rest/v1/rpc/${rpc}`, {method:'POST',headers:{apikey:key,...(!openPreview && token ? {Authorization:token} : {}),'Content-Type':'application/json'},body:'{}',redirect:'error',signal:AbortSignal.timeout(8000)});
     return r.ok && await r.json() === true;
   } catch { return false; }
 }
 
 export default async function handler(req: IncomingMessage & {body?: any}, res: ServerResponse) {
   res.setHeader('X-Request-ID', randomUUID());
-  if (!await authorize(req)) return reply(res,401,{error:'Sign in with an authorized account to use managed models.'});
+  // Explicitly enabled only in a preview deployment; production still requires authentication.
+  const openPreview = process.env.VERCEL_ENV === 'preview' && process.env.MANAGED_LLM_OPEN_PREVIEW === 'true';
+  if (!openPreview && !await authorize(req)) return reply(res,401,{error:'Sign in with an authorized account to use managed models.'});
   if (req.method === 'GET') {
     const results = await Promise.all(Object.keys(providers).map(listProvider));
     return reply(res,200,{providers:results});
@@ -88,7 +91,7 @@ export default async function handler(req: IncomingMessage & {body?: any}, res: 
     if (catalogue.error) return reply(res,503,{error:'Provider catalogue is unavailable. Try again later.'});
     return reply(res,400,{error:'Model is unavailable for this provider.'});
   }
-  if (!await reserve(req)) return reply(res,429,{error:'Usage limit reached or quota service unavailable.'});
+  if (!await reserve(req, openPreview)) return reply(res,429,{error:'Usage limit reached or quota service unavailable.'});
   const maxTokens = Math.max(1, Math.min(4096, Number.isFinite(body.maxTokens) ? Math.floor(body.maxTokens) : 1024));
   const prompt = body.prompt + (body.json ? '\nReturn valid JSON only.' : '');
   let url: string; let headers: Record<string,string>; let payload: unknown;

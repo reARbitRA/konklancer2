@@ -67,3 +67,16 @@ test('model discovery ignores malformed provider entries and emits an opaque req
     assert.deepEqual(JSON.parse(output).providers.find((p:any)=>p.provider==='openrouter').models.map((m:any)=>m.id),['valid']);
   } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});}
 });
+test('open preview accepts an anonymous model call and uses only the preview quota', async () => {
+  const names=['VERCEL_ENV','MANAGED_LLM_OPEN_PREVIEW','SUPABASE_URL','SUPABASE_ANON_KEY','OPENROUTER_API_KEY'];
+  const saved=names.map(k=>process.env[k]); const original=globalThis.fetch;
+  Object.assign(process.env,{VERCEL_ENV:'preview',MANAGED_LLM_OPEN_PREVIEW:'true',SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',OPENROUTER_API_KEY:'private-key'});
+  const calls:string[]=[]; let quota=true;
+  globalThis.fetch=(async (url:any)=>{const u=String(url); calls.push(u); if(u.endsWith('/konklancer_reserve_preview_request'))return new Response(JSON.stringify(quota));if(u.endsWith('/models'))return new Response(JSON.stringify({data:[{id:'some-model'}]}));if(u.endsWith('/chat/completions'))return new Response(JSON.stringify({choices:[{message:{content:'hello'}}]}));throw new Error('unexpected request');}) as typeof fetch;
+  try {
+    const req={headers:{},method:'POST',body:{provider:'openrouter',model:'some-model',prompt:'hello'}} as IncomingMessage & {body:any};
+    let r=response(); await handler(req,r.res); assert.equal(r.result().status,200); assert.equal(r.result().body.text,'hello'); assert.ok(calls.some(u=>u.endsWith('/konklancer_reserve_preview_request'))); assert.ok(!JSON.stringify(r.result()).includes('private-key'));
+    quota=false; r=response(); await handler(req,r.res); assert.equal(r.result().status,429);
+    process.env.VERCEL_ENV='production'; r=response(); await handler(req,r.res); assert.equal(r.result().status,401);
+  } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});}
+});
