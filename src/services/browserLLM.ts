@@ -1,3 +1,4 @@
+import { callManagedModel, readManagedModel } from './managedLLM';
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
 import {
@@ -307,6 +308,8 @@ export async function callBrowserLLM(opts: {
   temperature?: number;
   overrideConfig?: Partial<ActiveCustomLLM>;
 }): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
+  const managed = !opts.overrideConfig && readManagedModel();
+  if (managed) return callManagedModel(managed, opts);
   const candidates = getOrderedVaultCandidates(opts.overrideConfig)
     .map((candidate) => resolveClientLLMConfig(candidate))
     .filter((candidate): candidate is ActiveCustomLLM => Boolean(candidate));

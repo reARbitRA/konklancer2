@@ -279,5 +279,13 @@
   "This key appears to be for gemini. Select that provider before saving.": "این کلید ظاهراً متعلق به gemini است؛ پیش از ذخیره همان سرویس را انتخاب کنید.",
   "This key appears to be for groq. Select that provider before saving.": "این کلید ظاهراً متعلق به groq است؛ پیش از ذخیره همان سرویس را انتخاب کنید.",
   "This key appears to be for openrouter. Select that provider before saving.": "این کلید ظاهراً متعلق به openrouter است؛ پیش از ذخیره همان سرویس را انتخاب کنید.",
-  "Gemini requires its standard Google endpoint.": "Gemini به نشانی استاندارد سرویس گوگل نیاز دارد."
+  "Gemini requires its standard Google endpoint.": "Gemini به نشانی استاندارد سرویس گوگل نیاز دارد.",
+  "MANAGED MODELS": "مدل‌های آماده",
+  "Keys stay on the server. Select a model; usage may incur charges.": "کلیدها روی سرور می‌مانند؛ مدل را انتخاب کنید. استفاده ممکن است هزینه داشته باشد.",
+  "Authorized account email": "ایمیل حساب مجاز",
+  "Send sign-in link": "ارسال لینک ورود",
+  "Sign-in is not configured for this deployment.": "ورود به حساب برای این نسخه تنظیم نشده است.",
+  "Loading models…": "در حال دریافت مدل‌ها…",
+  "Refresh models": "به‌روزرسانی فهرست مدل‌ها",
+  "Use a personal key": "استفاده از کلید شخصی"
 }

@@ -28,3 +28,16 @@ test('discovery authenticates, uses only fixed provider endpoint and never retur
     assert.ok(!JSON.stringify(r.result()).includes('private-key')); assert.ok(seen.some(url=>url==='https://openrouter.ai/api/v1/models'));
   } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined) delete process.env[k]; else process.env[k]=saved[i];});}
 });
+test('managed generation enforces quota and does not expose the server credential', async () => {
+  const names=['SUPABASE_URL','SUPABASE_ANON_KEY','MANAGED_LLM_USER_IDS','OPENROUTER_API_KEY'];
+  const saved=names.map(k=>process.env[k]); const original=globalThis.fetch;
+  Object.assign(process.env,{SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',MANAGED_LLM_USER_IDS:'member',OPENROUTER_API_KEY:'private-key'});
+  let quota = false; let generated = 0;
+  globalThis.fetch=(async (url:any)=>{const u=String(url);if(u.includes('/auth/v1/user'))return new Response(JSON.stringify({id:'member'}));if(u.includes('/rest/v1/rpc/'))return new Response(JSON.stringify(quota));if(u.endsWith('/models'))return new Response(JSON.stringify({data:[{id:'some-model'}]}));if(u.endsWith('/chat/completions')){generated++;return new Response(JSON.stringify({choices:[{message:{content:'hello'}}]}));}throw new Error('unexpected url');}) as typeof fetch;
+  try {
+    const req={headers:{authorization:'Bearer token'},method:'POST',body:{provider:'openrouter',model:'some-model',prompt:'hello'}} as IncomingMessage & {body:any};
+    let r=response(); await handler(req,r.res); assert.equal(r.result().status,429); assert.equal(generated,0);
+    quota=true; r=response(); await handler(req,r.res); assert.equal(r.result().status,200); assert.equal(r.result().body.text,'hello'); assert.ok(!JSON.stringify(r.result()).includes('private-key'));
+    r=response(); await handler({...req,body:{...req.body,provider:'https://attacker.example'}} as any,r.res); assert.equal(r.result().status,400);
+  } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined) delete process.env[k]; else process.env[k]=saved[i];});}
+});
