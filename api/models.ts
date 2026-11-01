@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { tokenPriceCategory, type CatalogModel } from '../shared/modelCatalog';
 
 // Endpoints and credential names are fixed: the client cannot direct a server request.
 const providers: Record<string, { base: string; env: string[]; gemini?: boolean }> = {
@@ -34,7 +35,7 @@ async function listProvider(name: string) {
   const p = providers[name]; const key = keyFor(p);
   if (!key) return {provider:name, models:[], error:'not_configured'};
   try {
-    const models: {provider:string;id:string;name:string}[] = [];
+    const models: CatalogModel[] = [];
     let page = '';
     for (let count=0; count < (p.gemini ? 20 : 1); count++) {
       const url = new URL(`${p.base}/models`);
@@ -48,7 +49,7 @@ async function listProvider(name: string) {
       for (const m of raw) {
         if (p.gemini && !m.supportedGenerationMethods?.includes('generateContent')) continue;
         const id = p.gemini ? String(m.name || '').replace(/^models\//,'') : m.id;
-        if (typeof id === 'string' && id && id.length < 300) models.push({provider:name,id,name:String(m.displayName || m.name || id).slice(0,300)});
+        if (typeof id === 'string' && id && id.length < 300) models.push({provider:name,id,name:String(m.displayName || m.name || id).slice(0,300),priceCategory:tokenPriceCategory(name, m.pricing)});
       }
       page = data.nextPageToken || ''; if (!page) break;
     }

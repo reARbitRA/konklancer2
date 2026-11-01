@@ -287,5 +287,9 @@
   "Sign-in is not configured for this deployment.": "ورود به حساب برای این نسخه تنظیم نشده است.",
   "Loading models…": "در حال دریافت مدل‌ها…",
   "Refresh models": "به‌روزرسانی فهرست مدل‌ها",
-  "Use a personal key": "استفاده از کلید شخصی"
+  "Use a personal key": "استفاده از کلید شخصی",
+  "Free input/output": "ورودی و خروجی رایگان",
+  "Paid input/output": "ورودی یا خروجی پولی",
+  "Price unknown": "قیمت نامشخص",
+  "Free means zero input/output token prices reported by OpenRouter; limits or other charges may apply. Free models with known parameter counts are ordered by size, an approximate proxy—not a quality ranking. Other prices and sizes are unknown.": "رایگان یعنی هزینهٔ توکن ورودی و خروجی طبق گزارش OpenRouter صفر است؛ محدودیت یا هزینهٔ دیگری ممکن است وجود داشته باشد. مدل‌های رایگان با اندازهٔ شناخته‌شده بر اساس تعداد پارامتر مرتب شده‌اند؛ این فقط تخمین است، نه رتبه‌بندی قطعی کیفیت. قیمت و اندازهٔ سایر مدل‌ها نامشخص است."
 }

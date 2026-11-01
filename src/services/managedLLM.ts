@@ -1,5 +1,6 @@
 import { getAuthAccessToken } from './authToken';
-export type ManagedModel = {provider:string; id:string; name:string};
+import type { CatalogModel } from '../../shared/modelCatalog';
+export type ManagedModel = CatalogModel;
 const STORAGE = 'konklancer_managed_model';
 export function readManagedModel(): ManagedModel | null {
   try { const m=JSON.parse(localStorage.getItem(STORAGE)||'null'); return m && typeof m.provider==='string' && typeof m.id==='string' ? m : null; } catch { return null; }

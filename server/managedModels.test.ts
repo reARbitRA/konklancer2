@@ -21,10 +21,11 @@ test('discovery authenticates, uses only fixed provider endpoint and never retur
   const saved=names.map(k=>process.env[k]); const original=globalThis.fetch;
   Object.assign(process.env,{SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',MANAGED_LLM_USER_IDS:'member',OPENROUTER_API_KEY:'private-key'});
   const seen:string[]=[];
-  globalThis.fetch = (async (url:any)=>{seen.push(String(url)); if(String(url).includes('/auth/v1/user')) return new Response(JSON.stringify({id:'member'})); return new Response(JSON.stringify({data:[{id:'some-model',name:'Some Model'}]}));}) as typeof fetch;
+  globalThis.fetch = (async (url:any)=>{seen.push(String(url)); if(String(url).includes('/auth/v1/user')) return new Response(JSON.stringify({id:'member'})); return new Response(JSON.stringify({data:[{id:'some-model',name:'Some Model',pricing:{prompt:'0',completion:'0'}}]}));}) as typeof fetch;
   try {
     const r=response(); await handler({headers:{authorization:'Bearer token'},method:'GET'} as IncomingMessage,r.res);
     assert.equal(r.result().status,200); assert.ok(r.result().body.providers.find((p:any)=>p.provider==='openrouter').models.some((m:any)=>m.id==='some-model'));
+    assert.equal(r.result().body.providers.find((p:any)=>p.provider==='openrouter').models[0].priceCategory,'free');
     assert.ok(!JSON.stringify(r.result()).includes('private-key')); assert.ok(seen.some(url=>url==='https://openrouter.ai/api/v1/models'));
   } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined) delete process.env[k]; else process.env[k]=saved[i];});}
 });
