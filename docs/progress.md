@@ -81,3 +81,7 @@ ZIP export now rejects absolute, traversal, backslash, control-character and Win
 #### Persian-first language switch
 
 The rebuilt UI now defaults to Persian with RTL layout, and provides an English toggle persisted locally. Core navigation, pages and primary controls have translations; provider-generated content and some dynamic server messages retain their original language. Chromium checks at 390, 768 and 1280 pixels found no horizontal overflow on the overview and verified language switching and persistence. Lint, the build, 173 tests and the jsdom smoke pass. Other routes, full localization, screen-reader behavior and deployed backend functionality still require verification.
+
+#### Micro-interactions and orbit motion
+
+Added 120ms interaction feedback to buttons, links and form controls, rotating overview orbits in both directions, a restrained center pulse, and a compact mobile orbit. Reduced-motion preference disables motion. Local Chromium verified orbit movement, press feedback, mobile visibility/no horizontal overflow at 390px and reduced-motion behavior; hover was not exercised because the headless browser reported no hover-capable device. Lint, 173 tests, build and jsdom smoke passed.

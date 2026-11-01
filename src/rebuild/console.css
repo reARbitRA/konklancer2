@@ -18,3 +18,42 @@ html[dir="rtl"] .command-list button{text-align:right}
 html[dir="rtl"] .command-list button svg:last-child{margin-left:0;margin-right:auto}
 html[dir="rtl"] .stage-grid button,html[dir="rtl"] .file-list button{text-align:right}
 @media(max-width:900px){html[dir="rtl"] .main{margin-right:0}html[dir="rtl"] .sidebar{right:0;left:auto;transform:translateX(100%)}html[dir="rtl"] .sidebar.open{transform:translateX(0)}}
+
+/* Interaction feedback stays subtle and consistent across the workspace. */
+button, a, select, input, textarea {
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease, transform 120ms ease;
+}
+button:not(:disabled):active:not(.scrim), a:active { transform: scale(.98); }
+input:not(:disabled):hover, textarea:not(:disabled):hover, select:not(:disabled):hover { border-color: #708261; }
+button:not(:disabled):focus-visible, a:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px #d9f26a33; }
+@media (hover:hover) {
+  button:not(:disabled):not(.scrim):hover, a:not(.skip):hover { filter: brightness(1.08); }
+  .btn:not(:disabled):hover, .icon-button:not(:disabled):hover, .language-toggle:hover { transform: translateY(-1px); }
+  .table-row:hover, .pipeline-row:has(a:hover) { background-color: #20281d; }
+  .table-row .row-arrow, .btn svg, .text-link svg, .side-link svg, .mobile-nav svg { transition: transform 120ms ease; }
+  .table-row:hover .row-arrow, .btn:hover svg:last-child, .text-link:hover svg { transform: translate(2px, -2px); }
+  .side-link:hover svg, .mobile-nav a:hover svg { transform: scale(1.08); }
+}
+
+/* Each orbit has its own satellite, speed and direction; the center remains legible. */
+.orbit-c::before { content:''; position:absolute; width:5px; height:5px; border-radius:50%; background:#9ba394; top:42px; left:27px; }
+@keyframes orbit-turn { to { transform: rotate(360deg); } }
+@keyframes orbit-breathe { 50% { box-shadow: 0 0 0 9px #d9f26a12, 0 0 30px #d9f26a24; } }
+@media (prefers-reduced-motion: no-preference) {
+  .orbit-a { animation: orbit-turn 24s linear infinite; }
+  .orbit-b { animation: orbit-turn 18s linear infinite reverse; }
+  .orbit-c { animation: orbit-turn 34s linear infinite; }
+  .orbit-core { animation: orbit-breathe 4s ease-in-out infinite; }
+}
+@media (max-width:700px) {
+  .hero-art { display:grid; min-height:220px; }
+  .hero-art .orbit-c { width:190px; height:190px; }
+  .hero-art .orbit-a { width:155px; height:155px; }
+  .hero-art .orbit-b { width:120px; height:120px; }
+  .orbit-label.top { top:14px; }
+  .orbit-label.bottom { bottom:14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
