@@ -10,7 +10,6 @@
 // هیچ ورود، POST یا دور زدن ضدربات اینجا نیست؛ فقط خواندن فایل و اجرای CLI اسکنر.
 
 import { spawn } from 'child_process';
-import { execFileSync } from 'child_process';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -706,19 +705,6 @@ const CLOUD_DEFAULTS = {
   statusPath: 'scanner/cloud-status.json',
 };
 
-function ghToken(): string {
-  for (const key of ['GITHUB_TOKEN', 'GH_TOKEN']) {
-    const value = (process.env[key] || '').trim();
-    if (value) return value;
-  }
-  // اگر کاربر با gh CLI لاگین است، همان توکن استفاده می‌شود (بدون ذخیره‌سازی).
-  try {
-    return execFileSync('gh', ['auth', 'token'], { encoding: 'utf8', timeout: 8000 }).trim();
-  } catch {
-    return '';
-  }
-}
-
 /** اگر KONKLANCER_CLOUD_FEED_REPO تنظیم شده باشد، فید ابری فعال است. */
 export function readCloudFeedConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -734,7 +720,7 @@ export function readCloudFeedConfig(
     feedPath: (env.KONKLANCER_CLOUD_FEED_PATH || CLOUD_DEFAULTS.feedPath).trim(),
     statusPath: (env.KONKLANCER_CLOUD_STATUS_PATH || CLOUD_DEFAULTS.statusPath).trim(),
     outFile: (env.KONKLANCER_PROJECTS_FILE || '').trim() || defaultOutFile,
-    token: (env.KONKLANCER_CLOUD_TOKEN || '').trim() || ghToken(),
+    token: (env.KONKLANCER_CLOUD_TOKEN || '').trim(),
     pollTimeoutMs: Number(env.KONKLANCER_CLOUD_POLL_MS) || 300_000,
   };
 }
@@ -774,8 +760,11 @@ async function viaGhCli(url: string, init: RequestInit): Promise<Response | null
   const args = ['api', apiPath, '-X', method];
   if (body) args.push('-H', 'content-type: application/json', '--input', '-');
   try {
+    const auth = new Headers(init.headers).get('authorization') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (!token) return null;
     const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
-      const child = execFile('gh', args, { timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
+      const child = execFile('gh', args, { timeout: 60_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token } }, (error, stdout) => {
         if (error) reject(Object.assign(error, { stdout })); else resolve({ stdout: String(stdout) });
       });
       if (body) {
@@ -804,7 +793,7 @@ async function resilientFetch(url: string, init: RequestInit = {}): Promise<Resp
   } catch (error: any) {
     const message = String(error?.cause?.message ?? error?.message ?? error);
     const recoverable = /certificate|unable to verify|self.signed|fetch failed|ECONNRESET|ETIMEDOUT/i.test(message);
-    if (!recoverable) throw error;
+    if (!recoverable || process.env.KONKLANCER_CLOUD_GH_FALLBACK !== '1') throw error;
     const fallback = await viaGhCli(url, init);
     if (!fallback) throw error;
     return fallback;
@@ -927,7 +916,7 @@ export async function requestCloudScan(
   options: CloudFetchOptions = {},
 ): Promise<{ ok: boolean; message: string }> {
   if (!config.token) {
-    return { ok: false, message: 'توکن گیت‌هاب موجود نیست؛ GITHUB_TOKEN یا gh auth login لازم است.' };
+    return { ok: false, message: 'توکن فید ابری تنظیم نشده است؛ KONKLANCER_CLOUD_TOKEN را روی سرور تنظیم کنید.' };
   }
   const doFetch = resolveFetch(options);
   const existing = await ghGetFile(config, config.requestPath, options);

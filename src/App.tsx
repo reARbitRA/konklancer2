@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { HashRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { RefreshCw, X, WifiOff, Radar, Settings, Terminal, Workflow, Sparkles, Cpu } from 'lucide-react';
-import { BrutalHeader } from './components/layout/BrutalHeader';
-import { BrutalSidebar } from './components/layout/BrutalSidebar';
-import { StatusBar, MobileNav } from './components/StatusBar';
+import { ConsoleShell } from './components/layout/ConsoleShell';
 import { CommandPalette, PaletteAction } from './components/CommandPalette';
 import { JobHunter } from './components/JobHunter';
+import { OpportunityWorkspace } from './components/OpportunityWorkspace';
 import { CodeWorkspace } from './components/CodeWorkspace';
 import { PipelineBoard } from './components/PipelineBoard';
+import { PipelineWorkspace } from './components/PipelineWorkspace';
 import { AutoPilotPanel } from './components/AutoPilotPanel';
 import { OutcomeAnalytics } from './components/OutcomeAnalytics';
 import { AccountPage } from './components/auth/AccountPage';
@@ -26,9 +26,11 @@ import { evaluateProjectRelevance } from '../shared/relevanceEngine';
 import { FeedStatusBar, FeedSource } from './components/FeedStatusBar';
 import { hasConfiguredBrowserKey, isNativeAndroidApp, isStandaloneClientMode } from './services/browserLLM';
 import { subscribeVaultChanges, readStoredCustomLLM } from './utils/customLLMClient';
-import { loadInitialFeedUnified, runDirectTabletLiveScan, syncCloudFeedDirectFromGitHub } from './services/standaloneFeed';
+import { loadInitialFeedUnified, runDirectTabletLiveScan } from './services/standaloneFeed';
 import { createBid, updateBid, writeApiTokenToStorage } from './services/outcomeApi';
 import { safeGetJSON, safeGetItem, safeSetJSON } from './utils/safeStorage';
+import { apiFetch, readApiToken } from './utils/apiFetch';
+import { getAuthAccessToken } from './services/authToken';
 import { dueBidReminders, notificationPermission, readNotifiedIds, rememberNotifiedIds, requestNotificationPermission, showReminderNotification } from './utils/reminders';
 
 const MANUAL_VAULT_STORAGE_KEY = 'konklancer_manual_jobs_v2';
@@ -124,6 +126,7 @@ const Layout: React.FC<{
   onOpenSettings: ()=>void;
   onOpenCommandPalette: ()=>void;
   onQuickScan: ()=>void;
+  onCloudScan: ()=>void;
   onSyncCloudFeed: ()=>void;
   cloudBusy: boolean;
   cloudEnabled: boolean;
@@ -146,88 +149,22 @@ const Layout: React.FC<{
   dailyEarningsGoal: number;
 }> = (props) => {
   const navigate = useNavigate();
-  const location = useLocation();
-  const activeTab = useRouteTab();
-  // زیر ۱۰۲۴px ریل کنترل به‌صورت کشوی کنارِ صفحه باز می‌شود؛ پس باید بسته شروع
-  // کند (قبلاً با یک effect بعد از رندر ست می‌شد و در همان لحظه‌ی اول کل صفحه را
-  // می‌پوشاند). مقدار اولیه در همان اولین رندر خوانده می‌شود.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(max-width: 1024px)').matches
-      : false,
-  );
-
-  // اگر کاربر پنجره را کوچک/بزرگ کرد، وضعیت پیش‌فرض را دنبال کن
-  useEffect(()=>{
-    if (typeof window.matchMedia !== 'function') return;
-    const mql = window.matchMedia('(max-width: 1024px)');
-    const handler = (event: MediaQueryListEvent)=>{ setSidebarCollapsed(event.matches); };
-    if (typeof mql.addEventListener === 'function') {
-      mql.addEventListener('change', handler);
-      return () => mql.removeEventListener('change', handler);
-    }
-    mql.addListener(handler);
-    return () => mql.removeListener(handler);
-  }, []);
-
   return (
-    <div className="min-h-screen bg-[#FFFBF0] text-[#0a0a0a] flex flex-col">
-      <BrutalHeader
-        onOpenSettings={props.onOpenSettings}
-        onOpenCommandPalette={props.onOpenCommandPalette}
-        onQuickScan={props.onQuickScan}
-        isScanning={props.isScanning}
-        scanStatusText={props.scanStatusText}
-        totalEarningsToday={props.totalEarningsToday}
-        activeJobsCount={props.activeJobsCount}
-        socketConnected={props.socketConnected}
-        sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={()=>setSidebarCollapsed(v=>!v)}
-      />
-
-      <div className="flex flex-1 max-w-[1600px] w-full mx-auto">
-        <BrutalSidebar collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(v=>!v)} jobs={props.jobs} feed={props.feed} onOpenSettings={props.onOpenSettings} />
-
-        <main className="flex-1 min-w-0 p-3 lg:p-5 pb-20 lg:pb-5">
+    <ConsoleShell onOpenSettings={props.onOpenSettings} onOpenCommandPalette={props.onOpenCommandPalette} onQuickScan={props.onQuickScan} isScanning={props.isScanning} scanStatusText={props.scanStatusText} socketConnected={props.socketConnected} feedSource={props.feed.source} jobCount={props.jobs.length}>
           <Routes>
             <Route path="/" element={<Navigate to="/hunt" replace />} />
             <Route path="/hunt" element={
-              <>
-                <FeedStatusBar
-                  source={props.feed.source}
-                  scannedAt={props.feed.scannedAt}
-                  scannedProjects={props.feed.scannedProjects}
-                  jobCount={props.jobs.filter(j=> j.isManual || j.pinned || j.relevanceTier !== 'junk').length}
-                  isScanning={props.isScanning}
-                  onScan={props.onQuickScan}
-                  cloudEnabled={props.cloudEnabled}
-                  cloudBusy={props.cloudBusy || props.isScanning}
-                  onCloudScan={props.onQuickScan}
-                  onSyncFeed={props.onSyncCloudFeed}
-                />
-                <div className="mt-4">
-                  <JobHunter
-                    jobs={props.jobs}
-                    onSelectJobForAnalysis={props.handleSelectAnalysis}
-                    onSelectJobForProposal={props.handleSelectProposal}
-                    onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }}
-                    onAddNewManualJob={props.handleAddManual}
-                    onTogglePinJob={props.handleTogglePin}
-                    onDeleteManualJob={props.handleDeleteManual}
-                  />
-                </div>
-              </>
+              <OpportunityWorkspace
+                jobs={props.jobs} source={props.feed.source} scannedAt={props.feed.scannedAt}
+                onAnalyze={props.handleSelectAnalysis} onProposal={props.handleSelectProposal}
+                onStudio={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }}
+                onPin={props.handleTogglePin} onDelete={props.handleDeleteManual}
+                legacyTools={<><FeedStatusBar source={props.feed.source} scannedAt={props.feed.scannedAt} scannedProjects={props.feed.scannedProjects} jobCount={props.jobs.filter(j=> j.isManual || j.pinned || j.relevanceTier !== 'junk').length} isScanning={props.isScanning} onScan={props.onQuickScan} cloudEnabled={props.cloudEnabled} cloudBusy={props.cloudBusy || props.isScanning} onCloudScan={props.onCloudScan} onSyncFeed={props.onSyncCloudFeed}/><div className="mt-4"><JobHunter jobs={props.jobs} onSelectJobForAnalysis={props.handleSelectAnalysis} onSelectJobForProposal={props.handleSelectProposal} onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }} onAddNewManualJob={props.handleAddManual} onTogglePinJob={props.handleTogglePin} onDeleteManualJob={props.handleDeleteManual}/></div></>}
+              />
             } />
             <Route path="/pipeline" element={
-              <PipelineBoard
-                jobs={props.jobs}
-                onSelectJobForAnalysis={props.handleSelectAnalysis}
-                onSelectJobForProposal={props.handleSelectProposal}
-                onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }}
-                onMoveJobStatus={props.handleMoveStatus}
-                onUpdatePriority={props.handleUpdatePriority}
-                dailyEarningsGoal={props.dailyEarningsGoal}
-              />
+              <PipelineWorkspace jobs={props.jobs} onMove={props.handleMoveStatus} onPriority={props.handleUpdatePriority} onAnalyze={props.handleSelectAnalysis} onProposal={props.handleSelectProposal} onStudio={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }} advanced={<PipelineBoard jobs={props.jobs} onSelectJobForAnalysis={props.handleSelectAnalysis} onSelectJobForProposal={props.handleSelectProposal} onSelectJobForCoding={(job)=>{ props.handleSelectCoding(job); navigate('/studio'); }} onMoveJobStatus={props.handleMoveStatus} onUpdatePriority={props.handleUpdatePriority} dailyEarningsGoal={props.dailyEarningsGoal}/>}/>
+
             } />
             <Route path="/studio" element={
               <CodeWorkspace
@@ -269,22 +206,7 @@ const Layout: React.FC<{
               }
             />
           </Routes>
-        </main>
-      </div>
-
-      <StatusBar
-        socketConnected={props.socketConnected}
-        feedSource={props.feed.source}
-        jobCount={props.jobs.length}
-        activeTab={activeTab}
-        onOpenSettings={props.onOpenSettings}
-        onOpenCommandPalette={props.onOpenCommandPalette}
-      />
-      <MobileNav activeTab={activeTab} setActiveTab={(tab)=> {
-        const map: Record<string,string> = { hunter:'/hunt', coder:'/studio', pipeline:'/pipeline', autopilot:'/ops', analytics:'/analytics' };
-        navigate(map[tab] || '/hunt');
-      }} activeJobsCount={props.activeJobsCount} />
-    </div>
+    </ConsoleShell>
   );
 };
 
@@ -331,14 +253,27 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatusText, setScanStatusText] = useState<string | null>(null);
-  const [cloudInfo, setCloudInfo] = useState<{ enabled:boolean; repo?:string; status?:any }>({ enabled: true });
+  const [cloudInfo, setCloudInfo] = useState<{ enabled:boolean; repo?:string; status?:any }>({ enabled: false });
   const [cloudBusy, setCloudBusy] = useState(false);
   const selectedJobForCoding = jobs.find(j=> j.id===selectedJobForCodingId) || null;
 
   useEffect(()=>{ try{ safeSetJSON('freelanceflow_jobs', jobs); const protectedJobs = jobs.filter(j=> j.isManual || j.pinned || j.id.startsWith('custom-') || j.id.startsWith('manual-')); writePermanentManualVault(protectedJobs); } catch{} }, [jobs]);
   useEffect(()=>{ try{ const { githubToken, ...persisted } = settings; if(githubToken) sessionStorage.setItem('freelanceflow_github_token', githubToken); safeSetJSON('konklancer_settings', persisted); safeSetJSON('freelanceflow_settings', persisted); } catch{} }, [settings]);
 
-  const refreshCloudStatus = useCallback(async ()=>{ setCloudInfo({ enabled:true, repo:'reARbitRA/konklancer2' }); return { enabled:true }; }, []);
+  const refreshCloudStatus = useCallback(async ()=>{
+    try {
+      const response = await apiFetch('/api/bridge/cloud');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const info = { enabled: data?.enabled === true, repo: data?.repo, status: data?.status };
+      setCloudInfo(info);
+      return info;
+    } catch {
+      const info = { enabled: false };
+      setCloudInfo(info);
+      return info;
+    }
+  }, []);
   const refreshFeed = useCallback(async (): Promise<void> =>{
     try {
       const data = await loadInitialFeedUnified();
@@ -358,29 +293,55 @@ export default function App() {
 
   const handleSyncCloudFeed = useCallback(async ()=>{
     setCloudBusy(true);
+    setScanStatusText('در حال همگام‌سازی فید ابری...');
     try {
-      const result = await syncCloudFeedDirectFromGitHub(settings.githubToken);
-      addLog(result.message, 'scan');
-      if (result.jobs && result.jobs.length>0) {
-        setJobs(prev=> mergeFeedJobs(prev, result.jobs, []));
-        setFeed({ source:'scanner', scannedAt: result.scannedAt ?? new Date().toISOString(), scannedProjects: result.total ?? result.jobs.length });
-      }
-    } catch(err:any){ addLog(`همگام‌سازی ناموفق: ${err?.message ?? err}`, 'scan'); } finally{ setCloudBusy(false); }
-  }, [settings.githubToken]);
+      const response = await apiFetch('/api/bridge/sync-feed', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || result.message || `HTTP ${response.status}`);
+      await refreshFeed();
+      setScanStatusText(result.message || 'فید همگام شد.');
+      addLog(result.message || 'فید همگام شد.', 'scan');
+    } catch(err:any){ const message = `همگام‌سازی ناموفق: ${err?.message || 'اتصال به سرور برقرار نشد'}`; setScanStatusText(message); addLog(message, 'scan'); }
+    finally{ setCloudBusy(false); }
+  }, [refreshFeed]);
 
-  const handleQuickScan = useCallback(async ()=>{
-    setIsScanning(true); setScanStatusText('شروع اسکن عمیق چندصفحه‌ای...');
+  const handleCloudScan = useCallback(async ()=>{
+    setCloudBusy(true);
+    setScanStatusText('در حال ارسال درخواست اسکن ابری...');
     try {
-      const out = await runDirectTabletLiveScan((msg)=>{ setScanStatusText(msg); addLog(msg,'scan'); });
-      setJobs(prev=> mergeFeedJobs(prev, out.jobs, []));
-      setFeed({ source:'scanner', scannedAt: out.scannedAt ?? new Date().toISOString(), scannedProjects: out.total });
-      addLog(`اسکن تکمیل: ${out.added.toLocaleString('fa-IR')} مورد جدید (${out.summary})`, 'scan');
-    } catch(err:any){ addLog(`خطا در اسکن: ${err?.message || err}`, 'scan'); } finally{ setIsScanning(false); setScanStatusText(null); }
+      const response = await apiFetch('/api/bridge/cloud-scan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || result.message || `HTTP ${response.status}`);
+      setScanStatusText(result.message || 'درخواست اسکن ثبت شد.');
+      addLog(result.message || 'درخواست اسکن ثبت شد.', 'scan');
+    } catch(err:any){ const message = `اسکن ابری ناموفق: ${err?.message || 'اتصال به سرور برقرار نشد'}`; setScanStatusText(message); addLog(message, 'scan'); }
+    finally { setCloudBusy(false); }
   }, []);
 
+  const handleQuickScan = useCallback(async ()=>{
+    setIsScanning(true); setScanStatusText('شروع اسکن...');
+    try {
+      if (isStandaloneClientMode() || isNativeAndroidApp()) {
+        const out = await runDirectTabletLiveScan((msg)=>{ setScanStatusText(msg); addLog(msg,'scan'); });
+        if (!out.ok) throw new Error('اسکن نتیجه‌ای نداشت؛ اتصال و تنظیمات رله را بررسی کنید.');
+        setJobs(prev=> mergeFeedJobs(prev, out.jobs, []));
+        setFeed({ source:'scanner', scannedAt: out.scannedAt ?? null, scannedProjects: out.total });
+        const message = `اسکن تکمیل: ${out.added.toLocaleString('fa-IR')} مورد جدید (${out.summary})`;
+        setScanStatusText(message); addLog(message, 'scan');
+      } else {
+        const response = await apiFetch('/api/bridge/trigger-scan', { method: 'POST' });
+        const out = await response.json();
+        if (!response.ok || !out.success) throw new Error(out.message || out.error || `HTTP ${response.status}`);
+        await refreshFeed();
+        setScanStatusText(out.message || 'اسکن تکمیل شد.'); addLog(out.message || 'اسکن تکمیل شد.', 'scan');
+      }
+    } catch(err:any){ const message = `خطا در اسکن: ${err?.message || 'اتصال به سرور برقرار نشد'}`; setScanStatusText(message); addLog(message, 'scan'); }
+    finally{ setIsScanning(false); }
+  }, [refreshFeed]);
+
   useEffect(()=>{
-    if (isStandaloneClientMode() || isNativeAndroidApp()){ setSocketConnected(true); setSocketError(null); return; }
-    const socket: Socket = io({ transports:['websocket','polling'], reconnection:true, reconnectionAttempts:3, timeout:6000 });
+    if (isStandaloneClientMode() || isNativeAndroidApp()){ setSocketConnected(false); setSocketError(null); return; }
+    const socket: Socket = io({ transports:['websocket','polling'], reconnection:true, reconnectionAttempts:3, timeout:6000, auth: (callback) => callback({ apiToken: readApiToken(), jwt: getAuthAccessToken() }) });
     socket.on('connect', ()=>{ setSocketConnected(true); setSocketError(null); setIsReconnecting(false); });
     socket.on('disconnect', ()=> setSocketConnected(false));
     socket.on('connect_error', ()=>{ setSocketConnected(false); setIsReconnecting(false); });
@@ -510,7 +471,7 @@ export default function App() {
 
   // همه‌ی state/هندلرهای App در یک شیء به InnerApp داده می‌شود تا نوعِ
   // کامپوننت ثابت بماند (بدون remount).
-  const scope: AppScope = { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday };
+  const scope: AppScope = { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleCloudScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday };
 
   return (
     <HashRouter>
@@ -552,7 +513,7 @@ socketConnected: boolean;
 }
 
 const InnerApp: React.FC<{ s: AppScope }> = ({ s }) => {
-  const { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday } = s;
+  const { activeJobsCount, addLog, aiAvailable, cloudBusy, cloudInfo, completedJobs, feed, gitHubPushState, handleAddNewManualJob, handleCompleteJob, handleDeleteManualJob, handleFullJobUpdate, handleManualReconnect, handleMoveJobStatus, handleQuickScan, handleCloudScan, handleSaveProposalToJob, handleSyncCloudFeed, handleTogglePinJob, handleUpdateAnalysis, handleUpdateJobFiles, handleUpdateJobRepoUrl, handleUpdatePriority, isCommandPaletteOpen, isReconnecting, isScanning, isSettingsOpen, jobToInit, jobs, jobsRef, logs, refreshCloudStatus, refreshFeed, scanStatusText, selectedJobForAnalysis, selectedJobForCoding, selectedJobForCodingId, selectedJobForProposal, setAiAvailable, setCloudBusy, setCloudInfo, setFeed, setGitHubPushState, setIsCommandPaletteOpen, setIsReconnecting, setIsScanning, setIsSettingsOpen, setJobToInit, setJobs, setLogs, setScanStatusText, setSelectedJobForAnalysis, setSelectedJobForCodingId, setSelectedJobForProposal, setSettings, setSocketConnected, setSocketError, settings, socketConnected, socketError, socketRef, totalEarningsToday } = s;
   const navigate = useNavigate();
   const paletteActions: PaletteAction[] = useMemo(()=>[
     { id:'scan', label:'اجرای اسکن زنده', hint:'اسکن چندصفحه‌ای', icon: Radar, run: ()=> handleQuickScan() },
@@ -589,6 +550,7 @@ const InnerApp: React.FC<{ s: AppScope }> = ({ s }) => {
         onOpenSettings={()=>setIsSettingsOpen(true)}
         onOpenCommandPalette={()=>setIsCommandPaletteOpen(true)}
         onQuickScan={handleQuickScan}
+        onCloudScan={handleCloudScan}
         onSyncCloudFeed={handleSyncCloudFeed}
         cloudBusy={cloudBusy}
         cloudEnabled={cloudInfo.enabled}

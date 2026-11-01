@@ -23,10 +23,17 @@ function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+/** Archive paths must remain relative on both POSIX and Windows extractors. */
+export function isSafeArchivePath(name: string): boolean {
+  if (!name || name.startsWith('/') || name.includes('\\') || /^[a-z]:/i.test(name) || /[\x00-\x1f\x7f]/.test(name)) return false;
+  return name.split('/').every(part => part !== '' && part !== '.' && part !== '..' && !/[:<>"|?*]/.test(part) && !/[. ]$/.test(part) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part));
+}
+
 export function createZipBlob(files: Record<string, string>): Blob {
   const encoder = new TextEncoder();
   const entries = Object.entries(files).map(([name, content]) => {
-    const cleanName = name.replace(/^\/+/, '').replace(/\\/g, '/');
+    if (!isSafeArchivePath(name)) throw new Error(`Unsafe archive path: ${name}`);
+    const cleanName = name;
     const nameBytes = encoder.encode(cleanName);
     const dataBytes = encoder.encode(content);
     return {

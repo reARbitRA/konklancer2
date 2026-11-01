@@ -712,6 +712,9 @@ export async function runDirectTabletLiveScan(
   ];
 
   const wave3Html = await Promise.all(directIranTargets.map((t) => fetchHtmlSmart(t.url)));
+  if (!wave1Html.some(Boolean) && !wave3Html.some(Boolean)) {
+    throw new Error('هیچ منبعی پاسخ نداد؛ اتصال شبکه و تنظیمات رله را بررسی کنید.');
+  }
   directIranTargets.forEach((t, idx) => {
     const html = wave3Html[idx] || '';
     if (!html) return;

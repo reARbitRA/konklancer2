@@ -119,11 +119,11 @@ export const PipelineBoard: React.FC<PipelineBoardProps> = ({ jobs, onSelectJobF
         </div>
         <div className="stat-brutal stat-brutal--electric">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest">سرعت ایجنت</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">پروژه تکمیل‌شده</span>
             <Clock className="w-5 h-5" />
           </div>
-          <div className="text-[20px] font-black">۴۵ دقیقه</div>
-          <div className="text-[11px] font-bold opacity-80">رضایت ۹۸٪ ● ۷ روز: {sevenDaysTotal.toLocaleString('fa-IR')} ت</div>
+          <div className="text-[20px] font-black">{completedJobs.length.toLocaleString('fa-IR')}</div>
+          <div className="text-[11px] font-bold opacity-80">مجموع ۷ روز: {sevenDaysTotal.toLocaleString('fa-IR')} ت</div>
         </div>
       </div>
 

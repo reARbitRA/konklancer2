@@ -249,3 +249,11 @@ test('store: همه‌ی وضعیت‌های مجاز پذیرفته می‌شو
   assert.equal(invalid.status, 'sent', 'وضعیت نامعتبر به sent برمی‌گردد');
   store.close();
 });
+
+test('server exposure requires an explicit API token', async () => {
+  const { resolveServerHost } = await import('./apiAuth');
+  assert.equal(resolveServerHost({}, null), '127.0.0.1');
+  assert.equal(resolveServerHost({ KONKLANCER_API_TOKEN: 'long-enough-token' }, 'long-enough-token'), '0.0.0.0');
+  assert.throws(() => resolveServerHost({ NODE_ENV: 'production' }, null), /required in production/);
+  assert.throws(() => resolveServerHost({ KONKLANCER_API_TOKEN: 'short' }, null), /at least 8/);
+});

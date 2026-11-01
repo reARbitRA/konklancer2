@@ -13,3 +13,4 @@ The linked specification files are the source of truth. Do not change a specific
 | SPEC-007 | [Personal mode](SPEC-007-personal-mode.md) | DRAFT |
 | SPEC-008 | [Temporary direct LLM provider access](SPEC-008-temporary-direct-llm.md) | APPROVED |
 | SPEC-009 | [Modern brutalist UI and app-wide micro-interactions](SPEC-009-modern-brutalist-ui.md) | DRAFT |
+| SPEC-010 | [Obsidian navigation shell](SPEC-010-obsidian-shell.md) | APPROVED |

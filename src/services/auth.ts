@@ -12,12 +12,14 @@
  */
 import { createClient, type SupabaseClient, type Session, type User } from '@supabase/supabase-js';
 
-export const SUPABASE_URL: string =
-  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://rwuyuhjkitcnekpwmoml.supabase.co';
+// Never silently sign a user into a different Supabase project. The URL and
+// publishable/anon key must be supplied together for each deployed environment.
+export const SUPABASE_URL: string = (import.meta as any).env?.VITE_SUPABASE_URL?.trim() || '';
+export const SUPABASE_ANON_KEY: string = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY?.trim() || '';
 
-export const SUPABASE_ANON_KEY: string =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs';
+export function isSupabaseConfigured(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
 
 /** نام ربات تلگرام بدون @ برای ویجت ورود (اختیاری؛ اگر نباشد تلگرام غیرفعال است). */
 export const TELEGRAM_BOT_USERNAME: string =
@@ -199,6 +201,7 @@ let cachedClient: SupabaseClient | null = null;
 /** کلاینت Supabase (Singleton). PKCE برای SPA امن‌تر است. */
 export function getSupabaseClient(): SupabaseClient {
   if (cachedClient) return cachedClient;
+  if (!isSupabaseConfigured()) throw new Error('ورود تنظیم نشده است؛ VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY را پیکربندی کنید.');
   cachedClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
@@ -356,6 +359,7 @@ export async function loadSession(): Promise<Session | null> {
 }
 
 export function onAuthChange(callback: (session: Session | null) => void): () => void {
+  if (!isSupabaseConfigured()) return () => {};
   const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => callback(session));
   return () => data.subscription.unsubscribe();
 }

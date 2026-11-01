@@ -228,7 +228,7 @@ python -m scanner.konklancer_scan enable --platform parscoders
 ```env
 KONKLANCER_CLOUD_FEED_REPO="reARbitRA/konklancer"
 KONKLANCER_CLOUD_FEED_REF="main"          # برنچی که ورک‌فلو روی آن است
-KONKLANCER_CLOUD_TOKEN=""                  # خالی = استفاده از `gh auth token`
+KONKLANCER_CLOUD_TOKEN=""                  # توکن مخصوص فید ابری؛ از gh به‌صورت خودکار خوانده نمی‌شود
 ```
 
 **بعد فقط از UI استفاده کنید:**

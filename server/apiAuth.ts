@@ -17,6 +17,17 @@ export function readApiToken(env: NodeJS.ProcessEnv = process.env): string | nul
   return raw.length >= 8 ? raw : null;
 }
 
+/** Personal mode is loopback-only; production must never start unauthenticated. */
+export function resolveServerHost(env: NodeJS.ProcessEnv, token: string | null): string {
+  if ((env.KONKLANCER_API_TOKEN ?? '').trim() && !token) {
+    throw new Error('KONKLANCER_API_TOKEN must be at least 8 characters.');
+  }
+  if (env.NODE_ENV === 'production' && !token) {
+    throw new Error('KONKLANCER_API_TOKEN is required in production.');
+  }
+  return token ? '0.0.0.0' : '127.0.0.1';
+}
+
 export function extractToken(req: Request): string | null {
   const header = req.headers[API_TOKEN_HEADER];
   if (typeof header === 'string' && header.trim()) return header.trim();
