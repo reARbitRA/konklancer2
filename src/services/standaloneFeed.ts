@@ -1,4 +1,5 @@
 import bundledCloudFeedRaw from '../../scanner/cloud-feed.jsonl?raw';
+import { fetchPublishedFeed } from './publicFeed';
 import { apiFetch } from '../utils/apiFetch';
 import { FreelanceJob } from '../types';
 import { categoryAiFit, categoryLabel, detectCategory } from '../../shared/taxonomy';
@@ -310,7 +311,7 @@ function isStaleHistoricalRow(r: RawScannedRow): boolean {
   return false;
 }
 
-function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = []): RawScannedRow[] {
+function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = [], requirePersistence = false): RawScannedRow[] {
   const mergedMap = new Map<string, RawScannedRow>();
   for (const r of [...parseJsonlRows(bundledCloudFeedRaw), ...readLocalSavedRows(), ...cloudRows, ...newRows]) {
     if (!r || !r.id || isStaleHistoricalRow(r)) continue;
@@ -328,10 +329,11 @@ function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = []
   }
   const all = [...mergedMap.values()].slice(-1200);
   try {
-    const customSaved = all.filter((r) => !bundledCloudFeedRaw.includes(r.id)).slice(-800);
+    const customSaved = all.slice(-1200);
     localStorage.setItem(LOCAL_SCANNED_STORAGE_KEY, JSON.stringify(customSaved));
   } catch {
-    // ignore storage quota errors
+    if (requirePersistence) throw new Error('Could not save the refreshed feed on this device.');
+    // Existing offline callers can still use the in-memory result.
   }
   return all;
 }
@@ -629,6 +631,16 @@ export async function loadInitialFeedUnified(): Promise<{
     scannedAt,
     scannedProjects: allRows.length,
   };
+}
+
+/** Fetch the latest feed published by the scheduled scanner, without triggering a run. */
+export async function refreshPublishedFeed(): Promise<{jobs: FreelanceJob[]; scannedAt: string | null; publishedCount: number}> {
+  const raw = await fetchPublishedFeed();
+  const rows = parseJsonlRows(raw);
+  if (!rows.length) throw new Error('Published feed contains no valid projects.');
+  const merged = saveLocalRows(rows, [], true);
+  const { jobs, scannedAt } = buildJobsFromRows(merged);
+  return { jobs, scannedAt, publishedCount: rows.length };
 }
 
 export async function syncCloudFeedDirectFromGitHub(_githubToken?: string): Promise<{

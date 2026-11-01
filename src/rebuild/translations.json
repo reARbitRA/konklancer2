@@ -245,5 +245,14 @@
   "Scan unavailable:": "اسکن در دسترس نیست:",
   "Queue a cloud scan in the configured repository? This may consume GitHub Actions minutes.": "اسکن ابری در مخزن تنظیم‌شده ثبت شود؟ این کار ممکن است از سهمیه GitHub Actions استفاده کند.",
   "Interval must be a whole number from 1 to 240 minutes.": "فاصله باید عددی صحیح بین ۱ تا ۲۴۰ دقیقه باشد.",
-  "Scheduler settings saved.": "تنظیمات زمان‌بند ذخیره شد."
+  "Scheduler settings saved.": "تنظیمات زمان‌بند ذخیره شد.",
+  "Refreshing published feed…": "در حال دریافت آخرین فید منتشرشده…",
+  "Published feed refreshed; no new scan was started.": "آخرین فید منتشرشده دریافت شد؛ اسکن جدیدی اجرا نشده است.",
+  "Feed refresh failed:": "دریافت فید ناموفق بود:",
+  "Refresh feed": "به‌روزرسانی فید",
+  "Refreshing…": "در حال به‌روزرسانی…",
+  "Scan requires server authentication. Configure API access in Settings.": "اسکن به مجوز سرور نیاز دارد. دسترسی API را در تنظیمات پیکربندی کنید.",
+  "Live scan server is unavailable. Use Refresh feed for the latest published results.": "سرور اسکن زنده در دسترس نیست. برای دریافت آخرین نتایج منتشرشده از «به‌روزرسانی فید» استفاده کنید.",
+  "check your connection": "اتصال خود را بررسی کنید",
+  "Could not save the refreshed feed on this device.": "ذخیره فید به‌روز در این دستگاه ممکن نبود."
 }

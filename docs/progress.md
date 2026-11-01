@@ -85,3 +85,7 @@ The rebuilt UI now defaults to Persian with RTL layout, and provides an English 
 #### Micro-interactions and orbit motion
 
 Added 120ms interaction feedback to buttons, links and form controls, rotating overview orbits in both directions, a restrained center pulse, and a compact mobile orbit. Reduced-motion preference disables motion. Local Chromium verified orbit movement, press feedback, mobile visibility/no horizontal overflow at 390px and reduced-motion behavior; hover was not exercised because the headless browser reported no hover-capable device. Lint, 173 tests, build and jsdom smoke passed.
+
+#### Scan diagnosis and published-feed refresh
+
+The rebuilt overview's live scan requires the protected Express `/api/bridge/trigger-scan` endpoint. The local preview returned 401 without its private token, and Vercel's static Vite deployment is not evidence of an Express scanner backend. Added explicit authentication/server-unavailable messages and a separate button that fetches the latest published public GitHub scanner feed; it does not start or claim to start a scan. Feed refresh persists refreshed rows and reports storage failures. GitHub's public contents endpoint returned HTTP 200 and CORS `*` in a local HTTP check; a mocked Chromium test verified refresh, persistence and the visible 401 path. Lint, build, 175 unit tests and the jsdom smoke passed. An on-demand live scan on Vercel still requires an authenticated scanner service and real network verification.
