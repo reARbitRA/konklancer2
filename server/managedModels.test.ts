@@ -42,3 +42,28 @@ test('managed generation enforces quota and does not expose the server credentia
     r=response(); await handler({...req,body:{...req.body,provider:'https://attacker.example'}} as any,r.res); assert.equal(r.result().status,400);
   } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined) delete process.env[k]; else process.env[k]=saved[i];});}
 });
+test('managed inference distinguishes catalogue outage from an invalid model', async () => {
+  const names=['SUPABASE_URL','SUPABASE_ANON_KEY','MANAGED_LLM_USER_IDS','OPENROUTER_API_KEY'];
+  const saved=names.map(k=>process.env[k]); const original=globalThis.fetch;
+  Object.assign(process.env,{SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',MANAGED_LLM_USER_IDS:'member',OPENROUTER_API_KEY:'private-key'});
+  let providerStatus=503, quotaCalls=0;
+  globalThis.fetch=(async (url:any)=>{const u=String(url);if(u.includes('/auth/v1/user'))return new Response(JSON.stringify({id:'member'}));if(u.includes('/rest/v1/rpc/')){quotaCalls++;return new Response('true');}if(u.endsWith('/models')) return new Response(providerStatus===200?JSON.stringify({data:[]}):'',{status:providerStatus}); throw new Error('unexpected URL');}) as typeof fetch;
+  try {
+    const req={headers:{authorization:'Bearer token'},method:'POST',body:{provider:'openrouter',model:'some-model',prompt:'hello'}} as IncomingMessage & {body:any};
+    let r=response(); await handler(req,r.res); assert.equal(r.result().status,503); assert.equal(quotaCalls,0);
+    providerStatus=200; r=response(); await handler(req,r.res); assert.equal(r.result().status,400); assert.equal(quotaCalls,0);
+  } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined) delete process.env[k]; else process.env[k]=saved[i];});}
+});
+test('model discovery ignores malformed provider entries and emits an opaque request id', async () => {
+  const names=['SUPABASE_URL','SUPABASE_ANON_KEY','MANAGED_LLM_USER_IDS','OPENROUTER_API_KEY'];
+  const saved=names.map(k=>process.env[k]); const original=globalThis.fetch;
+  Object.assign(process.env,{SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',MANAGED_LLM_USER_IDS:'member',OPENROUTER_API_KEY:'private-key'});
+  globalThis.fetch=(async (url:any)=>String(url).includes('/auth/v1/user') ? new Response(JSON.stringify({id:'member'})) : new Response(JSON.stringify({data:[null,42,{id:'valid'}]}))) as typeof fetch;
+  let status=0, output='', requestId='';
+  const res={set statusCode(n:number){status=n;},setHeader(name:string,value:string){if(name.toLowerCase()==='x-request-id')requestId=value;},end(value:string){output=value;}} as unknown as ServerResponse;
+  try {
+    await handler({headers:{authorization:'Bearer token'},method:'GET'} as IncomingMessage,res);
+    assert.equal(status,200); assert.match(requestId,/^[0-9a-f-]{36}$/i);
+    assert.deepEqual(JSON.parse(output).providers.find((p:any)=>p.provider==='openrouter').models.map((m:any)=>m.id),['valid']);
+  } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});}
+});

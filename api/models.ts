@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { tokenPriceCategory, type CatalogModel } from '../shared/modelCatalog';
 
 // Endpoints and credential names are fixed: the client cannot direct a server request.
@@ -37,21 +38,23 @@ async function listProvider(name: string) {
   try {
     const models: CatalogModel[] = [];
     let page = '';
+    const deadline = Date.now() + 15000;
     for (let count=0; count < (p.gemini ? 20 : 1); count++) {
       const url = new URL(`${p.base}/models`);
       if (p.gemini) { url.searchParams.set('pageSize','1000'); if (page) url.searchParams.set('pageToken',page); }
       const headers: Record<string,string> = p.gemini ? {'x-goog-api-key':key} : {Authorization:`Bearer ${key}`};
-      const res = await fetch(url, {headers,redirect:'error',signal:AbortSignal.timeout(15000)});
+      const res = await fetch(url, {headers,redirect:'error',signal:AbortSignal.timeout(Math.max(1, deadline - Date.now()))});
       if (!res.ok) return {provider:name, models:[], error:`provider_${res.status}`};
       const data = await res.json() as any;
       const raw = p.gemini ? data.models : data.data;
       if (!Array.isArray(raw)) return {provider:name, models:[], error:'invalid_response'};
-      for (const m of raw) {
+      for (const m of raw.slice(0,10000)) {
+        if (!m || typeof m !== 'object') continue;
         if (p.gemini && !m.supportedGenerationMethods?.includes('generateContent')) continue;
         const id = p.gemini ? String(m.name || '').replace(/^models\//,'') : m.id;
         if (typeof id === 'string' && id && id.length < 300) models.push({provider:name,id,name:String(m.displayName || m.name || id).slice(0,300),priceCategory:tokenPriceCategory(name, m.pricing)});
       }
-      page = data.nextPageToken || ''; if (!page) break;
+      page = typeof data.nextPageToken === 'string' && data.nextPageToken.length <= 2048 ? data.nextPageToken : ''; if (!page) break;
     }
     return {provider:name, models, ...(page ? {error:'partial_list'} : {})};
   } catch { return {provider:name, models:[], error:'provider_unreachable'}; }
@@ -69,6 +72,7 @@ async function reserve(req: IncomingMessage) {
 }
 
 export default async function handler(req: IncomingMessage & {body?: any}, res: ServerResponse) {
+  res.setHeader('X-Request-ID', randomUUID());
   if (!await authorize(req)) return reply(res,401,{error:'Sign in with an authorized account to use managed models.'});
   if (req.method === 'GET') {
     const results = await Promise.all(Object.keys(providers).map(listProvider));
@@ -80,7 +84,10 @@ export default async function handler(req: IncomingMessage & {body?: any}, res: 
   const provider = providers[body.provider]; const key = keyFor(provider);
   if (!key) return reply(res,503,{error:'Provider is not configured.'});
   const catalogue = await listProvider(body.provider);
-  if (!catalogue.models.some(m => m.id === body.model)) return reply(res,400,{error:'Model is unavailable for this provider.'});
+  if (!catalogue.models.some(m => m.id === body.model)) {
+    if (catalogue.error) return reply(res,503,{error:'Provider catalogue is unavailable. Try again later.'});
+    return reply(res,400,{error:'Model is unavailable for this provider.'});
+  }
   if (!await reserve(req)) return reply(res,429,{error:'Usage limit reached or quota service unavailable.'});
   const maxTokens = Math.max(1, Math.min(4096, Number.isFinite(body.maxTokens) ? Math.floor(body.maxTokens) : 1024));
   const prompt = body.prompt + (body.json ? '\nReturn valid JSON only.' : '');
@@ -96,7 +103,7 @@ export default async function handler(req: IncomingMessage & {body?: any}, res: 
   }
   try {
     const upstream = await fetch(url,{method:'POST',headers,body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.timeout(55000)});
-    if (!upstream.ok) return reply(res,502,{error:`Provider request failed (${upstream.status}).`});
+    if (!upstream.ok) return reply(res,upstream.status === 429 ? 429 : 502,{error:`Provider request failed (${upstream.status}).`});
     const data = await upstream.json() as any;
     const text = provider.gemini ? data.candidates?.[0]?.content?.parts?.map((p:any)=>p.text || '').join('') : data.choices?.[0]?.message?.content;
     if (typeof text !== 'string' || !text.trim()) return reply(res,502,{error:'Provider returned an empty response.'});

@@ -11,3 +11,6 @@
 | Supabase Auth | account and optional gate | client/server wiring and unit tests only; real OAuth and project configuration unverified |
 
 Current production hosting only proves a static Vite build for an older commit; a reachable Express backend and API routing on Vercel remain unproven. The preview server token is not automatically provided to browsers, so protected actions can return 401.
+
+## Managed inference update
+`/api/models` (Vercel function) verifies Supabase identity and a server-side allowlist, discovers fixed provider catalogues, and reserves a shared quota before generation. Supabase also verifies membership for the quota RPC; provisioning a user requires both allowlists. Failures include an opaque request ID. These paths have mocked tests; live provider calls and deployed user sessions remain unverified. The scanner and outcomes routes above are still Express routes, not proven Vercel functions.

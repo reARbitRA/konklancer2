@@ -11,7 +11,7 @@ async function request(init:RequestInit = {}) {
   const token = getAuthAccessToken();
   if (!token) throw new Error('برای استفاده از مدل‌ها ابتدا وارد حساب مجاز شوید.');
   const response = await fetch('/api/models',{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},cache:'no-store'});
-  if (!response.ok) { const error = await response.json().catch(()=>({})); throw new Error(error.error || 'خطا در ارتباط با سرویس مدل‌ها.'); }
+  if (!response.ok) { const error = await response.json().catch(()=>({})); const id = response.headers.get('x-request-id'); const suffix = id && /^[0-9a-f-]{36}$/i.test(id) ? ` (شناسه درخواست: ${id})` : ''; throw new Error((typeof error.error === 'string' ? error.error : 'خطا در ارتباط با سرویس مدل‌ها.') + suffix); }
   return response.json();
 }
 export async function listManagedModels(): Promise<{providers:{provider:string;models:ManagedModel[];error?:string}[]}> { return request(); }
