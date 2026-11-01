@@ -67,7 +67,7 @@ async function reserve(req: IncomingMessage, openPreview: boolean) {
   try {
     const origin = new URL(url).origin;
     const rpc = openPreview ? 'konklancer_reserve_preview_request' : 'konklancer_reserve_managed_request';
-    const r = await fetch(`${origin}/rest/v1/rpc/${rpc}`, {method:'POST',headers:{apikey:key,...(!openPreview && token ? {Authorization:token} : {}),'Content-Type':'application/json'},body:'{}',redirect:'error',signal:AbortSignal.timeout(8000)});
+    const r = await fetch(`${origin}/rest/v1/rpc/${rpc}`, {method:'POST',headers:{apikey:key,Authorization:openPreview ? `Bearer ${key}` : token,'Content-Type':'application/json'},body:'{}',redirect:'error',signal:AbortSignal.timeout(8000)});
     return r.ok && await r.json() === true;
   } catch { return false; }
 }
