@@ -318,3 +318,16 @@ test('scanner-provided category wins over local detection', () => {
   assert.equal(job.categoryKey, 'video');
   assert.equal(job.category, categoryLabel('video'));
 });
+
+test('cloud feed never discovers ambient GitHub credentials', async () => {
+  const { readCloudFeedConfig, requestCloudScan } = await import('./scannerBridge');
+  assert.equal(readCloudFeedConfig({} as NodeJS.ProcessEnv), null);
+  const config = readCloudFeedConfig({ KONKLANCER_CLOUD_FEED_REPO: 'owner/repo', GH_TOKEN: 'ambient-token', GITHUB_TOKEN: 'ambient-token' } as NodeJS.ProcessEnv);
+  assert.ok(config);
+  assert.equal(config.token, '');
+  let called = false;
+  const result = await requestCloudScan(config, {}, { fetchImpl: (async () => { called = true; throw new Error('unexpected'); }) as typeof fetch });
+  assert.equal(result.ok, false);
+  assert.equal(called, false);
+  assert.equal(readCloudFeedConfig({ KONKLANCER_CLOUD_FEED_REPO: 'owner/repo', KONKLANCER_CLOUD_TOKEN: 'explicit-token' } as NodeJS.ProcessEnv)?.token, 'explicit-token');
+});

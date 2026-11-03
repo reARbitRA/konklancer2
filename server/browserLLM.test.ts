@@ -77,3 +77,52 @@ test('direct provider failures are surfaced instead of replaced with mock answer
     globalThis.fetch = originalFetch;
   }
 });
+
+test('direct requests time out and abort the provider connection', async () => {
+  const { smartFetchLLM } = await import('../src/services/browserLLM');
+  const originalFetch = globalThis.fetch;
+  let signal: AbortSignal | null = null;
+  globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    signal = init?.signal as AbortSignal;
+    return new Promise((_resolve, reject) => {
+      signal!.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(smartFetchLLM('https://example.invalid', {}, 5), /زمان اتصال/);
+    assert.equal((signal as AbortSignal | null)?.aborted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider error bodies are not exposed in the UI', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: 'test-user-provider-key private prompt' } }), { status: 401 })) as typeof fetch;
+  try {
+    await assert.rejects(callBrowserLLM({ prompt: 'hello', overrideConfig: directProfile }), (err: Error) => {
+      assert.match(err.message, /401/);
+      assert.doesNotMatch(err.message, /test-user-provider-key|private prompt/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('network failures never echo provider URLs or keys', async () => {
+  const { smartFetchLLM } = await import('../src/services/browserLLM');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new Error('url https://example.com?key=secret-test-value'); }) as typeof fetch;
+  try {
+    await assert.rejects(smartFetchLLM('https://example.com?key=secret-test-value', {}), (error: Error) => !error.message.includes('secret-test-value'));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('model-not-found responses give actionable guidance without leaking bodies', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response('secret-test-value', {status: 404})) as typeof fetch;
+  try {
+    await assert.rejects(callBrowserLLM({prompt:'test',overrideConfig:directProfile}), (error: Error) => error.message.includes('مدل یا آدرس') && !error.message.includes('secret-test-value'));
+  } finally { globalThis.fetch = originalFetch; }
+});

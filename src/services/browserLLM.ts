@@ -1,3 +1,4 @@
+import { callManagedModel, readManagedModel } from './managedLLM';
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
 import {
@@ -68,15 +69,29 @@ export function isStandaloneClientMode(): boolean {
 }
 
 /** Direct browser-to-provider request. No Konkred or Supabase relay is used. */
-async function smartFetchLLM(
+export async function smartFetchLLM(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
+  timeoutMs = 60_000,
 ): Promise<Response> {
-  return fetch(url, {
-    method: init.method || 'GET',
-    headers: init.headers || {},
-    ...(init.body !== undefined ? { body: init.body } : {}),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      method: init.method || 'GET',
+      headers: init.headers || {},
+      ...(init.body !== undefined ? { body: init.body } : {}),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('زمان اتصال به سرویس هوش مصنوعی پایان یافت. ورودی شما حفظ شده است؛ دوباره تلاش کنید.');
+    }
+    // Network errors can include provider URLs and credentials (e.g. Gemini query keys).
+    throw new Error('Failed to fetch: اتصال به سرویس برقرار نشد. شبکه، CORS و آدرس سرویس را بررسی کنید.');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function detectProviderClient(endpoint?: string, explicitProvider?: string, apiKey?: string): string {
@@ -171,17 +186,14 @@ function extractBalancedBlock(text: string): string | null {
   return null;
 }
 
+// Provider payloads may echo credentials or prompts. Never display them in the UI.
 async function safeReadError(res: Response): Promise<string> {
-  try {
-    const data: any = await res.json();
-    return data?.error?.message || data?.message || JSON.stringify(data).slice(0, 220);
-  } catch {
-    try {
-      return (await res.text()).slice(0, 220);
-    } catch {
-      return `HTTP ${res.status}`;
-    }
-  }
+  if (res.status === 401 || res.status === 403) return 'کلید یا دسترسی سرویس را بررسی کنید.';
+  if (res.status === 402) return 'اعتبار یا وضعیت پرداخت سرویس را بررسی کنید.';
+  if (res.status === 404) return 'مدل یا آدرس سرویس پیدا نشد؛ شناسه مدل و دسترسی حساب را بررسی کنید.';
+  if (res.status === 429) return 'سهمیه یا محدودیت درخواست سرویس تمام شده است؛ کمی بعد دوباره تلاش کنید.';
+  if (res.status >= 500) return 'سرویس موقتاً در دسترس نیست؛ دوباره تلاش کنید.';
+  return 'تنظیمات مدل و درخواست را بررسی کنید.';
 }
 
 async function executeSingleKeyCall(
@@ -296,6 +308,8 @@ export async function callBrowserLLM(opts: {
   temperature?: number;
   overrideConfig?: Partial<ActiveCustomLLM>;
 }): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
+  const managed = !opts.overrideConfig && readManagedModel();
+  if (managed) return callManagedModel(managed, opts);
   const candidates = getOrderedVaultCandidates(opts.overrideConfig)
     .map((candidate) => resolveClientLLMConfig(candidate))
     .filter((candidate): candidate is ActiveCustomLLM => Boolean(candidate));

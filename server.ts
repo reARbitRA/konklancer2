@@ -12,9 +12,11 @@ import { fetchAndParseUrl, parseHtmlProjects } from './server/urlScraper';
 import { getBidStore } from './server/store';
 import { registerBidRoutes } from './server/bidRoutes';
 import { ScanScheduler } from './server/scheduler';
-import { createApiTokenGuard, describeApiAuth, readApiToken } from './server/apiAuth';
+import { createApiTokenGuard, describeApiAuth, readApiToken, resolveServerHost } from './server/apiAuth';
 import { extractBearerJwt, verifySupabaseJwt } from './server/supabaseJwt';
 import { createTelegramAuthHandler } from './server/telegramAuth';
+import { createSocketAuthGuard } from './server/socketAuth';
+import { fetchRelay, isAllowedRelayUrl, LLM_RELAY_ALLOWED_HOSTS } from './server/llmRelayPolicy';
 import { notifyNotableJobs, readAlertConfig } from './server/notifier';
 import {
   buildFeed,
@@ -58,6 +60,8 @@ app.use(express.json({ limit: '10mb' }));
 // احراز هویت اختیاری API (SPEC-003 R5): با تنظیم KONKLANCER_API_TOKEN همه‌ی
 // درخواست‌های /api به هدر x-api-token نیاز دارند. بدون آن، رفتار قبلی حفظ می‌شود.
 const API_TOKEN = readApiToken(process.env);
+const SERVER_HOST = resolveServerHost(process.env, API_TOKEN);
+io.use(createSocketAuthGuard(API_TOKEN));
 const sendApiTokenHeader = (res: Response) => res.setHeader('x-api-auth', API_TOKEN ? 'required' : 'off');
 const tokenGuard = createApiTokenGuard(API_TOKEN);
 /**
@@ -320,50 +324,11 @@ function ensureSeedFeedFromCloudFile(outFile: string, cwd: string): void {
   }
 }
 
-function detectGitHubRepoSlug(cwd: string): string | null {
-  try {
-    const gitCfgPath = path.resolve(cwd, '.git', 'config');
-    if (!fs.existsSync(gitCfgPath)) return null;
-    const raw = fs.readFileSync(gitCfgPath, 'utf8');
-    const m = raw.match(/github\.com[:/]([^/\s]+\/[^/\s.]+?)(?:\.git)?\s*$/m);
-    return m ? m[1] : null;
-  } catch {
-    return null;
-  }
-}
-
-function detectCurrentGitBranch(cwd: string): string | null {
-  try {
-    const headPath = path.resolve(cwd, '.git', 'HEAD');
-    if (!fs.existsSync(headPath)) return null;
-    const raw = fs.readFileSync(headPath, 'utf8').trim();
-    const m = raw.match(/^ref:\s*refs\/heads\/(.+)$/);
-    return m ? m[1].trim() : null;
-  } catch {
-    return null;
-  }
-}
-
 ensureSeedFeedFromCloudFile(SCAN_CONFIG.outFile, SCAN_CONFIG.cwd);
 
-const effectiveCloudEnv: NodeJS.ProcessEnv = {
-  ...process.env,
-  ...(process.env.KONKLANCER_CLOUD_FEED_REPO
-    ? {}
-    : (() => {
-        const slug = detectGitHubRepoSlug(process.cwd());
-        return slug ? { KONKLANCER_CLOUD_FEED_REPO: slug } : {};
-      })()),
-  ...(process.env.KONKLANCER_CLOUD_FEED_REF
-    ? {}
-    : (() => {
-        const branch = detectCurrentGitBranch(process.cwd());
-        return branch ? { KONKLANCER_CLOUD_FEED_REF: branch } : {};
-      })()),
-};
-
-/** فید ابری (اسکن روی رانرهای گیت‌هاب) — از env یا از remote مخزن گیت‌هاب تشخیص داده می‌شود. */
-const CLOUD_CONFIG = readCloudFeedConfig(effectiveCloudEnv, process.cwd(), SCAN_CONFIG.outFile);
+// Cloud access is explicit. Never discover a repository, branch, or CLI identity
+// from the server's working environment on behalf of an API caller.
+const CLOUD_CONFIG = readCloudFeedConfig(process.env, process.cwd(), SCAN_CONFIG.outFile);
 /** شناسه پروژه‌هایی که یک‌بار به UI پوش شده‌اند؛ برای جلوگیری از پوش تکراری. */
 const emittedJobIds = new Set<string>();
 // پروژه‌هایی که اعلانشان یک بار فرستاده شده تا اسپم نشود (SPEC-004 R7)
@@ -1126,34 +1091,17 @@ app.post('/api/llm/test', async (req: Request, res: Response) => {
 // ── رله عمومی LLM (fallback روی خودِ سرور؛ مشابه Supabase Edge Relay)
 // اگر کلاینت نخواهد مستقیماً با گوگل صحبت کند (یا IP ایران بلاک شده)، درخواست را
 // از همین سرور (Vercel/US) فوروارد می‌کنیم. فقط هاست‌های allow-list قبول می‌شوند تا SSRF بسته بماند.
-const LLM_RELAY_ALLOWED_HOSTS = new Set([
-  'generativelanguage.googleapis.com',
-  'api.groq.com',
-  'api.openai.com',
-  'api.openrouter.ai',
-  'openrouter.ai',
-  'api.deepseek.com',
-  'api.anthropic.com',
-  'api.cohere.ai',
-  'api.mistral.ai',
-  'generativelanguage.googleapis.com',
-]);
-const LLM_RELAY_ALLOWED_SUFFIXES = ['.googleapis.com', '.openai.azure.com'];
-function isLLMRelayAllowed(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (LLM_RELAY_ALLOWED_HOSTS.has(h)) return true;
-  return LLM_RELAY_ALLOWED_SUFFIXES.some((s) => h.endsWith(s));
-}
 app.post('/api/llm/relay', async (req: Request, res: Response) => {
   try {
     const targetUrl: string = (req.body?.target_url || req.body?.targetUrl || '').trim?.() || '';
     if (!targetUrl) return res.status(400).json({ ok: false, error: 'target_url required' });
     let parsed: URL;
     try { parsed = new URL(targetUrl); } catch { return res.status(400).json({ ok: false, error: 'Invalid target_url' }); }
-    if (!isLLMRelayAllowed(parsed.hostname)) {
-      return res.status(403).json({ ok: false, error: `Host not allow-listed: ${parsed.hostname}` });
+    if (!isAllowedRelayUrl(targetUrl)) {
+      return res.status(403).json({ ok: false, error: 'Relay target is not an allowed HTTPS provider URL.' });
     }
-    const reqMethod: string = (req.body?.req_method || req.body?.method || 'POST').toUpperCase();
+    const reqMethod: string = String(req.body?.req_method || req.body?.method || 'POST').toUpperCase();
+    if (!['GET', 'POST'].includes(reqMethod)) return res.status(400).json({ ok: false, error: 'Unsupported relay method' });
     const reqHeadersIn: Record<string, string> = req.body?.req_headers || req.body?.headers || {};
     const reqBody: string | null = req.body?.req_body ?? req.body?.body ?? null;
     const forwardHeaders: Record<string, string> = {};
@@ -1167,13 +1115,13 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
     // Inject server-managed keys if client sent placeholder (APK بدون کلید)
     const injectServerKeysNode = (url: string, headers: Record<string, string>) => {
       const isPlaceholder = (headers['Authorization'] || headers['authorization'] || '') === 'Bearer __SERVER__' || headers['x-server-managed'] === '1';
-      const urlHasRealKey = url.includes('key=') && !url.includes('key=__SERVER__');
+      const wantsServerKey = isPlaceholder || (() => { try { return new URL(url).searchParams.get('key') === '__SERVER__'; } catch { return false; } })();
       const host = (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } })();
       let nUrl = url; let nH = { ...headers };
       if (nUrl.includes('__SERVER__')) { try { const u = new URL(nUrl); if (u.searchParams.get('key') === '__SERVER__') u.searchParams.delete('key'); nUrl = u.toString(); } catch {} }
       if (nH['Authorization'] === 'Bearer __SERVER__') delete nH['Authorization'];
       if (nH['authorization'] === 'Bearer __SERVER__') delete nH['authorization'];
-      if (!isPlaceholder && urlHasRealKey && (nH['Authorization'] || nH['authorization'])) return { url: nUrl, headers: nH };
+      if (!wantsServerKey) return { url: nUrl, headers: nH };
       if (host === 'api.groq.com') { const k = process.env.GROQ_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
       else if (host === 'api.openai.com') { const k = process.env.OPENAI_API_KEY || process.env.AGNES_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
       else if (host === 'api.openrouter.ai' || host === 'openrouter.ai') { const k = process.env.OPENROUTER_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
@@ -1186,7 +1134,7 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
     let effectiveUrl = targetUrl; let effectiveHeaders: Record<string,string> = { ...forwardHeaders };
     try { const inj = injectServerKeysNode(targetUrl, forwardHeaders); effectiveUrl = inj.url; effectiveHeaders = inj.headers; } catch {}
 
-    const upstream = await fetch(effectiveUrl, {
+    const upstream = await fetchRelay(effectiveUrl, {
       method: reqMethod,
       headers: effectiveHeaders,
       body: reqBody != null ? reqBody : undefined,
@@ -1364,6 +1312,12 @@ app.post('/api/scheduler/run-now', async (_req: Request, res: Response) => {
   return res.json({ success: result !== 'error', result, scheduler: scanScheduler.getState() });
 });
 
+// Keep unknown API paths out of the SPA fallback: callers must never receive
+// index.html with HTTP 200 when an endpoint is missing.
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({ error: { code: 'NOT_FOUND', message: 'API endpoint not found.' } });
+});
+
 // Start Express server and connect Vite in development
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -1442,11 +1396,12 @@ async function startServer() {
   let listenAttempt = 0;
   const maxListenAttempts = 8;
   const onListening = () => {
-    console.log(`Konklancer server & Socket.io bridge running at http://localhost:${PORT}`);
+    console.log(`Konklancer server listening on ${SERVER_HOST}:${PORT}`);
+    if (!API_TOKEN) console.warn('[security] API token is not configured; listening on loopback only.');
   };
   const tryListen = () => {
     listenAttempt += 1;
-    httpServer.listen(PORT, '0.0.0.0', onListening);
+    httpServer.listen(PORT, SERVER_HOST, onListening);
   };
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE' && listenAttempt < maxListenAttempts) {

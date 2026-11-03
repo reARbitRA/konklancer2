@@ -22,7 +22,7 @@ npm start                        # http://localhost:3000
 |-----|--------|-------|
 | `PORT` | خیر | پیش‌فرض `3000` |
 | `KONKLANCER_DEMO` | خیر | اگر `1` باشد، پروژه‌های ساختگی نمایشی تولید می‌شوند. پیش‌فرض خاموش. |
-| `KONKLANCER_API_TOKEN` | خیر | اگر تنظیم شود (حداقل ۸ نویسه)، همه‌ی `/api/*` توکن می‌خواهند: هدر `x-api-token` یا `Bearer` یا `?token=`. توکن را در تنظیمات → «یادآور و امنیت API» هم وارد کنید. |
+| `KONKLANCER_API_TOKEN` | خیر | در production الزامی است؛ در توسعه بدون آن فقط loopback باز است. اگر تنظیم شود (حداقل ۸ نویسه)، همه‌ی `/api/*` توکن می‌خواهند: هدر `x-api-token` یا `Bearer` یا `?token=`. توکن را در تنظیمات → «یادآور و امنیت API» هم وارد کنید. |
 | `KONKLANCER_DB_PATH` | خیر | مسیر دیتابیس SQLite (پیش‌فرض `data/konklancer.db`، مسیر `:memory:` هم پذیرفته است). |
 | `KONKLANCER_TELEGRAM_BOT_TOKEN` / `KONKLANCER_TELEGRAM_CHAT_ID` | خیر | اعلان پروژه‌های بالای آستانه در تلگرام (SPEC-004 R7). |
 | `KONKLANCER_ALERT_THRESHOLD` | خیر | آستانه‌ی امتیاز برای اعلان (پیش‌فرض ۸۵). |
@@ -31,6 +31,11 @@ npm start                        # http://localhost:3000
 **AI موقت:** در Settings می‌توانی چند پروفایل شخصی (OpenRouter، Gemini، Groq، OpenAI، Ollama یا endpoint سازگار مثل DeepSeek) اضافه کنی، مدل را انتخاب کنی و اتصال را بیازمایی. درخواست‌ها مستقیم از دستگاه به provider می‌روند؛ CORS، محدودیت منطقه‌ای و خطاهای provider ممکن است روی دسترسی اثر بگذارند.
 
 کلیدها در storage همان دستگاه ذخیره می‌شوند و بخشی از APK نیستند. هیچ کلید مشترکی را در source، `.env` عمومی یا APK نگذار؛ APK قابل بازکردن و استخراج کلید است. این حالت موقت است و SPEC-006 gateway فعلاً متوقف مانده است.
+
+### تنظیم Supabase و فید ابری
+ورود دیگر به پروژهٔ Supabase دیگری پیش‌فرض نمی‌شود. برای فعال‌کردن ورود، `VITE_SUPABASE_URL` و `VITE_SUPABASE_ANON_KEY` را با مقادیر عمومی همان پروژه در محیط build تنظیم کنید. برای ادامهٔ ورود به پروژهٔ قبلی نیز همین دو مقدار را صریح تنظیم کنید. اگر تنظیم نشود، ورود غیرفعال و حالت مهمان در دسترس است. رله و جدول فید قدیمی پیکربندی جداگانهٔ `VITE_FEED_SUPABASE_URL` و `VITE_FEED_SUPABASE_ANON_KEY` دارند؛ وجود آن‌ها در پروژهٔ ورود فرض نمی‌شود.
+
+فید ابری سرور تنها با `KONKLANCER_CLOUD_FEED_REPO` صریح فعال می‌شود و عملیات نوشتن به `KONKLANCER_CLOUD_TOKEN` نیاز دارد. استفادهٔ خودکار از ورود محلی gh حذف شده است. در صورت نیاز به مسیر جایگزین gh برای خطای شبکه، `KONKLANCER_CLOUD_GH_FALLBACK=1` را تنظیم کنید؛ همان توکن صریح استفاده می‌شود.
 
 ### توکن گیت‌هاب
 توکن فقط در `sessionStorage` مرورگر نگه‌داری می‌شود و با بستن تب پاک می‌شود. مخزن‌های ساخته‌شده پیش‌فرض **خصوصی** هستند؛ انتشار عمومی نیاز به انتخاب صریح دارد.
@@ -62,7 +67,8 @@ npm start                        # http://localhost:3000
 می‌شود و نتیجه در فید می‌آید (ورک‌فلوی `.github/workflows/scanner-feed.yml`):
 
 ```bash
-# در .env:  KONKLANCER_CLOUD_FEED_REPO="reARbitRA/konklancer" و KONKLANCER_CLOUD_FEED_REF="<برنچ>"
+# در .env: KONKLANCER_CLOUD_FEED_REPO، KONKLANCER_CLOUD_FEED_REF و KONKLANCER_CLOUD_TOKEN را صریح تنظیم کنید.
+# کلید gh محیط به صورت خودکار استفاده نمی‌شود.
 curl -s -X POST localhost:3000/api/bridge/cloud-scan | jq .   # اجرای اسکن واقعی روی گیت‌هاب
 curl -s -X POST localhost:3000/api/bridge/sync-feed  | jq .   # فقط کشیدن آخرین فید
 ```
@@ -108,7 +114,7 @@ python -m scanner.konklancer_scan enable --telegram workarc       # سریع‌�
 ## محدودیت‌های فعلی
 - انتخابگرهای **کارلنسر** و **پونیشا** روی نمونه‌ی HTML واقعی تأیید شده‌اند (`scan_selectors_verified` در `platforms.json`)؛ انتخابگرهای **پارس‌کدرز** هنوز تأییدنشده‌اند (صفحه در اجرای رانر تایم‌اوت داد) و با `KONKLANCER_HTTP_TIMEOUT=45` دوباره تلاش می‌شود (SPEC-004 R3).
 - سایت‌های JS-محور یا ضدربات (احتمالاً کارلنسر) با `autoscan` خالی برمی‌گردند؛ Playwright پیاده نشده و مسیر جایگزین، ذخیره‌ی صفحه در مرورگر و `autoscan --html` است.
-- احراز هویت `/api/*` **پیاده شده** ولی اختیاری است: فقط با تنظیم `KONKLANCER_API_TOKEN` فعال می‌شود (SPEC-003 R5).
+- احراز هویت `/api/*` و Socket.io با `KONKLANCER_API_TOKEN` فعال می‌شود؛ بدون آن فقط توسعه روی loopback اجرا می‌شود و production شروع نمی‌شود (SPEC-003 R5). این مدل هنوز جداسازی دادهٔ چندکاربره نیست.
 - پیش‌فیلتر قانون‌محور ۰–۱۰۰ در `server/scannerBridge.ts` و هم‌ارز کلاینتی آن در `src/services/standaloneFeed.ts` هست.
 - نتیجه‌ی پیشنهادها در SQLite ذخیره می‌شود؛ فهرست پروژه‌ها همچنان فایل JSONL اسکنر است و jobs در مرورگر نگه‌داری می‌شوند.
 - رندر مرورگری (Playwright) برای سایت‌های JS-محور پیاده شده ولی در محیط توسعه تأییدنشده است (بدون مرورگر نصب‌شده).

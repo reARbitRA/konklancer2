@@ -154,3 +154,13 @@ test('telegram bot username defaults to empty (provider stays disabled)', () => 
   assert.equal(typeof TELEGRAM_BOT_USERNAME, 'string');
   assert.equal(TELEGRAM_BOT_USERNAME.includes('@'), false);
 });
+
+test('missing Supabase configuration fails closed without crashing guest mode', async () => {
+  const { isSupabaseConfigured, getSupabaseClient, loadSession, onAuthChange, probeProviders } = await import('../src/services/auth');
+  assert.equal(isSupabaseConfigured(), false);
+  assert.throws(() => getSupabaseClient(), /VITE_SUPABASE_URL/);
+  assert.equal(await loadSession(), null);
+  assert.doesNotThrow(() => onAuthChange(() => {})());
+  const availability = await probeProviders();
+  assert.match(availability.google.reason ?? '', /VITE_SUPABASE_URL/);
+});

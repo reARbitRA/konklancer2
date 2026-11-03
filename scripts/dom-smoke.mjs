@@ -22,10 +22,20 @@ vc.on('error', (...a) => errors.push('console.error: ' + a.join(' ')));
 vc.on('warn', (...a) => { const s = a.join(' '); if (!/not implemented|Could not parse CSS|width\(0\) and height\(0\)|The width\(0\)/i.test(s)) errors.push('console.warn: ' + s); });
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:24678';
+const DOM_API_TOKEN = process.env.DOM_API_TOKEN || '';
+const testFetch = (url, init = {}) => {
+  const headers = new Headers(init.headers);
+  if (DOM_API_TOKEN) headers.set('x-api-token', DOM_API_TOKEN);
+  return globalThis.fetch(url, { ...init, headers });
+};
 const dom = new JSDOM(html, { url: `${BASE_URL}/#/hunt`, runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc });
 const { window } = dom;
 window.matchMedia = (q) => ({ matches: false, media: q, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){}, onchange: null, dispatchEvent(){ return false; } });
-window.fetch = (u, o) => globalThis.fetch(new URL(u, BASE_URL), o);
+window.fetch = (u, o) => testFetch(new URL(u, BASE_URL), o);
+if (DOM_API_TOKEN) {
+  window.localStorage.setItem('konklancer_api_token', DOM_API_TOKEN);
+  window.localStorage.setItem('konklancer_settings', JSON.stringify({ apiToken: DOM_API_TOKEN }));
+}
 window.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} };
 window.IntersectionObserver = class { observe(){} unobserve(){} disconnect(){} };
 window.scrollTo = () => {};
@@ -137,18 +147,19 @@ await waitFor(() => { const v = budgets().filter(x => x !== null); return v.leng
 let bAsc = budgets().filter(v => v !== null);
 check('price sort toggled (asc)', bAsc.every((v, i) => i === 0 || v >= bAsc[i-1]), `top=${bAsc.slice(0,3).join(',')}`);
 
-// 1b) relevance filter "همه" + price desc must surface the absolute max budget (1e9)
+// 1b) relevance filter "همه" + price desc must surface the maximum from the current feed
 // rendering 1000+ cards takes >1s in jsdom → wait on the condition, not a timer
 // The feed size is data, not code: derive the expectation from the API instead of
 // hard-coding 1000 (the scanner bot legitimately moves between ~900 and ~1100).
-const feedTotal = await (async () => {
-  try {
-    const body = await (await globalThis.fetch(`${BASE_URL}/api/jobs`)).json();
-    return Array.isArray(body.jobs) ? body.jobs.length : Number(body.scannedProjects) || 0;
-  } catch {
-    return 0;
-  }
+const feedJobs = await (async () => {
+  const response = await testFetch(`${BASE_URL}/api/jobs`);
+  if (!response.ok) throw new Error(`Feed request failed: ${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body.jobs)) throw new Error('Feed response does not contain a jobs array');
+  return body.jobs;
 })();
+const feedTotal = feedJobs.length;
+const expectedMaxBudget = Math.max(12000000, ...feedJobs.map(job => Number(job.budget) || 0));
 const expectedCards = Math.max(100, Math.floor(feedTotal * 0.9));
 await clickUntil('همه (', () => $$('.job-brutal').length >= expectedCards, '"همه" full feed render');
 const allCards = $$('.job-brutal').length;
@@ -168,9 +179,9 @@ const priceBtn = $$('button').find(b => (b.textContent || '').includes('قیمت
 const priceCardActive = priceBtn && /bg-\[#00E599\]/.test(priceBtn.className);
 if (!priceCardActive) { priceBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await sleep(600); }
 wantDesc(); await sleep(700);
-if (!budgets().filter(v => v !== null).length || budgets().filter(v => v !== null)[0] !== 1000000000) { wantDesc(); await sleep(700); }
+if (!budgets().filter(v => v !== null).length || budgets().filter(v => v !== null)[0] !== expectedMaxBudget) { wantDesc(); await sleep(700); }
 const allBudgets = budgets().filter(v => v !== null);
-check('max budget surfaces under "همه" filter', allBudgets[0] === 1000000000, `top=${allBudgets[0]}`);
+check('max budget surfaces under "همه" filter', allBudgets[0] === expectedMaxBudget, `top=${allBudgets[0]}, expected=${expectedMaxBudget}`);
 check('price desc monotonic across full feed', allBudgets.every((v, i) => i === 0 || v <= allBudgets[i-1]));
 clickByText('button', 'مرتبط (');
 await sleep(700);
@@ -361,16 +372,16 @@ check('ops panel shows live scheduler state from the server', /زمان‌بند
 const toggleBtn = $$('button').find(b => /توقف زمان‌بند اسکن|روشن‌کردن زمان‌بند اسکن/.test(b.getAttribute('aria-label') || ''));
 check('ops engine toggle is wired', !!toggleBtn);
 if (toggleBtn) {
-  const before = (await (await globalThis.fetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
+  const before = (await (await testFetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
   toggleBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   let after = before;
   for (let i = 0; i < 15 && after === before; i += 1) {
     await sleep(400);
-    after = (await (await globalThis.fetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
+    after = (await (await testFetch(`${BASE_URL}/api/scheduler`)).json()).scheduler.enabled;
   }
   check('engine toggle changes real scheduled-scan state', after !== before, `${before} → ${after}`);
   // restore the original setting
-  await globalThis.fetch(`${BASE_URL}/api/scheduler`, {
+  await testFetch(`${BASE_URL}/api/scheduler`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ enabled: before }),
@@ -499,7 +510,7 @@ check('analytics breakdown shows tables or an honest empty state', statsTable >=
 
 // outcome buttons must be driven by real API data: seed a bid through the API,
 // reload the page and confirm it appears with an actionable status row.
-const seedResponse = await globalThis.fetch(`${BASE_URL}/api/bids`, {
+const seedResponse = await testFetch(`${BASE_URL}/api/bids`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ projectId: 'dom-smoke-bid', platform: 'ponisha', category: 'web', title: 'پروژه تست کارنامه', budgetBid: 9000000 }),
@@ -524,7 +535,7 @@ if (wonBtn) {
   for (let i = 0; i < 20 && !persisted; i += 1) {
     await sleep(400);
     try {
-      const res = await globalThis.fetch(`${BASE_URL}/api/bids?projectId=dom-smoke-bid`);
+      const res = await testFetch(`${BASE_URL}/api/bids?projectId=dom-smoke-bid`);
       const body = await res.json();
       persisted = body.bids?.[0]?.status === 'won';
     } catch { /* retry */ }
@@ -535,7 +546,7 @@ await auditRenderedDesign('route-analytics');
 
 // cleanup the smoke-test bid
 if (seeded?.id) {
-  await globalThis.fetch(`${BASE_URL}/api/bids/${seeded.id}`, { method: 'DELETE' });
+  await testFetch(`${BASE_URL}/api/bids/${seeded.id}`, { method: 'DELETE' });
 }
 
 // 9) AUTH — Supabase session surface (Google / GitHub / Telegram)
@@ -585,7 +596,7 @@ check('route /account renders', /حساب|PROVIDERS|SESSION|ورود/.test(accou
 check('/account explains the human dashboard setup steps', /داشبورد|Dashboard|Providers/.test(accountText));
 auditRenderedDesign('route-account');
 
-const authConfig = await (await globalThis.fetch(`${BASE_URL}/api/auth/config`)).json().catch(() => null);
+const authConfig = await (await testFetch(`${BASE_URL}/api/auth/config`)).json().catch(() => null);
 check('/api/auth/config reports dual auth (api token + supabase jwt)', !!authConfig?.supabaseJwt?.enabled,
       JSON.stringify(authConfig?.supabaseJwt ?? null).slice(0, 80));
 
