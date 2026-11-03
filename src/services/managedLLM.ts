@@ -11,7 +11,7 @@ async function request(init:RequestInit = {}) {
   const token = getAuthAccessToken();
   const response = await fetch('/api/models',{...init,headers:{'Content-Type':'application/json',...(token ? {Authorization:`Bearer ${token}`} : {})},cache:'no-store'});
   if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error('پاسخ سرور مدل‌ها نامعتبر است؛ دسترسی به پیش‌نمایش یا وضعیت استقرار را بررسی کنید.');
-  if (!response.ok) { const error = await response.json().catch(()=>({})); const id = response.headers.get('x-request-id'); const suffix = id && /^[0-9a-f-]{36}$/i.test(id) ? ` (شناسه درخواست: ${id})` : ''; throw new Error((typeof error.error === 'string' ? error.error : 'خطا در ارتباط با سرویس مدل‌ها.') + suffix); }
+  if (!response.ok) { const error = await response.json().catch(()=>({})); const id = response.headers.get('x-request-id'); const suffix = id && /^[0-9a-f-]{36}$/i.test(id) ? ` (شناسه درخواست: ${id})` : ''; const model = typeof error.provider === 'string' && typeof error.model === 'string' ? ` (${error.provider} / ${error.model})` : ''; throw new Error((typeof error.error === 'string' ? error.error : 'خطا در ارتباط با سرویس مدل‌ها.') + model + suffix); }
   return response.json();
 }
 export async function listManagedModels(): Promise<{providers:{provider:string;models:ManagedModel[];error?:string}[]}> { return request(); }

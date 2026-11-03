@@ -80,3 +80,14 @@ test('open preview accepts an anonymous model call and uses only the preview quo
     process.env.VERCEL_ENV='production'; r=response(); await handler(req,r.res); assert.equal(r.result().status,401);
   } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});}
 });
+test('upstream 503 identifies the model without leaking upstream body or retrying', async () => {
+  const names=['VERCEL_ENV','MANAGED_LLM_OPEN_PREVIEW','SUPABASE_URL','SUPABASE_ANON_KEY','OPENROUTER_API_KEY'];
+  const saved=names.map(k=>process.env[k]); const original=globalThis.fetch; let calls=0;
+  Object.assign(process.env,{VERCEL_ENV:'preview',MANAGED_LLM_OPEN_PREVIEW:'true',SUPABASE_URL:'https://example.supabase.co',SUPABASE_ANON_KEY:'anon',OPENROUTER_API_KEY:'private-key'});
+  globalThis.fetch=(async (url:any)=>{const u=String(url);if(u.endsWith('/konklancer_reserve_preview_request'))return new Response('true');if(u.endsWith('/models'))return new Response(JSON.stringify({data:[{id:'some-model'}]}));if(u.endsWith('/chat/completions')){calls++;return new Response('sensitive upstream details',{status:503});}throw new Error('unexpected request');}) as typeof fetch;
+  try {
+    const req={headers:{},method:'POST',body:{provider:'openrouter',model:'some-model',prompt:'hello'}} as IncomingMessage & {body:any};
+    const r=response(); await handler(req,r.res); const result=r.result();
+    assert.equal(result.status,502); assert.equal(result.body.upstreamStatus,503); assert.equal(result.body.provider,'openrouter'); assert.equal(result.body.model,'some-model'); assert.match(result.body.error,/مدل دیگری/); assert.equal(calls,1); assert.doesNotMatch(JSON.stringify(result),/private-key|sensitive upstream details/);
+  } finally {globalThis.fetch=original; names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});}
+});

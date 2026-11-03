@@ -117,7 +117,15 @@ async function handler(req, res) {
   }
   try {
     const upstream = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), redirect: "error", signal: AbortSignal.timeout(55e3) });
-    if (!upstream.ok) return reply(res, upstream.status === 429 ? 429 : 502, { error: `Provider request failed (${upstream.status}).` });
+    if (!upstream.ok) {
+      // Never expose the upstream response: it may contain credentials or prompt content.
+      const message = upstream.status === 503
+        ? "سرویس‌دهنده این مدل موقتاً در دسترس نیست. دوباره تلاش کنید یا مدل دیگری انتخاب کنید."
+        : upstream.status === 429
+        ? "محدودیت درخواست سرویس‌دهنده تکمیل شده است. بعداً دوباره تلاش کنید یا مدل دیگری انتخاب کنید."
+        : `درخواست به سرویس‌دهنده ناموفق بود (${upstream.status}).`;
+      return reply(res, upstream.status === 429 ? 429 : 502, { error: message, provider: body.provider, model: body.model, upstreamStatus: upstream.status });
+    }
     const data = await upstream.json();
     const text = provider.gemini ? data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") : data.choices?.[0]?.message?.content;
     if (typeof text !== "string" || !text.trim()) return reply(res, 502, { error: "Provider returned an empty response." });
