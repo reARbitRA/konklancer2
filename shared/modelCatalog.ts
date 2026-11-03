@@ -3,18 +3,7 @@
 export type PriceCategory = 'free' | 'unknown' | 'paid';
 export type CatalogModel = { provider: string; id: string; name: string; priceCategory?: PriceCategory };
 
-function tokenPrice(value: unknown): number | null {
-  if ((typeof value !== 'string' && typeof value !== 'number') || String(value).trim() === '') return null;
-  const price = Number(value);
-  return Number.isFinite(price) && price >= 0 ? price : null;
-}
-export function tokenPriceCategory(provider: string, pricing: unknown): PriceCategory {
-  if (provider !== 'openrouter' || !pricing || typeof pricing !== 'object') return 'unknown';
-  const p = pricing as Record<string, unknown>;
-  const input = tokenPrice(p.prompt), output = tokenPrice(p.completion);
-  if (input === null || output === null) return 'unknown';
-  return input === 0 && output === 0 ? 'free' : 'paid';
-}
+export { tokenPriceCategory } from './tokenPricing.js';
 
 /** Parameter counts are only a rough size proxy, not a quality benchmark. Avoid guessing MoE counts. */
 export function parameterBillions(model: CatalogModel): number | null {
