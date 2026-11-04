@@ -1,3 +1,4 @@
+import { boundedFetch } from '../shared/http';
 /**
  * ورود تلگرام در سمت سرور Node (هم‌ارز Edge Function `telegram-auth`).
  *
@@ -114,31 +115,31 @@ async function mintMagicLinkToken(
     return { ok: false, code: 'NOT_CONFIGURED', message: 'SUPABASE_URL یا SUPABASE_SERVICE_ROLE_KEY تنظیم نشده است.' };
   }
   try {
-    const response = await fetchImpl(`${base}/auth/v1/admin/generate_link`, {
+    const response = await boundedFetch(`${base}/auth/v1/admin/generate_link`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', apikey: key, authorization: `Bearer ${key}` },
       body: JSON.stringify({ type: 'magiclink', email }),
-    });
+    }, fetchImpl);
     const body: any = await response.json().catch(() => null);
     if (response.ok && body?.hashed_token) {
       return { ok: true, tokenHash: String(body.hashed_token) };
     }
     // اگر کاربر وجود نداشت، بسازیم و دوباره تلاش کنیم
     if (body?.error_code === 'user_not_found' || /not found|no user/i.test(body?.msg || body?.message || '')) {
-      const created = await fetchImpl(`${base}/auth/v1/admin/users`, {
+      const created = await boundedFetch(`${base}/auth/v1/admin/users`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', apikey: key, authorization: `Bearer ${key}` },
         body: JSON.stringify({ email, email_confirm: true, user_metadata: { provider_label: 'telegram' } }),
-      });
+      }, fetchImpl);
       if (!created.ok) {
         const detail: any = await created.json().catch(() => null);
         return { ok: false, code: 'USER_CREATE_FAILED', message: detail?.msg || detail?.message || `HTTP ${created.status}` };
       }
-      const retry = await fetchImpl(`${base}/auth/v1/admin/generate_link`, {
+      const retry = await boundedFetch(`${base}/auth/v1/admin/generate_link`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', apikey: key, authorization: `Bearer ${key}` },
         body: JSON.stringify({ type: 'magiclink', email }),
-      });
+      }, fetchImpl);
       const retryBody: any = await retry.json().catch(() => null);
       if (retry.ok && retryBody?.hashed_token) return { ok: true, tokenHash: String(retryBody.hashed_token) };
       return { ok: false, code: 'LINK_FAILED', message: retryBody?.msg || retryBody?.message || `HTTP ${retry.status}` };

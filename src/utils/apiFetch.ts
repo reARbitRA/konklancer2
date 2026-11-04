@@ -1,3 +1,4 @@
+import { boundedFetch } from '../../shared/http';
 /**
  * fetch یکدست برای `/api/*` که توکن اختیاری سرور را هم می‌فرستد (SPEC-003 R5).
  *
@@ -48,5 +49,5 @@ export function apiHeaders(extra: Record<string, string> = {}): Record<string, s
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const isInternalApi = path.startsWith('/api');
   const headers = isInternalApi ? apiHeaders((init.headers as Record<string, string>) ?? {}) : init.headers;
-  return fetch(path, { ...init, headers });
+  return boundedFetch(path, { ...init, headers });
 }

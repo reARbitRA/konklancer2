@@ -27,6 +27,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -41,6 +42,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup, Tag
 
+from .reliability import canonical_url, clean_bids, clean_budget, clean_posted, clean_row, request
 from . import autoparse
 from .taxonomy import CATEGORIES, CATEGORY_BY_KEY, category_label, detect_category
 
@@ -71,6 +73,9 @@ class Project:
 
     def __post_init__(self) -> None:
         # دسته را همان‌جا که رکورد ساخته می‌شود حساب می‌کنیم تا سرور و UI لازم نباشد دوباره حدس بزنند.
+        self.bids_text = clean_bids(self.bids_text)
+        self.budget_text = clean_budget(self.budget_text)
+        self.posted_text = clean_posted(self.posted_text)
         if not self.category:
             self.category = detect_category(self.title, self.summary).key
 
@@ -136,12 +141,18 @@ class RobotsCache:
     def _load(self, robots_url: str, host: str) -> urllib.robotparser.RobotFileParser | None:
         rp = urllib.robotparser.RobotFileParser()
         try:
-            resp = self.client.get(robots_url, timeout=15)
+            resp = request(self.client, "GET", robots_url, timeout=15, follow_redirects=False)
         except httpx.HTTPError:
             self._blocked_reason[host] = "network"
             return None
+        if 300 <= resp.status_code < 400:
+            self._blocked_reason[host] = "disallowed"
+            return None
         if resp.status_code >= 500:
             self._blocked_reason[host] = "server"
+            return None
+        if resp.status_code in (401, 403, 429):
+            self._blocked_reason[host] = "disallowed"
             return None
         if resp.status_code >= 400:
             rp.parse([])
@@ -156,6 +167,8 @@ class RobotsCache:
 def make_client(transport: httpx.BaseTransport | None = None) -> httpx.Client:
     # بعضی سایت‌ها از بیرون کند جواب می‌دهند؛ تایم‌اوت با env قابل افزایش است (پیش‌فرض ۲۰ ثانیه).
     timeout = float(os.environ.get("KONKLANCER_HTTP_TIMEOUT", "20") or 20)
+    if not 0 < timeout <= 60:
+        raise ValueError("KONKLANCER_HTTP_TIMEOUT must be between 0 and 60 seconds")
     return httpx.Client(
         headers={"User-Agent": USER_AGENT, "Accept-Language": "fa,en;q=0.8"},
         timeout=timeout,
@@ -192,12 +205,20 @@ def fetch_html(
             return render_html_with_browser(url, allowed_domain)
         except BrowserRenderError as exc:
             print(f"[scanner] رندر مرورگری ممکن نشد، برگشت به درخواست ساده: {exc}")
-    resp = client.get(url)
-    final_host = urlparse(str(resp.url)).netloc
-    if not _same_domain(final_host, allowed_domain):
-        raise RuntimeError(
-            f"ریدایرکت به دامنه خارج از فهرست: {final_host} (انتظار: {allowed_domain}). درخواست متوقف شد."
-        )
+    for _ in range(6):
+        resp = request(client, "GET", url, follow_redirects=False)
+        if not resp.is_redirect:
+            break
+        target = urljoin(url, resp.headers.get("location", ""))
+        final_host = urlparse(target).netloc
+        if not _same_domain(final_host, allowed_domain):
+            raise RuntimeError(f"redirect outside allowed domain: {final_host}")
+        if not robots.allowed(target):
+            raise PermissionError("robots.txt disallows redirect target")
+        limiter.wait(final_host)
+        url = target
+    else:
+        raise RuntimeError("too many listing redirects")
     resp.raise_for_status()
     return resp.text
 
@@ -219,7 +240,7 @@ def browser_render_available() -> tuple[bool, str]:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            browser = pw.chromium.launch(headless=True, timeout=30000)
             browser.close()
         return True, ""
     except Exception as exc:  # مرورگر دانلود نشده یا محیط بدون کتابخانه‌های لازم
@@ -237,6 +258,8 @@ def render_html_with_browser(
 
     قواعد ایمنی مثل مسیر httpx رعایت می‌شود: robots.txt، محدودیت دامنه و مهلت.
     """
+    if not 1000 <= timeout_ms <= 60000 or not 0 <= wait_ms <= 10000:
+        raise BrowserRenderError("invalid browser timeout bounds")
     parsed = urlparse(url)
     if allowed_domain and not _same_domain(parsed.netloc, allowed_domain):
         raise BrowserRenderError(f"دامنه‌ی {parsed.netloc} با دامنه‌ی مجاز {allowed_domain} یکی نیست.")
@@ -246,11 +269,20 @@ def render_html_with_browser(
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(headless=True, timeout=30000)
         try:
             page = browser.new_page(user_agent=USER_AGENT, locale="fa-IR")
             page.set_default_timeout(timeout_ms)
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            def guard_navigation(route):
+                target = route.request
+                if target.is_navigation_request() and allowed_domain and not _same_domain(urlparse(target.url).netloc, allowed_domain):
+                    route.abort()
+                else:
+                    route.continue_()
+            page.route("**/*", guard_navigation)
+            response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            if response is not None and response.status >= 400:
+                raise BrowserRenderError(f"browser listing HTTP {response.status}")
             # فرصت برای درخواست‌های AJAX فهرست پروژه‌ها
             page.wait_for_timeout(wait_ms)
             final_host = urlparse(page.url).netloc
@@ -297,6 +329,7 @@ def _select_items(soup: Tag, specs) -> list[Tag]:
         try:
             found = soup.select(spec)
         except Exception:  # انتخابگر نامعتبر (مثلاً :has-text مربوط به Playwright)
+            logging.warning("invalid scanner item selector: %s", spec)
             continue
         if found:
             return found
@@ -354,6 +387,7 @@ def _select_one(scope: Tag, specs) -> Tag | None:
         try:
             found = scope.select_one(spec)
         except Exception:
+            logging.warning("invalid scanner field selector: %s", spec)
             continue
         if found is not None:
             return found
@@ -402,6 +436,8 @@ def _matches_project_path(url: str, pattern: str | None) -> bool:
     if not pattern:
         return True
     path = urlparse(url).path
+    if urlparse(url).hostname in ("parscoders.com", "ponisha.ir") and re.fullmatch(r"/project/\d+", path):
+        return True
     try:
         return re.search(pattern, path) is not None
     except re.error:
@@ -435,9 +471,9 @@ def parse_listing(
         if not title or not href:
             continue
         url = urljoin(base_url, href)
-        if url in seen_urls or _looks_like_nav_item(url, title) or not _matches_project_path(url, project_path_pattern):
+        if canonical_url(url) in seen_urls or _looks_like_nav_item(url, title) or not _matches_project_path(url, project_path_pattern):
             continue
-        seen_urls.add(url)
+        seen_urls.add(canonical_url(url))
         projects.append(
             Project(
                 id=_make_id(source, url),
@@ -543,12 +579,28 @@ def load_seen_ids(path: Path) -> set[str]:
 
 def append_projects(path: Path, projects: list[Project]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    seen = load_seen_ids(path)
-    new = [p for p in projects if p.id not in seen]
-    with path.open("a", encoding="utf-8") as f:
-        for p in new:
-            f.write(json.dumps(asdict(p), ensure_ascii=False) + "\n")
-    return len(new)
+    # Rewrite atomically: historical IDs vary by source and scanner version.
+    import logging
+    rows = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = clean_row(json.loads(line))
+                rows[row["url"]] = row
+            except (ValueError, TypeError, KeyError):
+                logging.warning("discarding malformed listing in %s", path)
+    added = 0
+    for project in projects:
+        row = clean_row(asdict(project))
+        if row["url"] not in rows:
+            added += 1
+        rows[row["url"]] = row
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows.values()), encoding="utf-8")
+    temporary.replace(path)
+    return added
 
 
 def load_registry() -> dict:
@@ -605,7 +657,7 @@ def cmd_prune(args) -> int:
     dropped_nav = 0
     dropped_dup = 0
     dropped_path = 0
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
         if not line.strip():
             continue
         try:
@@ -623,7 +675,12 @@ def cmd_prune(args) -> int:
         if not _matches_project_path(str(row.get("url", "")), patterns.get(source)):
             dropped_path += 1
             continue
-        row_id = str(row.get("id") or "")
+        try:
+            row = clean_row(row)
+        except (ValueError, TypeError, KeyError):
+            dropped_nav += 1
+            continue
+        row_id = row["url"]
         if row_id and row_id in seen_ids:
             dropped_dup += 1
             continue

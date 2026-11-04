@@ -1,3 +1,5 @@
+import { canonicalUrl, cleanBids } from '../../shared/listing';
+import { boundedFetch } from '../../shared/http';
 import bundledCloudFeedRaw from '../../scanner/cloud-feed.jsonl?raw';
 import { apiFetch } from '../utils/apiFetch';
 import { FreelanceJob } from '../types';
@@ -143,20 +145,8 @@ function parseAgeClient(posted?: string, bids?: string, scrapedAt?: string): { h
 }
 
 function normalizeCanonicalProjectKey(url: string): string {
-  try {
-    const u = new URL(url);
-    const ponishaMatch = u.pathname.match(/^\/project\/(\d+)/);
-    if (u.hostname.includes('ponisha.ir') && ponishaMatch) {
-      return `ponisha:${ponishaMatch[1]}`;
-    }
-    const parscodersMatch = u.pathname.match(/^\/project\/(\d+)/);
-    if (u.hostname.includes('parscoders.com') && parscodersMatch) {
-      return `parscoders:${parscodersMatch[1]}`;
-    }
-    return `${u.hostname.replace(/^www\./, '')}${decodeURIComponent(u.pathname).replace(/\/+$/, '')}`;
-  } catch {
-    return url.trim();
-  }
+  try { return canonicalUrl(url); }
+  catch { return ''; }
 }
 
 function hashId(source: string, url: string): string {
@@ -177,9 +167,12 @@ export function parseJsonlRows(raw: string): RawScannedRow[] {
     if (!trimmed) continue;
     try {
       const item = JSON.parse(trimmed) as RawScannedRow;
-      if (!item?.id || !item?.title || seen.has(item.id)) continue;
+      if (!item?.id || !item?.title) continue;
+      item.url = canonicalUrl(item.url);
+      item.bids_text = cleanBids(item.bids_text);
+      if (seen.has(item.url)) continue;
       if (isStaleHistoricalRow(item)) continue;
-      seen.add(item.id);
+      seen.add(item.url);
       rows.push(item);
     } catch {
       // skip invalid row
@@ -314,11 +307,15 @@ function saveLocalRows(newRows: RawScannedRow[], cloudRows: RawScannedRow[] = []
   const mergedMap = new Map<string, RawScannedRow>();
   for (const r of [...parseJsonlRows(bundledCloudFeedRaw), ...readLocalSavedRows(), ...cloudRows, ...newRows]) {
     if (!r || !r.id || isStaleHistoricalRow(r)) continue;
-    const prev = mergedMap.get(r.id);
+    const key = normalizeCanonicalProjectKey(r.url);
+    if (!key) continue;
+    r.url = key;
+    r.bids_text = cleanBids(r.bids_text);
+    const prev = mergedMap.get(key);
     if (!prev) {
-      mergedMap.set(r.id, r);
+      mergedMap.set(key, r);
     } else {
-      mergedMap.set(r.id, {
+      mergedMap.set(key, {
         ...prev,
         ...r,
         summary: (r.summary || '').length >= (prev.summary || '').length ? r.summary : prev.summary,
@@ -544,7 +541,7 @@ export function parsePlatformHtmlClient(html: string, source: string, baseUrl: s
       url: fullUrl,
       summary: (cleanSummary || title).slice(0, 1000),
       budget_text: budgetMatch ? budgetMatch[0] : '',
-      bids_text: [timeMatch?.[0], bidsMatch?.[0]].filter(Boolean).join(' با '),
+      bids_text: cleanBids(bidsMatch?.[0]),
       posted_text: timeMatch ? timeMatch[0] : '',
       tags_text: skillBadges.join(' '),
       scraped_at: nowIso,
@@ -558,7 +555,7 @@ export function parsePlatformHtmlClient(html: string, source: string, baseUrl: s
 export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
   if (isNativeAndroidApp() && !targetUrl.includes('t.me/') && !targetUrl.includes('telegram.me/')) {
     try {
-      const res = await fetch(targetUrl, {
+      const res = await boundedFetch(targetUrl, {
         headers: { Accept: 'text/html,application/xhtml+xml' },
       });
       if (res.ok) {
@@ -566,7 +563,7 @@ export async function fetchHtmlSmart(targetUrl: string): Promise<string> {
         if (txt && txt.length > 500) return txt;
       }
     } catch {
-      // fall back to cloud relay
+      console.warn('[scanner] native fetch failed; attempting relay');
     }
   }
   const cloud = await fetchPageViaCloudRelay(targetUrl);

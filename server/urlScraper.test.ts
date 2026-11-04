@@ -55,7 +55,7 @@ test('parseHtmlProjects extracts project cards, budget and metadata from sample 
   assert.equal(first.budget, 4500000);
   assert.equal(first.proposalsCount, 12);
   assert.equal(first.clientName, 'مهندس جلالی');
-  assert.ok(first.url.includes('/project/12345/telegram-bot-python'));
+  assert.equal(first.url, 'https://ponisha.ir/project/12345');
   assert.equal(first.categoryKey, 'automation');
 
   const second = jobs[1];

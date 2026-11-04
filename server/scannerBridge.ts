@@ -1,3 +1,5 @@
+import { boundedFetch } from '../shared/http';
+import { canonicalUrl, cleanBids } from '../shared/listing';
 // SPEC-004 — پل بین اسکنر فقط‌خواندنی (scanner/) و رابط کاربری.
 //
 // این ماژول:
@@ -139,8 +141,8 @@ export function extractProposalsCount(text?: string | null): number {
   if (/^\d+$/.test(normalized)) return Number(normalized);
   // اگر رشته زمان انتشار است («۷ دقیقه پیش») نباید به اشتباه تعداد پیشنهاد تلقی شود
   if (/(دقیقه|ساعت|روز|هفته|ماه|سال)\s*پیش/.test(normalized)) return 0;
-  const fallback = normalized.match(/\d+/);
-  return fallback ? Number(fallback[0]) : 0;
+  const cleaned = cleanBids(normalized);
+  return cleaned ? Number(cleaned.match(/\d+/)?.[0] ?? 0) : 0;
 }
 
 export function formatToman(amount: number): string {
@@ -382,7 +384,7 @@ export function priorityFromScore(score: number): 'High' | 'Medium' | 'Low' {
 // ---------------------------------------------------------------------------
 // خواندن JSONL و ساختن فید
 // ---------------------------------------------------------------------------
-/** خطوط JSONL را می‌خواند، خط‌های خراب را رد می‌کند و بر پایه `id` یکتا می‌کند (SPEC-004 R2). */
+/** خطوط JSONL را می‌خواند، خط‌های خراب را رد می‌کند و بر پایه URL canonical یکتا می‌کند (SPEC-004 R2). */
 export function readProjects(file: string): ScannedProject[] {
   if (!fs.existsSync(file)) return [];
   const seen = new Set<string>();
@@ -392,12 +394,18 @@ export function readProjects(file: string): ScannedProject[] {
     if (!line) continue;
     try {
       const parsed = JSON.parse(line) as ScannedProject;
-      if (!parsed || typeof parsed.id !== 'string' || !parsed.id || seen.has(parsed.id)) continue;
+      if (!parsed || typeof parsed.id !== 'string' || !parsed.id) continue;
+      parsed.url = canonicalUrl(parsed.url);
+      parsed.bids_text = cleanBids(parsed.bids_text);
+      for (const field of ['source', 'summary', 'budget_text', 'posted_text', 'scraped_at'] as const) {
+        if (typeof parsed[field] !== 'string') parsed[field] = '';
+      }
+      if (seen.has(parsed.url)) continue;
       if (typeof parsed.title !== 'string' || !parsed.title.trim()) continue;
-      seen.add(parsed.id);
+      seen.add(parsed.url);
       projects.push(parsed);
     } catch {
-      // خط ناقص/خراب: نادیده گرفته می‌شود تا یک نوشتن نیمه‌کاره کل فید را از کار نیندازد.
+      console.warn('[feed] malformed listing discarded');
     }
   }
   return projects;
@@ -798,13 +806,13 @@ async function viaGhCli(url: string, init: RequestInit): Promise<Response | null
 /** fetch با مسیر پشتیبان؛ اگر خطای گواهی/شبکه بود، `gh api` جایگزین می‌شود. */
 async function resilientFetch(url: string, init: RequestInit = {}): Promise<Response> {
   try {
-    const res = await fetch(url, init);
+    const res = await boundedFetch(url, init, fetch, { attempts: 1 });
     lastTransport = 'node-fetch';
     return res;
   } catch (error: any) {
     const message = String(error?.cause?.message ?? error?.message ?? error);
     const recoverable = /certificate|unable to verify|self.signed|fetch failed|ECONNRESET|ETIMEDOUT/i.test(message);
-    if (!recoverable) throw error;
+    if (!recoverable || !['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase())) throw error;
     const fallback = await viaGhCli(url, init);
     if (!fallback) throw error;
     return fallback;
@@ -835,11 +843,12 @@ async function ghGetFile(
   options: CloudFetchOptions = {},
 ): Promise<{ text: string; sha: string } | null> {
   const doFetch = resolveFetch(options);
-  const res = await doFetch(ghUrl(config, `contents/${filePath}`, config.ref), { headers: ghHeaders(config) });
+  const res = await boundedFetch(ghUrl(config, `contents/${filePath}`, config.ref), { headers: ghHeaders(config) }, doFetch);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub API ${res.status} برای ${filePath}`);
   const payload = (await res.json()) as { content?: string; encoding?: string; sha?: string };
-  const text = payload.content ? Buffer.from(payload.content, 'base64').toString('utf8') : '';
+  if (typeof payload.content !== 'string' || (payload.encoding && payload.encoding !== 'base64')) throw new Error('GitHub returned missing/unsupported content');
+  const text = Buffer.from(payload.content, 'base64').toString('utf8');
   return { text, sha: payload.sha ?? '' };
 }
 
@@ -852,6 +861,7 @@ export async function fetchCloudStatus(
   try {
     return JSON.parse(file.text);
   } catch {
+    console.warn('[cloud] invalid status JSON');
     return null;
   }
 }
@@ -866,7 +876,7 @@ export async function fetchCloudFeedText(
 }
 
 /**
- * فید ابری را می‌گیرد و با فید محلی ادغام می‌کند (کلید = id، نسخه‌ی ابری برنده).
+ * فید ابری را می‌گیرد و با فید محلی ادغام می‌کند (کلید = URL canonical، نسخه‌ی ابری برنده).
  * خروجی: تعداد رکوردهای ابری، کل رکوردهای نوشته‌شده و وضعیت اسکن.
  */
 export async function syncCloudFeed(
@@ -874,7 +884,10 @@ export async function syncCloudFeed(
   options: CloudFetchOptions = {},
 ): Promise<{ ok: boolean; cloudProjects: number; totalProjects: number; written: boolean; status: Record<string, any> | null; message: string }> {
   const text = await fetchCloudFeedText(config, options);
-  const status = await fetchCloudStatus(config, options);
+  const status = await fetchCloudStatus(config, options).catch(() => {
+    console.warn('[cloud] status unavailable; retaining raw feed');
+    return null;
+  });
   if (text === null) {
     return {
       ok: false,
@@ -900,12 +913,22 @@ export async function syncCloudFeed(
     .filter((row): row is ScannedProject => Boolean(row && row.id && row.title && row.url));
 
   const merged = new Map<string, ScannedProject>();
-  for (const project of readProjects(config.outFile)) merged.set(project.id, project);
-  for (const project of cloudRows) merged.set(project.id, project);
+  for (const project of [...readProjects(config.outFile), ...cloudRows]) {
+    try {
+      if (typeof project.id !== 'string' || typeof project.title !== 'string' || !project.title.trim()) throw new Error('Invalid listing');
+      project.url = canonicalUrl(project.url);
+      project.bids_text = cleanBids(project.bids_text);
+      for (const field of ['source', 'summary', 'budget_text', 'posted_text', 'scraped_at'] as const) {
+        if (typeof project[field] !== 'string') project[field] = '';
+      }
+      merged.set(project.url, project);
+    } catch { console.warn('[cloud] malformed listing discarded'); }
+  }
 
   const rows = [...merged.values()];
   fs.mkdirSync(path.dirname(config.outFile), { recursive: true });
-  fs.writeFileSync(config.outFile, rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
+  fs.writeFileSync(config.outFile + '.tmp', rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
+  fs.renameSync(config.outFile + '.tmp', config.outFile);
 
   return {
     ok: true,
@@ -940,7 +963,7 @@ export async function requestCloudScan(
     telegram: params.telegram === undefined ? (current.telegram ?? 1) : params.telegram ? 1 : 0,
     requested_at: new Date().toISOString(),
   };
-  const res = await doFetch(ghUrl(config, `contents/${config.requestPath}`), {
+  const res = await boundedFetch(ghUrl(config, `contents/${config.requestPath}`), {
     method: 'PUT',
     headers: { ...ghHeaders(config), 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -951,7 +974,7 @@ export async function requestCloudScan(
       branch: config.ref || undefined,
       sha: existing?.sha || undefined,
     }),
-  });
+  }, doFetch);
   if (!res.ok) {
     const body = await res.text();
     return { ok: false, message: `درخواست اسکن ابری ثبت نشد (HTTP ${res.status}): ${body.slice(0, 200)}` };

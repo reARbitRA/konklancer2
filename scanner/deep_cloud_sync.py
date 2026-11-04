@@ -21,12 +21,11 @@ from bs4 import BeautifulSoup
 
 from scanner.taxonomy import detect_category
 
-SUPABASE_URL = "https://rwuyuhjkitcnekpwmoml.supabase.co"
-SUPABASE_JWT = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0."
-    "KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs"
-)
+import os
+from scanner.reliability import canonical_url, clean_row, request
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_JWT = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 HEADERS = {
     "User-Agent": (
@@ -54,14 +53,7 @@ JUNK_MARKERS = (
 
 
 def canonical_key(url: str) -> str:
-    parsed = urlparse(url)
-    m_pon = re.match(r"^/project/(\d+)", parsed.path)
-    if "ponisha.ir" in parsed.netloc and m_pon:
-        return f"ponisha:{m_pon.group(1)}"
-    m_pc = re.match(r"^/project/(\d+)", parsed.path)
-    if "parscoders.com" in parsed.netloc and m_pc:
-        return f"parscoders:{m_pc.group(1)}"
-    return f"{parsed.netloc.replace('www.', '')}{parsed.path.rstrip('/')}"
+    return canonical_url(url)
 
 
 def make_id(source: str, url: str) -> str:
@@ -172,6 +164,8 @@ def parse_web_platform_html(html: str, source: str, base_url: str) -> list[dict]
         if not raw_href:
             continue
         full_url = urljoin(base_url, raw_href)
+        if urlparse(full_url).hostname.removeprefix("www.") != urlparse(base_url).hostname.removeprefix("www."):
+            continue
         path = urlparse(full_url).path
         if source == "parscoders" and not re.match(r"^/project/\d+/", path):
             continue
@@ -179,7 +173,7 @@ def parse_web_platform_html(html: str, source: str, base_url: str) -> list[dict]
             continue
         if source == "karlancer" and not re.match(r"^/projects/[^/]+", path):
             continue
-        if full_url in seen_urls:
+        if canonical_url(full_url) in seen_urls:
             continue
 
         card = (
@@ -191,7 +185,7 @@ def parse_web_platform_html(html: str, source: str, base_url: str) -> list[dict]
         title = re.sub(r"\s+", " ", (title_el.get_text(" ") if title_el else a.get_text(" "))).strip()
         if len(title) < 4 or title in ("مشاهده", "ارسال پیشنهاد"):
             continue
-        seen_urls.add(full_url)
+        seen_urls.add(canonical_url(full_url))
 
         card_text = re.sub(r"\s+", " ", card.get_text(" ") if card else title).strip()
         if any(s in card_text for s in ("سال پیش", "ماه پیش")):
@@ -224,7 +218,7 @@ def parse_web_platform_html(html: str, source: str, base_url: str) -> list[dict]
                 "url": full_url,
                 "summary": summary or title,
                 "budget_text": budget_m.group(0) if budget_m else "",
-                "bids_text": " با ".join(x for x in [time_m.group(0) if time_m else "", bids_m.group(0) if bids_m else ""] if x),
+                "bids_text": bids_m.group(0) if bids_m else "",
                 "posted_text": time_m.group(0) if time_m else "",
                 "tags_text": tags,
                 "category": cat,
@@ -235,6 +229,10 @@ def parse_web_platform_html(html: str, source: str, base_url: str) -> list[dict]
 
 
 def main() -> None:
+    if bool(SUPABASE_URL) != bool(SUPABASE_JWT):
+        raise ValueError('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured together')
+    if SUPABASE_URL and (urlparse(SUPABASE_URL).scheme != 'https' or not urlparse(SUPABASE_URL).hostname):
+        raise ValueError('Invalid SUPABASE_URL')
     collected: dict[str, dict] = {}
     client = httpx.Client(headers=HEADERS, follow_redirects=True, timeout=25.0)
 
@@ -244,7 +242,8 @@ def main() -> None:
         for page_idx in range(max_pages):
             url = f"https://telegram.me/s/{channel}" + (f"?before={before_id}" if before_id else "")
             try:
-                resp = client.get(url)
+                resp = request(client, "GET", url)
+                resp.raise_for_status()
                 if resp.status_code == 200 and len(resp.text) > 1000:
                     rows, next_before = parse_telegram_channel_html(resp.text, channel)
                     for r in rows:
@@ -273,7 +272,8 @@ def main() -> None:
     ]
     for source, url in web_targets:
         try:
-            resp = client.get(url)
+            resp = request(client, "GET", url)
+            resp.raise_for_status()
             if resp.status_code == 200 and len(resp.text) > 1000:
                 rows = parse_web_platform_html(resp.text, source, url)
                 for r in rows:
@@ -293,7 +293,7 @@ def main() -> None:
             if not line.strip():
                 continue
             try:
-                obj = json.loads(line)
+                obj = clean_row(json.loads(line))
                 if str(obj.get("posted_text", "")).startswith(("2020-", "2021-", "2022-", "2023-", "2024-", "2025-")):
                     continue
                 if is_junk_text(str(obj.get("title", "")), str(obj.get("summary", ""))):
@@ -302,29 +302,38 @@ def main() -> None:
                     obj.get("title", ""), obj.get("summary", ""), obj.get("tags_text", "")
                 ).key
                 existing[canonical_key(obj["url"])] = obj
-            except Exception:  # noqa: BLE001
-                pass
+            except (ValueError, TypeError, KeyError):
+                print("[feed] malformed stored row discarded")
 
     existing.update(collected)
     final_rows = sorted(existing.values(), key=lambda r: r.get("scraped_at", ""))[-800:]
-    cloud_path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in final_rows), encoding="utf-8")
+    temporary = cloud_path.with_suffix(".jsonl.tmp")
+    temporary.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in final_rows), encoding="utf-8")
+    temporary.replace(cloud_path)
     print(f"Saved {len(final_rows)} clean multi-page rows to scanner/cloud-feed.jsonl")
 
     # ۴. همگام‌سازی کامل با جدول ابری Supabase
+    if not SUPABASE_URL or not SUPABASE_JWT:
+        print("[sync] Supabase disabled; raw feed saved locally")
+        return
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    payload_rows = [{"id": r["id"], "payload": r, "updated_at": now_iso} for r in final_rows[-400:]]
+    payload_rows = [{"id": canonical_url(r["url"]), "payload": r, "updated_at": now_iso} for r in final_rows[-400:]]
     for i in range(0, len(payload_rows), 100):
         batch = payload_rows[i : i + 100]
-        r = client.post(
-            f"{SUPABASE_URL}/rest/v1/konklancer_projects?on_conflict=id",
-            headers={
-                "apikey": SUPABASE_JWT,
-                "Authorization": f"Bearer {SUPABASE_JWT}",
-                "Prefer": "resolution=merge-duplicates",
-            },
-            json=batch,
-        )
-        print(f"Supabase batch {i // 100 + 1}: HTTP {r.status_code} ({len(batch)} rows)")
+        try:
+            r = request(client, "POST",
+                f"{SUPABASE_URL}/rest/v1/konklancer_projects?on_conflict=id",
+                headers={
+                    "apikey": SUPABASE_JWT,
+                    "Authorization": f"Bearer {SUPABASE_JWT}",
+                    "Prefer": "resolution=merge-duplicates",
+                },
+                json=batch, retry_safe=True,
+            )
+            print(f"Supabase batch {i // 100 + 1}: HTTP {r.status_code} ({len(batch)} rows)")
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            print(f"[sync] failed ({type(exc).__name__}); local raw feed retained")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+import { canonicalUrl, cleanBids } from './shared/listing';
+import { boundedFetch } from './shared/http';
+import { validateEnvironment } from './server/env';
 import express, { Request, Response } from 'express';
 import http from 'http';
 import path from 'path';
@@ -37,6 +40,7 @@ import {
 } from './server/scannerBridge';
 
 dotenv.config();
+validateEnvironment(process.env);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -368,6 +372,11 @@ const CLOUD_CONFIG = readCloudFeedConfig(effectiveCloudEnv, process.cwd(), SCAN_
 const emittedJobIds = new Set<string>();
 // پروژه‌هایی که اعلانشان یک بار فرستاده شده تا اسپم نشود (SPEC-004 R7)
 const alertSent = new Set<string>();
+try {
+  const saved = JSON.parse(getBidStore().getSetting('alert_sent_urls') ?? '[]');
+  if (Array.isArray(saved)) for (const key of saved) if (typeof key === 'string') alertSent.add(key);
+} catch { console.warn('[alerts] could not restore delivery history'); }
+let alertQueue = Promise.resolve();
 
 function emitBridgeLog(message: string, type: 'scan' | 'bid' | 'code' | 'github' | 'payment' = 'scan') {
   io.emit('bridge:log', {
@@ -386,7 +395,7 @@ function loadFeedJobs() {
     exclude: SCAN_CONFIG.exclude,
     // خالی بودن یعنی هیچ دسته‌ای محدود نشود: ترجمه، گرافیک، ویدیو، صدا و ... همه در فید می‌آیند.
     categories: SCAN_CONFIG.categories,
-    minScore: SCAN_CONFIG.minScore,
+    minScore: readAlertConfig(process.env).profile === 'high-intent' ? 0 : SCAN_CONFIG.minScore,
   });
   return { projects, jobs: feed.jobs as FeedJob[], scannedAt: feed.scannedAt };
 }
@@ -398,17 +407,20 @@ function appendProjectsToFeed(outFile: string, projects: ScannedProject[]): numb
   if (!projects.length) return 0;
   const existing = readProjects(outFile);
   const map = new Map<string, ScannedProject>();
-  for (const p of existing) map.set(p.id, p);
+  for (const p of existing) map.set(canonicalUrl(p.url), p);
   let added = 0;
   for (const p of projects) {
-    if (!map.has(p.id)) {
-      map.set(p.id, p);
-      added++;
-    }
+    try {
+      p.url = canonicalUrl(p.url);
+      p.bids_text = cleanBids(p.bids_text);
+      if (!map.has(p.url)) added++;
+      map.set(p.url, p);
+    } catch { console.warn('[feed] invalid ingestion row discarded'); }
   }
   const rows = [...map.values()];
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  fs.writeFileSync(outFile, rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
+  fs.writeFileSync(outFile + '.tmp', rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
+  fs.renameSync(outFile + '.tmp', outFile);
   return added;
 }
 
@@ -461,13 +473,20 @@ interface ScanOutcome {
  * ارسال اعلان تلگرام برای پروژه‌های بالای آستانه (SPEC-004 R7).
  * اگر پیکربندی نباشد هیچ درخواستی به بیرون نمی‌رود؛ خطا فقط لاگ می‌شود.
  */
-async function dispatchAlerts(jobs: { id: string; title: string; platform?: string; budgetFormatted?: string; score?: number; url?: string }[]) {
+async function dispatchAlerts(jobs: { id: string; title: string; platform?: string; budgetFormatted?: string; score?: number; url?: string; description?: string }[]) {
+  const task = alertQueue.then(() => dispatchAlertsSerial(jobs));
+  alertQueue = task.catch(() => {});
+  return task;
+}
+async function dispatchAlertsSerial(jobs: { id: string; title: string; platform?: string; budgetFormatted?: string; score?: number; url?: string; description?: string }[]) {
   const config = readAlertConfig(process.env);
   if (!config.enabled || jobs.length === 0) return;
   try {
-    const result = await notifyNotableJobs(jobs, config, fetch as any, alertSent);
+    const result = await notifyNotableJobs(jobs, config, fetch as any, alertSent, () => {
+      getBidStore().setSetting('alert_sent_urls', JSON.stringify([...alertSent]));
+    });
     if (result.sent > 0) {
-      emitBridgeLog(`اعلان تلگرام برای ${result.sent} پروژه‌ی بالای آستانه ${config.threshold} ارسال شد.`);
+      emitBridgeLog(`اعلان تلگرام برای ${result.sent} پروژه (${config.profile ?? "score"}) ارسال شد.`);
     }
     if (result.error) {
       console.warn('[alerts] telegram notification failed:', result.error);
@@ -513,16 +532,17 @@ async function performScan(): Promise<ScanOutcome> {
   }
 
   const { jobs, scannedAt, projects } = loadFeedJobs();
-  const fresh = jobs.filter((job) => !emittedJobIds.has(job.id));
+  const fresh = jobs.filter((job) => !emittedJobIds.has(canonicalUrl(job.url)));
   for (const job of fresh) {
-    emittedJobIds.add(job.id);
+    emittedJobIds.add(canonicalUrl(job.url));
     io.emit('job:new', job);
   }
   const message = `اسکن تمام شد: ${fresh.length} پروژه جدید از ${projects.length} پروژه در فید.`;
   emitBridgeLog(message);
-  void dispatchAlerts(fresh.map((job) => ({
+  void dispatchAlerts(jobs.map((job) => ({
     id: job.id,
     title: job.title,
+    description: job.description,
     platform: job.platform,
     budgetFormatted: job.budgetFormatted,
     score: job.score,
@@ -742,6 +762,7 @@ app.post('/api/bridge/sync-feed', async (_req: Request, res: Response) => {
   }
   try {
     const result = await syncCloudFeed(CLOUD_CONFIG);
+    if (result.written) void dispatchAlerts(loadFeedJobs().jobs);
     if (result.written) {
       emitBridgeLog(`فید ابری همگام شد: ${result.cloudProjects} پروژه‌ی ابری · کل ${result.totalProjects}`, 'scan');
     }
@@ -772,6 +793,7 @@ app.post('/api/bridge/cloud-scan', async (req: Request, res: Response) => {
       try {
         const status = await waitForCloudScan(CLOUD_CONFIG, since);
         const synced = await syncCloudFeed(CLOUD_CONFIG);
+        if (synced.written) void dispatchAlerts(loadFeedJobs().jobs);
         emitBridgeLog(
           synced.ok
             ? `اسکن ابری تمام شد: ${synced.cloudProjects} پروژه‌ی ابری (${status?.projects_this_run ?? 0} در این اجرا)`
@@ -812,13 +834,13 @@ app.post('/api/categorize-job', async (req: Request, res: Response) => {
 app.get('/api/jobs', (_req: Request, res: Response) => {
   const { projects, jobs, scannedAt } = loadFeedJobs();
   if (projects.length > 0) {
-    jobs.forEach((job) => emittedJobIds.add(job.id));
+    jobs.forEach((job) => emittedJobIds.add(canonicalUrl(job.url)));
     return res.json({
       success: true,
       source: 'scanner',
       scannedAt,
       scannedProjects: projects.length,
-      minScore: SCAN_CONFIG.minScore,
+      minScore: readAlertConfig(process.env).profile === 'high-intent' ? 0 : SCAN_CONFIG.minScore,
       categories: SCAN_CONFIG.categories,
       // همه‌ی دسته‌های تاکسونومی (سطح داده، نه فیلتر) تا UI بتواند هر نوع کاری را نشان دهد.
       availableCategories: describeCategories(),
@@ -1150,7 +1172,7 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
     if (!targetUrl) return res.status(400).json({ ok: false, error: 'target_url required' });
     let parsed: URL;
     try { parsed = new URL(targetUrl); } catch { return res.status(400).json({ ok: false, error: 'Invalid target_url' }); }
-    if (!isLLMRelayAllowed(parsed.hostname)) {
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !isLLMRelayAllowed(parsed.hostname)) {
       return res.status(403).json({ ok: false, error: `Host not allow-listed: ${parsed.hostname}` });
     }
     const reqMethod: string = (req.body?.req_method || req.body?.method || 'POST').toUpperCase();
@@ -1180,13 +1202,14 @@ app.post('/api/llm/relay', async (req: Request, res: Response) => {
       else if (host === 'api.deepseek.com') { const k = process.env.DEEPSEEK_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
       else if (host === 'api.mistral.ai') { const k = process.env.MISTRAL_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
       else if (host === 'api.cerebras.ai') { const k = process.env.CEREBRAS_API_KEY || ''; if (k) nH['Authorization'] = 'Bearer ' + k; }
-      else if (host.includes('generativelanguage.googleapis.com') && !nUrl.includes('key=')) { const k = process.env.GEMINI_KEY_P3 || process.env.GEMINI_API_KEY || ''; if (k) { try { const u = new URL(nUrl); u.searchParams.set('key', k); nUrl = u.toString(); } catch {} } }
+      else if (host.includes('generativelanguage.googleapis.com') && !nUrl.includes('key=')) { const k = process.env.GEMINI_KEY_P3 || process.env.GEMINI_API_KEY || ''; if (k) { try { const u = new URL(nUrl); u.searchParams.set('key', k); nUrl = u.toString(); } catch { console.warn('[relay] invalid provider URL'); } } }
       return { url: nUrl, headers: nH };
     };
     let effectiveUrl = targetUrl; let effectiveHeaders: Record<string,string> = { ...forwardHeaders };
-    try { const inj = injectServerKeysNode(targetUrl, forwardHeaders); effectiveUrl = inj.url; effectiveHeaders = inj.headers; } catch {}
+    try { const inj = injectServerKeysNode(targetUrl, forwardHeaders); effectiveUrl = inj.url; effectiveHeaders = inj.headers; } catch { console.warn('[relay] server-key injection failed'); }
 
-    const upstream = await fetch(effectiveUrl, {
+    const upstream = await boundedFetch(effectiveUrl, {
+      redirect: 'error',
       method: reqMethod,
       headers: effectiveHeaders,
       body: reqBody != null ? reqBody : undefined,
@@ -1210,10 +1233,13 @@ app.get('/api/llm/relay-health', async (_req: Request, res: Response) => {
       note: 'باید با supabase functions deploy konklancer-relay روی Supabase deploy شود تا درخواست‌ها از Virginia/US برود',
     },
   };
+  checks.supabaseRelay.enabled = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
+  checks.supabaseRelay.url = process.env.SUPABASE_URL ? `${process.env.SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/konklancer-relay` : null;
   try {
-    const probe = await fetch('https://rwuyuhjkitcnekpwmoml.supabase.co/functions/v1/konklancer-relay', {
+    if (!checks.supabaseRelay.enabled) return res.json({ success: true, relay: checks });
+    const probe = await boundedFetch(checks.supabaseRelay.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs', Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs' },
+      headers: { 'Content-Type': 'application/json', apikey: process.env.SUPABASE_ANON_KEY!, Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}` },
       body: JSON.stringify({ target_url: 'https://generativelanguage.googleapis.com/v1beta/models', mode: 'page' }),
       signal: AbortSignal.timeout(6_000),
     });
@@ -1251,9 +1277,10 @@ app.post('/api/scraper/fetch-url', async (req: Request, res: Response) => {
     }));
 
     appendProjectsToFeed(SCAN_CONFIG.outFile, scannedRows);
+    void dispatchAlerts(result.projects);
 
     for (const job of result.projects) {
-      emittedJobIds.add(job.id);
+      emittedJobIds.add(canonicalUrl(job.url));
       io.emit('job:new', job);
     }
 
@@ -1305,9 +1332,10 @@ app.post('/api/scraper/parse-html', async (req: Request, res: Response) => {
     }));
 
     appendProjectsToFeed(SCAN_CONFIG.outFile, scannedRows);
+    void dispatchAlerts(projects);
 
     for (const job of projects) {
-      emittedJobIds.add(job.id);
+      emittedJobIds.add(canonicalUrl(job.url));
       io.emit('job:new', job);
     }
 

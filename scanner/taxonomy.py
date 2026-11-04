@@ -120,3 +120,17 @@ def detect_category(*parts: str | None) -> Category:
 
 def category_label(key: str) -> str:
     return CATEGORY_BY_KEY[key].fa if key in CATEGORY_BY_KEY else FALLBACK.fa
+
+
+HIGH_INTENT_PROFILE = json.loads((TAXONOMY_PATH.parent / "highIntent.json").read_text(encoding="utf-8"))
+
+
+def is_high_intent_lead(title: str, summary: str = "") -> bool:
+    heading = normalize_persian_text(title)
+    text = normalize_persian_text(f"{title} {summary}")
+    profile = HIGH_INTENT_PROFILE
+    # Conservative: the advertised deliverable must be in the heading, not an
+    # incidental mention in a translation brief or platform boilerplate.
+    return (not any(term in text for term in profile["exclude"])
+            and any(term in text for term in profile["requests"])
+            and any(term in heading for term in profile["targets"]))

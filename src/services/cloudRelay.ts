@@ -1,12 +1,12 @@
+import { canonicalUrl, cleanBids } from '../../shared/listing';
+import { boundedFetch } from '../../shared/http';
 /**
  * Non-LLM cloud helpers for scanner page fetching and optional feed synchronization.
  * Browser LLM calls use the selected provider directly and do not import this module's relay helpers.
  */
 
-const SUPABASE_BASE_URL = 'https://rwuyuhjkitcnekpwmoml.supabase.co';
-const SUPABASE_ANON_JWT =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs';
-
+const SUPABASE_BASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_JWT = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 /** Existing read-only scanner page relay; never used for LLM inference. */
 const EDGE_FUNCTION_BASE = `${SUPABASE_BASE_URL}/functions/konklancer-relay`;
 
@@ -19,9 +19,10 @@ function supabaseHeaders(): Record<string, string> {
 }
 
 export async function fetchPageViaCloudRelay(targetUrl: string): Promise<{ ok: boolean; status: number; html: string }> {
+  if (!SUPABASE_BASE_URL || !SUPABASE_ANON_JWT) return { ok: false, status: 0, html: '' };
   // Prefer telegram.me over t.me to avoid 302 app-redirect HTML stub
   const normalizedUrl = targetUrl.replace(/^https?:\/\/t\.me\/s\//i, 'https://telegram.me/s/');
-  const res = await fetch(EDGE_FUNCTION_BASE, {
+  const res = await boundedFetch(EDGE_FUNCTION_BASE, {
     method: 'POST',
     headers: supabaseHeaders(),
     body: JSON.stringify({ target_url: normalizedUrl, mode: 'page' }),
@@ -39,28 +40,30 @@ export async function fetchPageViaCloudRelay(targetUrl: string): Promise<{ ok: b
 
 
 export async function readCloudSyncedRows<T = any>(): Promise<T[]> {
+  if (!SUPABASE_BASE_URL || !SUPABASE_ANON_JWT) return [];
   try {
-    const res = await fetch(
+    const res = await boundedFetch(
       `${SUPABASE_BASE_URL}/rest/v1/konklancer_projects?select=payload&order=updated_at.desc&limit=300`,
       { headers: supabaseHeaders() },
     );
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`Cloud feed HTTP ${res.status}`);
     const data = await res.json();
     return Array.isArray(data) ? data.map((row: any) => row.payload as T).filter(Boolean) : [];
   } catch {
+    console.warn('[cloud] feed unavailable; using local records');
     return [];
   }
 }
 
 export async function upsertCloudSyncedRows(rows: Array<{ id: string; [k: string]: any }>): Promise<void> {
-  if (!rows.length) return;
+  if (!rows.length || !SUPABASE_BASE_URL || !SUPABASE_ANON_JWT) return;
   try {
     const payload = rows.slice(0, 150).map((r) => ({
-      id: r.id,
-      payload: r,
+      id: canonicalUrl(r.url),
+      payload: { ...r, url: canonicalUrl(r.url), bids_text: cleanBids(r.bids_text) },
       updated_at: new Date().toISOString(),
     }));
-    await fetch(`${SUPABASE_BASE_URL}/rest/v1/konklancer_projects?on_conflict=id`, {
+    const response = await boundedFetch(`${SUPABASE_BASE_URL}/rest/v1/konklancer_projects?on_conflict=id`, {
       method: 'POST',
       headers: {
         ...supabaseHeaders(),
@@ -68,7 +71,8 @@ export async function upsertCloudSyncedRows(rows: Array<{ id: string; [k: string
       },
       body: JSON.stringify(payload),
     });
+    if (!response.ok) throw new Error(`Cloud sync HTTP ${response.status}`);
   } catch {
-    // Non-blocking background cloud sync
+    console.warn('[cloud] sync failed; local records retained');
   }
 }

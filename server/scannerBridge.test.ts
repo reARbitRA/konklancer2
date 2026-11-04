@@ -107,7 +107,7 @@ test('readProjects skips broken lines, de-duplicates ids and tolerates a missing
     [
       JSON.stringify(project({ id: 'a' })),
       '{ not json',
-      JSON.stringify(project({ id: 'b' })),
+      JSON.stringify(project({ id: 'b', url: 'https://example.test/project/2' })),
       JSON.stringify(project({ id: 'a', title: 'تکراری' })),
       JSON.stringify({ id: 'c' }),
       '',

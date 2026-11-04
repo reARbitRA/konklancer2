@@ -1,3 +1,4 @@
+import { boundedFetch } from '../../../shared/http.ts';
 // Konklancer — Telegram login bridge (Supabase has no native Telegram provider).
 //
 // Flow: Telegram Login Widget (client) -> POST here with the signed payload ->
@@ -105,7 +106,7 @@ export async function verifyTelegramPayload(
 // deno-lint-ignore no-explicit-any
 const SUPABASE_ADMIN = (url: string, key: string) => ({
   async call(path: string, init: RequestInit) {
-    const response = await fetch(`${url}${path}`, {
+    const response = await boundedFetch(`${url}${path}`, {
       ...init,
       headers: {
         ...(init.headers as Record<string, string> | undefined),

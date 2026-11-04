@@ -32,6 +32,8 @@ jobs:
     env:
       LANG: C.UTF-8
       KONKLANCER_HTTP_TIMEOUT: '45'
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -235,7 +237,8 @@ jobs:
           # پاک‌سازی با همان قواعد خود اسکنر (ناوبری، الگوی مسیر پروژه، کانال غیرفعال، تکراری)
           python -m scanner.konklancer_scan prune --file scanner/cloud-feed.jsonl --apply | tee -a scanner/out/diagnostics.txt
           python - <<'PY'
-          import pathlib, json, datetime, httpx
+          import pathlib, json, datetime, httpx, os
+          from scanner.reliability import request, clean_row, canonical_url
           lines = [line for line in pathlib.Path('scanner/cloud-feed.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
           print(f"fid ebraei pas az pak-sazi: {len(lines)} record")
           rows = []
@@ -244,18 +247,23 @@ jobs:
                   obj = json.loads(l)
                   if str(obj.get("posted_text", "")).startswith(("2020-", "2021-", "2022-", "2023-", "2024-", "2025-")):
                       continue
-                  rows.append({"id": obj["id"], "payload": obj, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-              except Exception:
-                  pass
-          if rows:
-              jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dXl1aGpraXRjbmVrcHdtb21sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNTgwMzYsImV4cCI6MjEwNzkzNDAzNn0.KnWmpopGmuhdeQ5x6sOUfa7pBqeqN57oJhzBSlkuzzs"
-              r = httpx.post(
-                  "https://rwuyuhjkitcnekpwmoml.supabase.co/rest/v1/konklancer_projects?on_conflict=id",
-                  headers={"apikey": jwt, "Authorization": f"Bearer {jwt}", "Prefer": "resolution=merge-duplicates"},
-                  json=rows,
-                  timeout=20.0,
-              )
-              print(f"Supabase live feed sync HTTP {r.status_code}: {len(rows)} rows")
+                  rows.append({"id": canonical_url(obj["url"]), "payload": clean_row(obj), "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+              except (ValueError, TypeError, KeyError):
+                  print("WARNING: malformed sync row discarded")
+          base = os.environ.get('SUPABASE_URL', '').rstrip('/')
+          key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+          if rows and base and key:
+              try:
+                  with httpx.Client() as client:
+                      r = request(client, 'POST', f"{base}/rest/v1/konklancer_projects?on_conflict=id",
+                          headers={"apikey": key, "Authorization": f"Bearer {key}", "Prefer": "resolution=merge-duplicates"},
+                          json=rows, retry_safe=True)
+                      r.raise_for_status()
+                  print(f"Supabase sync: {len(rows)} rows")
+              except httpx.HTTPError as exc:
+                  print(f"WARNING: optional Supabase sync failed ({type(exc).__name__}); local feed retained")
+          else:
+              print("Optional Supabase sync disabled; local feed retained")
           PY
 
           git config user.name "konklancer-scan-bot"

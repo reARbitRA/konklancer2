@@ -22,7 +22,7 @@ def test_parse_listing_extracts_and_resolves_links():
     assert [p.title for p in items] == ["توسعه ربات تلگرام با پایتون", "ترجمه مقاله انگلیسی", "طراحی لوگو"]
     assert items[0].url == "https://example.test/project/101"
     assert items[0].budget_text == "حداکثر ۵۰۰ هزار تومان"
-    assert items[0].bids_text == "۳ پیشنهاد"
+    assert items[0].bids_text == "3 پیشنهاد"
     assert items[1].url == "https://example.org/project/102"
 
 
@@ -44,7 +44,7 @@ def test_telegram_preview_parsing():
 
 
 def test_include_exclude_filters():
-    p = ks.Project(id="x", source="s", title="ربات Python", url="u", summary="")
+    p = ks.Project(id="x", source="s", title="ربات Python", url="https://example.test/project/1", summary="")
     assert ks.matches(p, ["python"], [])
     assert not ks.matches(p, ["java"], [])
     assert not ks.matches(p, [], ["ربات"])
@@ -52,7 +52,7 @@ def test_include_exclude_filters():
 
 def test_dedupe_on_append(tmp_path):
     out = tmp_path / "p.jsonl"
-    p = ks.Project(id="abc", source="s", title="t", url="u")
+    p = ks.Project(id="abc", source="s", title="t", url="https://example.test/project/1")
     assert ks.append_projects(out, [p]) == 1
     assert ks.append_projects(out, [p]) == 0
     assert len(out.read_text(encoding="utf-8").splitlines()) == 1

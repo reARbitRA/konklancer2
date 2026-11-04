@@ -1,3 +1,4 @@
+import { boundedFetch } from '../../../shared/http.ts';
 // Konklancer — US Edge Relay (Virginia, us-east-1) — SERVER KEYS INTERNAL
 // Forwards LLM API calls from the browser through Supabase Edge infrastructure
 // so that geo-blocked providers (Gemini 400 "User location is not supported",
@@ -112,7 +113,7 @@ function injectServerKeys(targetUrl: string, headers: Record<string, string>): {
         const u = new URL(newUrl);
         if (u.searchParams.get('key') === '__SERVER__') u.searchParams.delete('key');
         newUrl = u.toString();
-      } catch { /* ignore */ }
+      } catch { console.warn('[relay] key injection failed'); }
     }
 
     if (host === 'api.groq.com') {
@@ -137,7 +138,7 @@ function injectServerKeys(targetUrl: string, headers: Record<string, string>): {
       if (!newUrl.includes('key=')) {
         const k = Deno.env.get('GEMINI_KEY_P3') || Deno.env.get('GEMINI_KEY_P1') || Deno.env.get('GOOGLE_API_KEY') || '';
         if (k) {
-          try { const u = new URL(newUrl); u.searchParams.set('key', k); newUrl = u.toString(); } catch { /* ignore */ }
+          try { const u = new URL(newUrl); u.searchParams.set('key', k); newUrl = u.toString(); } catch { console.warn('[relay] key injection failed'); }
         }
       }
     }
@@ -175,7 +176,7 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: 'Invalid target_url' }, 400, origin);
   }
 
-  if (!isAllowedHost(parsed.hostname)) {
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !isAllowedHost(parsed.hostname)) {
     return json({ ok: false, error: `Host not allow-listed: ${parsed.hostname}`, allowed: [...ALLOWED_HOSTS] }, 403, origin);
   }
 
@@ -184,7 +185,7 @@ Deno.serve(async (req: Request) => {
   // ── mode = page: fetch HTML (telegram / parscoders) ───────────────
   if (mode === 'page') {
     try {
-      const res = await fetch(targetUrl, {
+      const res = await boundedFetch(targetUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (KonkLancer Relay; +https://konkred.xyz)',
           'Accept': 'text/html,application/xhtml+xml',
@@ -219,10 +220,11 @@ Deno.serve(async (req: Request) => {
     const injected = injectServerKeys(targetUrl, forwardHeaders);
     effectiveUrl = injected.url;
     effectiveHeaders = injected.headers;
-  } catch { /* ignore */ }
+  } catch { console.warn('[relay] key injection failed'); }
 
   try {
-    const upstream = await fetch(effectiveUrl, {
+    const upstream = await boundedFetch(effectiveUrl, {
+      redirect: 'error',
       method: reqMethod,
       headers: effectiveHeaders,
       body: reqBody != null ? reqBody : undefined,

@@ -1,3 +1,4 @@
+import { boundedFetch } from '../../shared/http';
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
 import {
@@ -72,7 +73,7 @@ async function smartFetchLLM(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
 ): Promise<Response> {
-  return fetch(url, {
+  return boundedFetch(url, {
     method: init.method || 'GET',
     headers: init.headers || {},
     ...(init.body !== undefined ? { body: init.body } : {}),

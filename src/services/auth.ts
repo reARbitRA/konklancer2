@@ -1,3 +1,4 @@
+import { boundedFetch } from '../../shared/http';
 /**
  * احراز هویت Supabase برای Konklancer.
  *
@@ -239,7 +240,7 @@ async function postTelegram(
   headers: Record<string, string>,
 ): Promise<TelegramAttempt> {
   try {
-    const response = await fetch(url, {
+    const response = await boundedFetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(payload),

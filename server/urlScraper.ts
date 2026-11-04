@@ -1,3 +1,6 @@
+import { canonicalUrl } from '../shared/listing';
+import { createHash } from 'node:crypto';
+import { boundedFetch } from '../shared/http';
 import * as cheerio from 'cheerio';
 import { extractBudgetToman, extractProposalsCount, platformOf, type FeedJob } from './scannerBridge';
 import { detectCategory, categoryLabel } from '../shared/taxonomy';
@@ -153,7 +156,8 @@ export function parseHtmlProjects(
     }
 
     if (!title || title.length < 3) return; // کارت نامعتبر
-    if (link && seenUrls.has(link)) return;
+    try { link = canonicalUrl(link); } catch { return; }
+    if (seenUrls.has(link)) return;
     if (link) seenUrls.add(link);
 
     // ۲. استخراج بودجه
@@ -161,7 +165,7 @@ export function parseHtmlProjects(
       '.project-budget, .budget, .price, .amount, [data-testid="project-budget"], span:contains("تومان"), span:contains("ریال"), div:contains("تومان")',
     ).first();
     const budgetRaw = cleanText(budgetEl.text() || card.text());
-    const budgetToman = extractBudgetToman(budgetRaw) || (platformKey === 'ponisha' ? 3500000 : 2500000);
+    const budgetToman = extractBudgetToman(budgetRaw);
 
     // ۳. استخراج تعداد پیشنهادها
     const bidsEl = card.find(
@@ -194,11 +198,11 @@ export function parseHtmlProjects(
 
     // ۷. زمان ثبت
     const timeEl = card.find('time, .date, .posted, .time, [data-testid="project-status"]').first();
-    const postedTime = cleanText(timeEl.text()) || 'دقایقی پیش';
+    const postedTime = cleanText(timeEl.text()) || 'زمان نامشخص';
 
     // تولید شناسه یکتا
     const idSlug = link ? link.split('/').filter(Boolean).pop() || String(index) : String(index);
-    const id = `${platformKey}-${Date.now().toString(36)}-${idSlug.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)}`;
+    const id = `${platformKey}-${createHash('sha256').update(link).digest('hex').slice(0, 16)}`;
 
     const detectedCat = detectCategory(title, description);
 
@@ -208,11 +212,11 @@ export function parseHtmlProjects(
       platformKey,
       title,
       clientName,
-      clientRating: 4.8,
-      clientReviews: 12,
+      clientRating: 0,
+      clientReviews: 0,
       budget: budgetToman,
       budgetFormatted: budgetToman > 0 ? `${budgetToman.toLocaleString('fa-IR')} تومان` : 'توافقی',
-      deadline: '۷ روز کاری',
+      deadline: 'نامشخص',
       description,
       tags: tags.length > 0 ? tags : [categoryLabel(detectedCat.key)],
       postedTime,
@@ -254,11 +258,11 @@ export async function fetchAndParseUrl(
   }
 
   try {
-    const res = await fetchImpl(url, {
+    const res = await boundedFetch(url, {
       method: 'GET',
       headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(15_000),
-    });
+    }, fetchImpl);
 
     const status = res.status;
     const html = await res.text();

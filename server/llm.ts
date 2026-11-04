@@ -1,3 +1,4 @@
+import { boundedFetch } from '../shared/http';
 // SPEC-006: client for a Konkred-compatible AI gateway (Konkred's POST /api/v1/ai/run
 // contract), direct env provider keys (GEMINI_API_KEY / OPENROUTER_API_KEY / GROQ_API_KEY /
 // OPENAI_API_KEY), and user-supplied custom LLM keys (OpenRouter, Groq, Google Gemini, Custom).
@@ -126,10 +127,10 @@ export function normalizeCustomLLM(custom?: CustomLLMInput | null): Required<Cus
 }
 
 export function readLLMConfig(env: NodeJS.ProcessEnv = process.env): LLMConfig | null {
-  const timeoutMs = Math.max(1000, Number(env.KONKRED_TIMEOUT_MS) || 45_000);
+  const timeoutMs = Math.min(60_000, Math.max(1000, Number(env.KONKRED_TIMEOUT_MS) || 45_000));
   const privacy: Privacy = env.KONKRED_PRIVACY === 'strict' ? 'strict' : 'any';
   const cacheDir = env.KONKRED_CACHE_DIR === '' ? null : env.KONKRED_CACHE_DIR || path.join('data', 'ai-cache');
-  const cacheTtlMs = Math.max(0, (Number(env.KONKRED_CACHE_TTL_MINUTES) ?? 1440) * 60_000);
+  const cacheTtlMs = Math.max(0, Number(env.KONKRED_CACHE_TTL_MINUTES ?? 1440) * 60_000);
 
   const gatewayKey = env.KONKRED_API_KEY?.trim();
   if (gatewayKey) {
@@ -293,7 +294,7 @@ export async function callLLM(
     );
   }
 
-  const effectiveTimeout = cfg?.timeoutMs || 45_000;
+  const effectiveTimeout = Math.min(60_000, Math.max(1000, cfg?.timeoutMs || 45_000));
   const effectiveCacheDir = cfg?.cacheDir === undefined ? path.join('data', 'ai-cache') : cfg.cacheDir;
   const effectiveCacheTtl = cfg?.cacheTtlMs ?? 1440 * 60_000;
 
@@ -392,6 +393,7 @@ export async function callLLM(
       } catch (e: any) {
         const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
         if (!timedOut && attempt < MAX_RETRIES) {
+          console.warn('[llm] transient provider failure; retrying');
           await sleep(backoffMs(attempt));
           continue;
         }
@@ -413,8 +415,8 @@ export async function callLLM(
 
       if (res.status === 429) {
         const retryAfter = Number(res.headers?.get?.('retry-after')) || undefined;
-        if (attempt < 1) {
-          await sleep((retryAfter ? Math.min(retryAfter, 5) : 1) * 1000);
+        if (attempt < 1 && (!retryAfter || retryAfter <= 5)) {
+          await sleep((retryAfter || 1) * 1000);
           continue;
         }
         const errTxt = await safeErrorMessage(res);
@@ -435,6 +437,7 @@ export async function callLLM(
 
       if (res.status >= 500) {
         if (attempt < MAX_RETRIES) {
+          console.warn('[llm] transient provider failure; retrying');
           await sleep(backoffMs(attempt));
           continue;
         }
@@ -537,7 +540,7 @@ export async function scanModels(
     // 1. Google Gemini Native Models Scan
     if (provider === 'gemini') {
       const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
+      const res = await boundedFetch(url, {}, fetchImpl);
       if (!res.ok) {
         const err = await safeErrorMessage(res);
         return { success: false, models: [], error: `خطا در احراز هویت Gemini (${res.status}): ${err}` };
@@ -576,10 +579,10 @@ export async function scanModels(
 
     // 2. OpenRouter Models Scan (detect `:free` and pricing === "0")
     if (provider === 'openrouter') {
-      const res = await fetchImpl(`${endpoint}/models`, {
+      const res = await boundedFetch(`${endpoint}/models`, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(15_000),
-      });
+      }, fetchImpl);
       if (!res.ok) {
         const err = await safeErrorMessage(res);
         return { success: false, models: [], error: `خطا از OpenRouter (${res.status}): ${err}` };
@@ -624,10 +627,10 @@ export async function scanModels(
     }
 
     // 3. Groq / OpenAI / Compatible Endpoint Scan
-    const res = await fetchImpl(`${endpoint}/models`, {
+    const res = await boundedFetch(`${endpoint}/models`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(15_000),
-    });
+    }, fetchImpl);
     if (!res.ok) {
       const err = await safeErrorMessage(res);
       return { success: false, models: [], error: `خطا در اسکن مدل‌ها (${res.status}): ${err}` };
@@ -702,6 +705,7 @@ async function callGeminiNative(
     } catch (e: any) {
       const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
       if (!timedOut && attempt < MAX_RETRIES) {
+        console.warn('[llm] transient provider failure; retrying');
         await sleep(backoffMs(attempt));
         continue;
       }
@@ -721,14 +725,16 @@ async function callGeminiNative(
     }
 
     if (res.status === 429) {
-      if (attempt < 1) {
-        await sleep(1000);
+      const retryAfter = Number(res.headers?.get?.('retry-after')) || 1;
+      if (attempt < 1 && retryAfter <= 5) {
+        await sleep(Math.max(0, retryAfter) * 1000);
         continue;
       }
       throw new LLMError('AI_RATE_LIMIT', 429, 'سقف رایگان Gemini موقتاً پر شده است؛ چند ثانیه صبر کنید.');
     }
 
     if (res.status >= 500 && attempt < MAX_RETRIES) {
+      console.warn('[llm] transient provider failure; retrying');
       await sleep(backoffMs(attempt));
       continue;
     }
@@ -738,8 +744,10 @@ async function callGeminiNative(
       throw new LLMError('AI_UNAVAILABLE', 502, `خطای Gemini (${res.status}): ${errTxt}`);
     }
 
-    const data: any = await res.json();
+    let data: any;
+    try { data = await res.json(); } catch { throw new LLMError('AI_BAD_RESPONSE', 502, 'Gemini returned invalid JSON'); }
     const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
+    if (!Array.isArray(parts)) throw new LLMError('AI_BAD_RESPONSE', 502, 'Gemini returned malformed content');
     const text = parts
       .filter((p) => !p?.thought && typeof p?.text === 'string')
       .map((p) => p.text)

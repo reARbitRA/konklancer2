@@ -202,7 +202,7 @@ test('notifier: ارسال با fetch تزریقی و بدون تکرار', asyn
   const calls: string[] = [];
   const fakeFetch: FetchLike = async (url, init) => {
     calls.push(`${url}|${init?.body ?? ''}`);
-    return { ok: true, status: 200 };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
   const sent = new Set<string>();
   const first = await notifyNotableJobs(
@@ -228,11 +228,11 @@ test('notifier: خطای شبکه وضعیت را می‌شکند ولی کرش 
   const result = await notifyNotableJobs([{ id: 'a', title: 'x', score: 99 }], config, failing);
   assert.equal(result.ok, false);
   assert.equal(result.sent, 0);
-  assert.match(String(result.error), /forbidden/);
+  assert.match(String(result.error), /HTTP 403/);
   const thrown: FetchLike = async () => { throw new Error('boom'); };
   const one = await sendTelegramMessage(config, 'hi', thrown);
   assert.equal(one.ok, false);
-  assert.match(String(one.error), /boom/);
+  assert.match(String(one.error), /transport or response failure/);
   const disabled = await sendTelegramMessage({ ...config, enabled: false }, 'hi', failing);
   assert.equal(disabled.ok, false);
   assert.equal(disabled.error, 'notifier-disabled');
