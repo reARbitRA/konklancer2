@@ -2,8 +2,9 @@
 id: T-013
 title: Personal single-owner AI gateway + prompt library (SPEC-013)
 spec: SPEC-013
-status: OPEN
+status: DOING — implementation and automated verification complete; owner-authenticated Vercel live smoke pending
 branch: arena/5dfaf182-konklancer2
+pr: https://github.com/reARbitRA/konklancer2/pull/12 (draft)
 verification: "npm run lint && npm test && npm run test:dom"
 ---
 
@@ -15,6 +16,14 @@ verification: "npm run lint && npm test && npm run test:dom"
 - Client: gateway-first `callBrowserLLM`, Auto(Free) model selection, gateway health/test in Settings.
 - New delivery modes: slides, website/landing, story/brand/image.
 - Docs (FA guide, README, provider map), tests, forge handoff.
+
+## Verification completed (2026-11-04)
+- `npm run lint` passed.
+- `npm test` passed: 201/201.
+- `npm run test:dom` passed: production build + 31/31 current-rebuild DOM checks.
+- Local Express `/api/ai?action=health` returned valid JSON and no key material.
+- Vercel preview deployment `dpl_53RvDtUocaZ9F2R4X273LzTYNnt2` for commit `420b0b8` is READY; its build completed and both `api/ai.js` and `api/models.js` were configured for `fra1`.
+- The sandbox could not call the deployed `/api/ai` health/model/generation endpoints because Vercel Deployment Protection redirects unauthenticated requests to Vercel SSO. Do not mark this task DONE until an owner-authenticated preview smoke test succeeds.
 
 ## Owner manual steps remaining (documented, not code)
 1. Delete Drive `API-KONK.md` (plaintext secrets) and rotate the keys in each provider console,

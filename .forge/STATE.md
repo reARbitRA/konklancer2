@@ -1,37 +1,54 @@
-# STATE — as of 2026-10-28
+# STATE — as of 2026-11-04
 
 ## Current owner direction
-- Pause gateway/Supabase LLM work under SPEC-006 while using direct provider access temporarily.
-- SPEC-008 is APPROVED: multiple provider profiles, device-entered keys, model discovery/selection, connection testing, and direct client-to-provider calls. Do not embed, commit, or ask for API secrets.
-- App-wide contemporary 2027 brutalist styling and micro-interactions remain separate in SPEC-009 (DRAFT); the owner requested a UI-spec revision, but clarification/approval is still pending.
+- Konklancer is a **single-owner personal app**. SPEC-013 is the active AI architecture: one server-side personal gateway for finding freelance projects, analysing/pricing them, writing proposals and generating deliverables.
+- SPEC-013 supersedes SPEC-008 direct browser→provider calls as the primary path and the Supabase-login/allowlist/quota access model from the earlier managed-model work. Those spec files remain as history. SPEC-006/Konkred remains paused and unchanged.
+- Provider keys must live only in server-side environment variables (Vercel Shared Env for web, local `.env` for a self-hosted server). Never copy values from Drive into source, docs, tests, logs, browser bundles or APKs.
 
-## Active task and approvals
-- T-008 is DONE on `arena/8bfff631-konklancer2` under APPROVED SPEC-008.
-- T-006 is OPEN/paused; approved SPEC-006 text is unchanged. No gateway, Supabase AI relay, or deployment work is being continued.
-- T-009 is OPEN; SPEC-009 remains DRAFT. No redesign work was included in T-008.
+## Active task and branch
+- Fixed branch: `arena/5dfaf182-konklancer2` (active). Never push to `main` or rename/switch this session branch.
+- Draft PR: https://github.com/reARbitRA/konklancer2/pull/12
+- Commits before handoff:
+  - `c327485` — `spec(ai): approve personal AI gateway [T-013] [SPEC-013]`
+  - `420b0b8` — `feat(ai): add personal free-first gateway [T-013] [SPEC-013]`
+  - The Forge handoff commit follows these and is intended to be the last commit of this session.
+- `T-013` is in `tasks/DOING/`, not DONE: implementation and automated verification are complete, but the owner-authenticated live Vercel smoke test is still pending.
+- `T-006` remains OPEN/paused. `T-009`/SPEC-009 remain untouched by this work.
 
-## Current implementation boundary
-- `src/services/browserLLM.ts` sends inference, model discovery, and connection tests directly to the selected user-configured provider. The app AI path has no Konkred/Supabase/Vercel LLM fallback and does not show fabricated answers.
-- The existing provider key vault, multiple profiles, `LiveModelSwitcher`, model selection/discovery/manual entry, testing, and opt-in failover are retained. Existing profiles are not purged automatically.
-- Provider keys are entered after installation on the owner's device. Settings warns that browser/WebView storage is not a secure vault and that provider data policies apply. No real provider secret was added.
-- Existing scanner page-fetch/cloud-feed helpers remain separate; they are not used for LLM inference. No Supabase configuration or deployment was changed for SPEC-008.
+## Implemented SPEC-013 boundary
+- One dependency-free gateway core, `shared/aiGateway.mjs`, is used by:
+  - `api/ai.js` — primary Vercel Function.
+  - `api/models.js` — backwards-compatible legacy shim.
+  - Express mounts in `server.ts` for local/self-hosted parity.
+- `vercel.json` pins both gateway functions to `fra1` with a 60-second limit. Browser/APK traffic goes to the app origin (or an explicitly configured deployed gateway base), so production provider calls originate from Vercel rather than the owner's Iranian browser IP.
+- Provider registry: OpenRouter, Groq, Cerebras, native Gemini, Agnes, Mistral, Hugging Face, optional GitHub Models/NVIDIA, DeepSeek, Fireworks, ApMix, and keyless Pollinations as last resort. The live Vercel deployment metadata confirms the expected shared-env names for the owner's nine configured provider groups; Fireworks is code-supported but was not present in Vercel during the audit.
+- `/api/ai` provides health, live model discovery/classification, task-aware text generation and image generation. Auto routing prefers evidenced free models, interleaves providers, rotates keys on auth/rate-limit failures, fails over on transient/empty responses, strips `<think>` blocks, excludes non-chat models from chat routing, and returns sanitized attempts. It never fabricates AI output.
+- Access remains low-friction: with `KONKLANCER_OWNER_TOKEN` (or an accepted alias) configured, that token is required; without it, open-personal mode keeps automatic routing free-only and applies per-IP rate limiting. Open-personal mode should stay behind Vercel Deployment Protection or gain an owner token before any public exposure.
+- `shared/prompts.ts` is the versioned Persian-first prompt library for triage, evidence-grounded analysis/pricing, anti-cliché proposals, clarification, three-stage delivery, slides/website/story modes, translation, image prompts, QA, handover, follow-up and revisions.
+- Browser flows are gateway-first through `src/services/browserLLM.ts` and `src/services/managedLLM.ts`; stored device keys are only an explicit/offline fallback. Strict analysis throws on malformed JSON rather than inventing a score, categorization safely falls back to tags/`other`, and the arbiter cannot certify from its capped fallback score.
+- Rebuilt Settings shows provider health, Auto free routing, grouped free/unknown/paid models, a real connection test with sanitized attempts/latency, and an optional gateway-base URL for APK/static builds. Supabase login no longer gates AI.
 
-## Branch and PR
-- Fixed branch: `arena/8bfff631-konklancer2`; status `pr_open`. PR #9 remains OPEN/DRAFT: https://github.com/reARbitRA/konklancer2/pull/9.
-- Direct-provider implementation commit: `1adb5ea` (`feat(llm): restore direct provider access [T-008] [SPEC-008]`). The Forge handoff and task transition are recorded on the same fixed branch; no merge was performed.
-- Do not push to `main` or change branches.
-- Historical gateway-only APK preview/release details are below. The `android-latest` artifact published by earlier work is still not confirmed AI-ready; stable APK publishing remains restricted to `main`.
+## Verification completed
+- `npm run lint` — passed.
+- `npm test` — 201/201 passed.
+- `npm run test:dom` — production build passed and the rewritten current-rebuild DOM smoke passed 31/31. It covers overview/opportunity search/detail, pipeline, Studio file switching/creation, outcome persistence, Settings/AI gateway health and legacy redirects, with no runtime console errors. The obsolete `.job-brutal` selectors were removed from the smoke test.
+- Local Express `/api/ai?action=health` returned valid JSON containing provider metadata only. In the sandbox, GitHub Models appears configured only because the sandbox itself exposes `GITHUB_TOKEN`; that is not evidence about Vercel.
+- Feature-commit Vercel preview deployment `dpl_53RvDtUocaZ9F2R4X273LzTYNnt2` is READY. Its build completed, GitHub's Vercel commit status is success, the `build-apk` check succeeded, and Supabase Preview was skipped. Deployment metadata confirms `api/ai.js` and `api/models.js` at `fra1` and the expected provider env names.
+- The production bundle still warns that the main JavaScript chunk is about 1.79 MB minified / 417 kB gzip. This is a performance follow-up, not a blocker for T-013.
 
-## Verification for T-008
-- `npm test`: 160 passed, including direct-provider tests using mocked fetch and a fake test key.
-- `npm run lint`: passed.
-- `npm run test:dom`: 102/102 passed; this also completed the production build.
-- Build warnings remain: the JavaScript chunk exceeds 500 kB and the dynamic import of `deliveryEngine.ts` is ineffective because it is also statically imported.
-- No live provider request was made: no user key was entered in this environment. Direct browser calls may be affected by provider CORS, network, region, or quota policies.
-- Final staged `git diff --check` passed after the Forge/task updates.
+## Live verification still pending
+The sandbox cannot call the deployed preview's `/api/ai` health/models/generate endpoints: Vercel Deployment Protection redirects unauthenticated requests to Vercel SSO. Therefore **live provider generation has not been proven yet**. Next, while signed in to Vercel as the owner:
+1. Open PR #12's latest Vercel preview.
+2. Go to Settings → «هوش مصنوعی شخصی» and confirm provider chips/model list load.
+3. Click «تست اتصال AI». Success must name a real provider/model and latency; failure must be diagnosed from the sanitized `attempts` using `docs/AI-GATEWAY-FA.md`.
+4. Run one real project analysis or proposal.
+Only after that succeeds should T-013 be moved to `tasks/DONE/` and its status closed.
 
-## APK publication side effect (historical)
-The first feature push triggered the repository's Android workflow and updated `android-latest` / `apk-latest` with a gateway-only feature build before live AI was configured. Release notes were corrected. The workflow was restricted to publish stable APKs only from `main`; the follow-up branch run passed and skipped release publishing. The already-published asset remains available and is not confirmed AI-ready.
+## Owner-only security/operations next steps
+1. Delete the plaintext `API-KONK.md` from Google Drive.
+2. Rotate every provider key listed there in its provider console.
+3. Paste replacements only over the same names in server-side Vercel Shared Env, then redeploy if Vercel requires a new deployment for the changed values.
+4. Optional: add `FIREWORKS_API_KEY` if Fireworks should be active.
+5. Recommended: add `KONKLANCER_OWNER_TOKEN` in Vercel and enter the same value once in the app's existing API-token settings.
 
-## Latest session checkpoint
-T-008 is implemented, verified, documented, and moved to DONE. The feature commit restores direct user-configured provider access with a Settings security disclosure; provider credentials remain device-entered. T-006/SPEC-006 stay paused and unchanged. T-009/SPEC-009 stay unimplemented and draft/open pending the owner's UI-spec revision. No live provider key, inference, Supabase deployment, or Vercel deployment was used for this work.
+Do not use or disclose the old Drive values. No secret value was added to this branch.

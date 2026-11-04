@@ -9,7 +9,7 @@
 | `/api/bridge/cloud`, `/sync-feed`, `/cloud-scan` | settings operations | cloud status returned disabled locally; real sync and dispatch not run |
 | `GET /api/ai?action=health` | rebuilt Settings → personal AI gateway | valid JSON locally; reports provider names, configured flags, tiers and key counts only |
 | `GET /api/ai?action=models` | rebuilt Settings model picker | valid JSON locally; mocked discovery/classification tests cover malformed entries and curated fallback |
-| `POST /api/ai` | analysis, proposals, delivery, translation/slides, QA and image requests | mocked unit tests cover task routing, key rotation, provider failover, Gemini payloads, sanitized errors and owner-token access; live deployed generation still requires a Vercel preview check |
+| `POST /api/ai` | analysis, proposals, delivery, translation/slides, QA and image requests | mocked unit tests cover task routing, key rotation, provider failover, Gemini payloads, sanitized errors and owner-token access; the branch Vercel preview built successfully, but live generation was not executed from the sandbox because Deployment Protection requires the owner's Vercel SSO session |
 | `/api/models` | legacy callers only | backwards-compatible shim over `/api/ai`; the old Supabase-login/allowlist/quota gate has been retired for this single-owner app |
 | Supabase Auth | account and optional gate | client/server wiring and unit tests only; real OAuth and project configuration unverified |
 

@@ -16,4 +16,4 @@ The linked specification files are the source of truth. Do not change a specific
 | SPEC-010 | [Obsidian navigation shell](SPEC-010-obsidian-shell.md) | APPROVED |
 | SPEC-011 | [PWA & APK build readiness](SPEC-011-pwa-apk-build-readiness.md) | DRAFT |
 | SPEC-012 | [Managed model connections on Vercel](SPEC-012-managed-models-vercel.md) | DRAFT (superseded in spirit by SPEC-013) |
-| SPEC-013 | [Personal AI Gateway](SPEC-013-personal-ai-gateway.md) | APPROVED (user verbatim 2026-11-04; implemented, live prod check pending) |
+| SPEC-013 | [Personal AI Gateway](SPEC-013-personal-ai-gateway.md) | APPROVED (implemented; Vercel preview READY, owner-authenticated live smoke pending) |
