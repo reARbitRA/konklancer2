@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/ai.js": { "maxDuration": 60, "regions": ["fra1"] },
+    "api/models.js": { "maxDuration": 60, "regions": ["fra1"] }
+  }
+}

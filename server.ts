@@ -18,6 +18,7 @@ import { createTelegramAuthHandler } from './server/telegramAuth';
 import { createSocketAuthGuard } from './server/socketAuth';
 import { fetchRelay, isAllowedRelayUrl, LLM_RELAY_ALLOWED_HOSTS } from './server/llmRelayPolicy';
 import { notifyNotableJobs, readAlertConfig } from './server/notifier';
+import { handleAiHttp } from './shared/aiGateway.mjs';
 import {
   buildFeed,
   categorize,
@@ -115,6 +116,15 @@ app.get('/api/health', (_req: Request, res: Response) => {
     time: new Date().toISOString(),
     apiAuth: describeApiAuth(API_TOKEN),
   });
+});
+
+// SPEC-013: the same personal AI gateway as the Vercel function (api/ai.js),
+// so local/self-hosted runs behave identically. Sits behind the /api auth middleware above.
+app.all('/api/ai', async (req: Request, res: Response) => {
+  await handleAiHttp(req as any, res as any, {});
+});
+app.all('/api/models', async (req: Request, res: Response) => {
+  await handleAiHttp(req as any, res as any, { compat: true });
 });
 
 // Direct one-tap download route for the compiled Android Tablet APK
@@ -1349,7 +1359,7 @@ async function startServer() {
     });
   }
 
-  if (!readLLMConfig()) console.warn('[llm] No server-side LLM credential configured; the app uses direct provider calls from its device key vault.');
+  if (!readLLMConfig()) console.warn('[llm] Legacy server LLM credential not set; AI runs through the SPEC-013 personal gateway (/api/ai) using provider env keys when present.');
 
   // وضعیت اسکنر را در همان لحظه‌ی راه‌اندازی گزارش می‌دهیم تا برای استفاده‌ی شخصی معلوم باشد
   // چه چیزی اسکن می‌شود و فید از کجاست (SPEC-004).

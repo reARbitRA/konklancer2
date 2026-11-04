@@ -1,4 +1,4 @@
-import { callManagedModel, readManagedModel } from './managedLLM';
+import { callGatewayAI, readManagedModel } from './managedLLM';
 import { Capacitor } from '@capacitor/core';
 import { AIAnalysis, FreelanceJob } from '../types';
 import {
@@ -8,6 +8,10 @@ import {
   switchActiveKeyOrModel,
 } from '../utils/customLLMClient';
 import { categoryPromptList } from '../../shared/taxonomy';
+import {
+  analysisPrompt, proposalPrompt, triagePrompt,
+  type AiTask, type PromptPack,
+} from '../../shared/prompts';
 
 export interface DiscoveredClientModel {
   id: string;
@@ -299,23 +303,52 @@ async function executeSingleKeyCall(
   return { text, model: data?.model || cfg.model, provider: cfg.provider, keyLabel: cfg.label };
 }
 
-/** Direct provider calls using the selected device profile, with only the user's enabled failover profiles. */
-export async function callBrowserLLM(opts: {
+export interface BrowserLLMOptions {
   prompt: string;
   systemPrompt?: string;
   json?: boolean;
   maxTokens?: number;
   temperature?: number;
+  /** SPEC-013 task routing hint for the gateway (triage/analysis/proposal/code/...). */
+  task?: AiTask;
   overrideConfig?: Partial<ActiveCustomLLM>;
-}): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
-  const managed = !opts.overrideConfig && readManagedModel();
-  if (managed) return callManagedModel(managed, opts);
+}
+
+/**
+ * SPEC-013 call order (one path, no warning spam):
+ *  1) explicit override profile (Settings "test this device key") -> direct, as before;
+ *  2) personal gateway `/api/ai` (server-side keys outside Iran, Auto free routing or picked model);
+ *  3) device-stored direct keys, only as offline/APK fallback;
+ *  4) one clear error. Output is never fabricated.
+ */
+export async function callBrowserLLM(opts: BrowserLLMOptions): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
   const candidates = getOrderedVaultCandidates(opts.overrideConfig)
     .map((candidate) => resolveClientLLMConfig(candidate))
     .filter((candidate): candidate is ActiveCustomLLM => Boolean(candidate));
 
+  let gatewayError: Error | null = null;
+  if (!opts.overrideConfig) {
+    try {
+      const managed = readManagedModel();
+      const r = await callGatewayAI({
+        task: opts.task || 'general',
+        prompt: opts.prompt,
+        systemPrompt: opts.systemPrompt,
+        json: opts.json,
+        maxTokens: opts.maxTokens,
+        temperature: opts.temperature,
+        model: managed,
+      });
+      return { text: r.text, model: r.model, provider: r.provider };
+    } catch (error) {
+      gatewayError = error instanceof Error ? error : new Error(String(error));
+      if (candidates.length === 0) throw gatewayError;
+      // Device keys exist: fall through and try them before giving up.
+    }
+  }
+
   if (candidates.length === 0) {
-    throw new Error('کلید هوش مصنوعی تنظیم نشده است. از سوییچر مدل یا تنظیمات، کلید شخصی خود را روی همین دستگاه وارد کنید.');
+    throw gatewayError || new Error('درگاه AI در دسترس نیست و کلید مستقیمی روی این دستگاه ذخیره نشده است. نسخه وبِ مستقرشده را باز کنید یا در تنظیمات، «کلید مستقیم روی دستگاه» را به‌عنوان پشتیبان وارد کنید.');
   }
 
   let lastError: Error | null = null;
@@ -330,7 +363,23 @@ export async function callBrowserLLM(opts: {
     }
   }
 
-  throw lastError || new Error('درخواست مستقیم به provider ناموفق بود.');
+  throw gatewayError || lastError || new Error('درخواست AI ناموفق بود.');
+}
+
+/** Run a SPEC-013 prompt-library pack through the same single path. */
+export async function callPromptPack(
+  pack: PromptPack,
+  overrides?: Partial<BrowserLLMOptions>,
+): Promise<{ text: string; model: string; provider: string; keyLabel?: string }> {
+  return callBrowserLLM({
+    prompt: pack.user,
+    systemPrompt: pack.system,
+    task: pack.task,
+    json: pack.json,
+    temperature: pack.temperature,
+    maxTokens: pack.maxTokens,
+    ...overrides,
+  });
 }
 
 export async function scanModelsDirect(raw: Partial<ActiveCustomLLM>): Promise<{
@@ -468,43 +517,54 @@ export async function testConnectionDirect(raw: Partial<ActiveCustomLLM>): Promi
   };
 }
 
+const clampScore = (v: unknown): number | undefined => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : undefined;
+};
+const strArray = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : undefined;
+
 export async function analyzeJobDirect(job: FreelanceJob): Promise<AIAnalysis & { model: string }> {
-  const prompt = `شما معمار ارشد سیستم‌های نرم‌افزاری، هوش مصنوعی و اتوماسیون تجاری هستید.
-پروژه فریلنسری زیر از پلتفرم "${job.platform || 'فریلنسری'}" را به شکل عمیق، واقع‌بینانه و مهندسی تحلیل کنید:
-عنوان: ${job.title}
-دسته تشخیص‌داده‌شده: ${job.category}
-توضیحات کامل کارفرما: ${job.description}
-بودجه اعلامی کارفرما: ${job.budgetFormatted || job.budget || 'توافقی / نامشخص'}
-تعداد پیشنهادهای فعلی رقبا: ${job.proposalsCount}
-
-خروجی را دقیقاً در قالب JSON معتبر زیر برگردانید:
-{
-  "automatabilityScore": 92,
-  "recommendedBid": 4200000,
-  "suggestedDuration": "۶ ساعت کاری (تحویل ۲ روزه)",
-  "technicalStack": ["Python 3.11", "FastAPI", "Structured Markdown Spec"],
-  "feasibilityReason": "تحلیل دقیق ۳ خطی به زبان فارسی درباره معماری تحویل سریع با بالاترین کیفیت و کمترین نیاز به جلسات رفت‌وبرگشتی با کارفرما",
-  "riskLevel": "low",
-  "winProbability": "۸۵٪",
-  "suggestedKicker": "قلاب فنی دقیق برای خط اول پیشنهاد (اشاره به یک ریسک یا نکته فنی ظریف در همین پروژه که نشان دهد شما معمار واقعی کار هستید)"
-}`;
-
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1500 });
-  const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
-  const recommendedBid = Number(parsed.recommendedBid) || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
+  const llm = await callPromptPack(analysisPrompt(job));
+  const parsed = parseJsonLooseClient<any>(llm.text);
+  if (!parsed || typeof parsed !== 'object') {
+    // Never fabricate an analysis (SPEC-013): a malformed model answer is an error, not a default score.
+    throw new Error('پاسخ مدل ساختار تحلیل معتبر نداشت؛ دوباره تلاش کنید یا از سوییچر مدل، مدل دیگری انتخاب کنید.');
+  }
+  const recommendedBidRaw = Number(parsed.recommendedBid);
+  const recommendedBid = Number.isFinite(recommendedBidRaw) && recommendedBidRaw > 0
+    ? Math.round(recommendedBidRaw)
+    : job.budget ? Math.round(job.budget * 0.9) : 3_500_000;
+  const pr = parsed.priceRange && typeof parsed.priceRange === 'object' ? parsed.priceRange : null;
+  const eh = parsed.effortHours && typeof parsed.effortHours === 'object' ? parsed.effortHours : null;
 
   return {
     model: llm.model,
-    automatabilityScore: Number(parsed.automatabilityScore) || 90,
+    automatabilityScore: clampScore(parsed.automatabilityScore) ?? clampScore(parsed.aiDoablePercent) ?? 50,
+    aiDoablePercent: clampScore(parsed.aiDoablePercent),
+    clarityScore: clampScore(parsed.clarityScore),
+    goNoGo: parsed.goNoGo === 'caution' || parsed.goNoGo === 'no-go' ? parsed.goNoGo : 'go',
     recommendedBid,
     recommendedBidFormatted: `${recommendedBid.toLocaleString('fa-IR')} تومان`,
-    suggestedDuration: parsed.suggestedDuration || '۱ الی ۲ روز کاری',
-    technicalStack: Array.isArray(parsed.technicalStack) ? parsed.technicalStack : ['AI Architecture', 'Automation'],
-    feasibilityReason:
-      parsed.feasibilityReason || 'پروژه کاملاً دیجیتال بوده و با معماری ماژولار و مستندات مهندسی قابل تحویل یک‌ضرب است.',
+    priceRange: pr ? {
+      min: Number(pr.min) || recommendedBid,
+      max: Number(pr.max) || recommendedBid,
+      walkAway: Number(pr.walkAway) || Math.round(recommendedBid * 0.7),
+    } : undefined,
+    effortHours: eh ? { ai: Number(eh.ai) || 0, humanReview: Number(eh.humanReview) || 0 } : undefined,
+    suggestedDuration: typeof parsed.suggestedDuration === 'string' && parsed.suggestedDuration.trim() ? parsed.suggestedDuration : 'نامشخص — پس از پاسخ سؤال‌های شفاف‌ساز',
+    technicalStack: strArray(parsed.technicalStack) || [],
+    deliverables: strArray(parsed.deliverables),
+    feasibilityReason: typeof parsed.feasibilityReason === 'string' ? parsed.feasibilityReason : '',
+    hiddenRequirements: strArray(parsed.hiddenRequirements),
+    redFlags: strArray(parsed.redFlags),
+    clarifyingQuestions: strArray(parsed.clarifyingQuestions),
+    assumptions: strArray(parsed.assumptions),
     riskLevel: parsed.riskLevel === 'high' || parsed.riskLevel === 'medium' ? parsed.riskLevel : 'low',
-    winProbability: parsed.winProbability || '۸۵٪',
-    suggestedKicker: parsed.suggestedKicker || 'ارسال پیش‌طرح معماری و ساختار دقیق خروجی همزمان با ثبت پیشنهاد',
+    winProbability: typeof parsed.winProbability === 'string' && parsed.winProbability.trim() ? parsed.winProbability : 'نامشخص',
+    competitionNote: typeof parsed.competitionNote === 'string' ? parsed.competitionNote : undefined,
+    suggestedKicker: typeof parsed.suggestedKicker === 'string' ? parsed.suggestedKicker : '',
+    proposalAngle: typeof parsed.proposalAngle === 'string' ? parsed.proposalAngle : undefined,
   };
 }
 
@@ -512,40 +572,37 @@ export async function generateProposalDirect(
   job: FreelanceJob,
   tone: string,
   budget: number,
-): Promise<{ proposal: string; proposedPrice: number; deliveryTime: string; model: string }> {
-  const targetPrice = budget || (job.budget ? Math.round(job.budget * 0.85) : 3500000);
-  const toneInstructionsMap: Record<string, string> = {
-    friendly_expert: 'لحن: متخصص ارشد با تجربه کاری بین‌المللی، خوش‌فکر، شفاف، بدون اغراق و کاملاً مسلط به کار.',
-    direct_urgent: 'لحن: بسیار موجز، نتیجه‌گرا و متمرکز بر تحویل سریع نسخه نهایی و تست‌شده.',
-    technical_detailed: 'لحن: معمار فنی دقیق؛ ذکر صریح ساختار خروجی، استاندارد کیفیت و مستندات تحویل.',
-  };
-
-  const prompt = `شما یک مجری طراز اول در کارلانسر و پونیشا هستید که با ارسال پیشنهادهای فنی دقیق و غیرکلیشه‌ای، بالاترین نرخ برد پروژه را دارد.
-عنوان پروژه: ${job.title}
-شرح پروژه: ${job.description}
-مبلغ پیشنهادی هدف: ${targetPrice} تومان
-${toneInstructionsMap[tone] || toneInstructionsMap.friendly_expert}
-
-قوانین طلایی:
-۱. هرگز از جملات کلیشه‌ای مثل «سلام وقت بخیر پروژه شما را خواندم»، «با کمال میل»، «تضمین ۱۰۰٪» یا «در اسرع وقت» استفاده نکنید.
-۲. در همان جمله اول مستقیماً سراغ اصل مسأله کارفرما بروید و بگویید دقیقاً چه ساختار/راه‌حلی برایش پیاده می‌کنید.
-۳. در ۲-۳ بولت کوتاه بگویید دقیقاً چه فایل‌ها و مستندات تمیز و آماده‌ای تحویل می‌گیرد (تا خیالش راحت شود کار بدون رفت‌وبرگشت فرسایشی جمع می‌شود).
-۴. در پایان یک سؤال فنی هوشمندانه و کوتاه بپرسید که کارفرما را ترغیب کند همین الان چت را با شما باز کند.
-
-خروجی را فقط به صورت JSON برگردانید:
-{
-  "proposal": "متن کامل، خوش‌فرم و آماده کپی پروپوزال فارسی",
-  "proposedPrice": ${targetPrice},
-  "deliveryTime": "۲ روز کاری"
-}`;
-
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 1600 });
+): Promise<{
+  proposal: string;
+  shortProposal?: string;
+  proposedPrice: number;
+  deliveryTime: string;
+  clarifyingQuestion?: string;
+  milestones?: Array<{ title: string; deliverable: string; days: number }>;
+  model: string;
+}> {
+  const targetPrice = budget || job.aiAnalysis?.recommendedBid || (job.budget ? Math.round(job.budget * 0.9) : 3_500_000);
+  const llm = await callPromptPack(proposalPrompt(job, {
+    tone,
+    targetPrice,
+    analysis: job.aiAnalysis ? {
+      suggestedKicker: job.aiAnalysis.suggestedKicker,
+      deliverables: job.aiAnalysis.deliverables,
+      clarifyingQuestions: job.aiAnalysis.clarifyingQuestions,
+      suggestedDuration: job.aiAnalysis.suggestedDuration,
+    } : undefined,
+  }));
   const parsed = parseJsonLooseClient<any>(llm.text) ?? {};
   return {
     model: llm.model,
-    proposal: parsed.proposal || llm.text,
+    proposal: typeof parsed.proposal === 'string' && parsed.proposal.trim() ? parsed.proposal : llm.text,
+    shortProposal: typeof parsed.shortProposal === 'string' ? parsed.shortProposal : undefined,
     proposedPrice: Number(parsed.proposedPrice) || targetPrice,
-    deliveryTime: parsed.deliveryTime || '۲ روز کاری',
+    deliveryTime: typeof parsed.deliveryTime === 'string' && parsed.deliveryTime.trim() ? parsed.deliveryTime : (job.aiAnalysis?.suggestedDuration || 'طبق توافق در چت'),
+    clarifyingQuestion: typeof parsed.clarifyingQuestion === 'string' ? parsed.clarifyingQuestion : undefined,
+    milestones: Array.isArray(parsed.milestones)
+      ? parsed.milestones.filter((m: any) => m && typeof m.title === 'string').map((m: any) => ({ title: m.title, deliverable: String(m.deliverable || ''), days: Number(m.days) || 1 }))
+      : undefined,
   };
 }
 
@@ -562,9 +619,12 @@ export async function categorizeJobDirect(
   description: string,
   tags: string[] = [],
 ): Promise<string> {
-  if (!readStoredCustomLLM()) return tags[0] || 'other';
-  const prompt = `از بین کلیدهای زیر دقیق‌ترین دسته را برای این پروژه انتخاب کن:\n${categoryPromptList()}\nعنوان: ${title}\nتوضیح: ${description}\nفقط JSON برگردان: {"category":"key"}`;
-  const llm = await callBrowserLLM({ prompt, json: true, maxTokens: 256, temperature: 0.1 });
-  const parsed = parseJsonLooseClient<any>(llm.text);
-  return parsed?.category || tags[0] || 'other';
+  // Gateway-first (SPEC-013): works with zero device keys; any failure degrades to tags.
+  try {
+    const llm = await callPromptPack(triagePrompt({ title, description }, categoryPromptList()));
+    const parsed = parseJsonLooseClient<any>(llm.text);
+    return typeof parsed?.category === 'string' && parsed.category ? parsed.category : tags[0] || 'other';
+  } catch {
+    return tags[0] || 'other';
+  }
 }

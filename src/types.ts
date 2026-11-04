@@ -17,7 +17,10 @@ export type DeliverableBlueprintMode =
   | 'ai_workflow_automation'
   | 'data_excel_financial'
   | 'feasibility_strategy_seo'
-  | 'bilingual_editorial_ux';
+  | 'bilingual_editorial_ux'
+  | 'presentation_slides'
+  | 'website_landing'
+  | 'creative_story_brand';
 
 export interface FreelanceJob {
   id: string;
@@ -77,6 +80,19 @@ export interface AIAnalysis {
   riskLevel: 'low' | 'medium' | 'high';
   winProbability: string;
   suggestedKicker: string;
+  // SPEC-013 extended analysis (optional for backwards compatibility)
+  aiDoablePercent?: number;
+  clarityScore?: number;
+  goNoGo?: 'go' | 'caution' | 'no-go';
+  priceRange?: { min: number; max: number; walkAway: number };
+  effortHours?: { ai: number; humanReview: number };
+  deliverables?: string[];
+  hiddenRequirements?: string[];
+  redFlags?: string[];
+  clarifyingQuestions?: string[];
+  assumptions?: string[];
+  competitionNote?: string;
+  proposalAngle?: string;
 }
 
 export interface ProposalResult {
