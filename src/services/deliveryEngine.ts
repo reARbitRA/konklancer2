@@ -1,5 +1,6 @@
 import { DeliverableBlueprintMode, FreelanceJob } from '../types';
-import { callBrowserLLM, parseJsonLooseClient } from './browserLLM';
+import { callBrowserLLM, callPromptPack, parseJsonLooseClient } from './browserLLM';
+import { deliveryArtifactsPrompt, deliveryPlanPrompt, deliverySpecPrompt, refineFilePrompt } from '../../shared/prompts';
 
 export interface BlueprintModeOption {
   id: Exclude<DeliverableBlueprintMode, 'auto'>;
@@ -90,10 +91,34 @@ export const BLUEPRINT_MODES: BlueprintModeOption[] = [
     label: 'بسته کپی‌رایتینگ UX/B2B، مقاله علمی و ترجمه تخصصی UK',
     subtitle: 'متن نهایی با استاندارد نشر بین‌المللی + جدول قبل/بعد + واژه‌نامه تخصصی + منطق تصمیم‌گیری محتوایی',
   },
+  {
+    id: 'presentation_slides',
+    label: 'ارائه و اسلاید (پاورپوینت/پیچ‌دک)',
+    subtitle: 'قوس روایی اسلایدبه‌اسلاید + متن هر اسلاید + یادداشت سخنران + پرامپت تصویر/چارت + سیستم رنگ و فونت',
+  },
+  {
+    id: 'website_landing',
+    label: 'وب‌سایت / لندینگ‌پیج آماده انتشار',
+    subtitle: 'HTML/CSS/JS کامل و راست‌چین‌پذیر + محتوای واقعی + سئوی پایه + راهنمای انتشار یک‌کلیکه',
+  },
+  {
+    id: 'creative_story_brand',
+    label: 'داستان، برند و بسته تصویر',
+    subtitle: 'متن خلاق نهایی + ساختار روایت + پرامپت‌های تصویر آماده تولید (فارسی/انگلیسی) + استایل‌گاید برند',
+  },
 ];
 
 export function detectOptimalBlueprintMode(job: FreelanceJob): Exclude<DeliverableBlueprintMode, 'auto'> {
   const txt = `${job.title} ${job.description} ${job.categoryKey}`.toLowerCase();
+  if (/پاورپوینت|اسلاید|پرزنتیشن|پیچ‌دک|پیچ دک|pitch deck|powerpoint|presentation|slides?/.test(txt)) {
+    return 'presentation_slides';
+  }
+  if (/لندینگ|صفحه فرود|landing page|وب‌سایت تک|وبسایت تک|سایت استاتیک|html/.test(txt)) {
+    return 'website_landing';
+  }
+  if (/داستان|رمان|فیلمنامه|قصه|لوگو|برندینگ|هویت بصری|تصویرسازی|نام‌گذاری برند/.test(txt)) {
+    return 'creative_story_brand';
+  }
   if (/مستند|داکیومنت|شرح مراحل|پروپوزال|srs|documentation|architecture|معماری/.test(txt)) {
     return 'deep_technical_spec';
   }
@@ -156,6 +181,23 @@ const MODE_ARCHITECT_INSTRUCTIONS: Record<Exclude<DeliverableBlueprintMode, 'aut
 - جدول تحلیلی «قبل و بعد / منطق تصمیم‌گیری UX و کپی‌رایتینگ» که نشان دهد چرا هر بخش به این شکل طراحی شده است
 - واژه‌نامه یکپارچه اصطلاحات تخصصی (Terminology & Style Guide) برای حفظ یکدستی کل برند/مقاله
 - نسخه جایگزین (A/B Variant) برای تیترها، CTAها یا چکیده مدیریتی.`,
+
+  presentation_slides: `خروجی باید یک بسته ارائه کامل و آماده ساخت در PowerPoint/Canva باشد:
+- فایل اصلی ارائه در قالب Markdown ساخت‌یافته + یک فایل JSON استاندارد اسلایدها (تیتر خبری هر اسلاید = پیام کامل آن اسلاید، نه برچسب؛ حداکثر ۴ بولت کوتاه؛ هر عدد/داده‌ای که در شرح نیست با [داده از کارفرما] علامت بخورد)
+- برای هر اسلاید: یادداشت سخنران (۲-۳ جمله)، پیشنهاد ویژوال (پرامپت تصویر انگلیسی آماده تولید یا مشخصات دقیق چارت/جدول)
+- سیستم طراحی یکپارچه: پالت رنگ (کد hex)، فونت فارسی/لاتین، نسبت 16:9، قواعد چیدمان راست‌چین
+- قوس روایی متناسب با هدف ارائه کارفرما + اسلاید پایانی با دعوت به اقدام مشخص.`,
+
+  website_landing: `خروجی باید یک وب‌سایت/لندینگ کامل، مستقل و آماده انتشار باشد:
+- فایل index.html کامل (مگر ساختار پروژه چیز دیگری بطلبد) با CSS/JS داخلی یکپارچه، بدون وابستگی به دارایی خارجی ناموجود؛ راست‌چین و فارسیِ بی‌نقص وقتی مخاطب فارسی است
+- محتوای واقعی و نهایی بر اساس شرح کارفرما (نه لورم ایپسوم)، فرم تماس/CTA کارکردی در سطح فرانت با اعتبارسنجی، ریسپانسیو موبایل/تبلت/دسکتاپ، دسترس‌پذیری پایه (کنتراست، aria، فوکوس)
+- سئوی پایه: title/description/OpenGraph فارسی، ساختار معنایی heading، سرعت بالا (بدون فریم‌ورک سنگین غیرضروری)
+- راهنمای انتشار یک‌کلیکه (GitHub Pages/Vercel) + جای دقیق ویرایش تلفن/قیمت/متن‌ها برای کارفرمای غیرفنی.`,
+
+  creative_story_brand: `خروجی باید یک بسته خلاق نهایی (داستان/برند/تصویر) در سطح انتشار باشد:
+- متن خلاق کامل و نهایی با ساختار روایی حرفه‌ای (قوس، شخصیت/صدا، ریتم) — نه طرح کلی؛ اگر پروژه چندبخشی است همه بخش‌های توافق‌شده در شرح، کامل
+- برای برند/تصویر: استایل‌گاید فشرده (پالت hex، تایپوگرافی، لحن، نبایدها) + پرامپت‌های تصویر آماده تولید به انگلیسی (سوژه، سبک، نور، ترکیب‌بندی، نگاتیو پرامپت) همراه توضیح فارسی هر کدام، در چند واریاسیون مشخص
+- جدول تصمیم‌های خلاقانه و منطق هر انتخاب، و فایل QA (یکدستی نام‌ها/اصطلاحات/لحن در کل متن).`,
 };
 
 /**
@@ -191,30 +233,7 @@ export async function generateEnterpriseDeliverablePackage(
     label: 'مرحله ۱ از ۳: طراحی «پیش‌طرح فنی برنده پیشنهاد» و کالبدشکافی دقیق نیازمندی‌های کارفرما...',
   });
 
-  const stage1Prompt = `شما معمار ارشد فنی و مشاور برجسته تحویل پروژه‌های سطح اول هستید.
-مشخصات پروژه کارفرما:
-- عنوان پروژه: ${job.title}
-- پلتفرم: ${job.platform} | بودجه اعلامی: ${job.budgetFormatted}
-- شرح کامل کارفرما:
-${job.description}
-${extraNotes}
-
-یک سند کوتاه، فوق‌العاده حرفه‌ای، دقیق و خیره‌کننده با عنوان «پیش‌طرح فنی و نقشه راه اختصاصی اجرای پروژه» به زبان فارسی روان و مهندسی بنویسید که مجری بتواند:
-هم قبل از استخدام برای جلب اعتماد ۱۰۰٪ کارفرما برایش بفرستد، و هم به عنوان «فصل صفرم (Executive Summary)» بسته تحویل نهایی باشد.
-
-ساختار الزامی این سند Markdown:
-1. **درک دقیق مسأله و هدف کلیدی کسب‌وکار کارفرما** (بدون هیچ جمله کلیشه‌ای؛ مستقیماً روی نیاز همین پروژه دست بگذارید)
-2. **۳ ریسک/نکته فنی پنهان در این پروژه و راه‌حل مهندسی ما برای هر کدام** (بخش طلایی که کارفرما را شگفت‌زده می‌کند)
-3. **معماری پیشنهادی و ساختار دقیق اقلام قابل تحویل (Deliverables Table)** در قالب جدول Markdown تمیز
-4. **زمان‌بندی فازبندی‌شده و معیارهای تضمین کیفیت و تحویل بدون رفت‌وبرگشت**
-
-متن را مستقیم با فرمت Markdown تمیز، خوش‌فرم و کامل بنویسید (بدون بلاک JSON).`;
-
-  const res1 = await callBrowserLLM({
-    prompt: stage1Prompt,
-    maxTokens: 3000,
-    temperature: 0.35,
-  });
+  const res1 = await callPromptPack(deliveryPlanPrompt(job, modeSpec, extraNotes));
   activeModel = res1.model;
   files['00-Executive-Pitch-and-Roadmap.md'] = res1.text;
   options?.partialFilesCallback?.({ ...files });
@@ -226,27 +245,7 @@ ${extraNotes}
     label: 'مرحله ۲ از ۳: تدوین «مستند جامع معماری، طراحی سیستم، جداول فنی و جزئیات پیاده‌سازی»...',
   });
 
-  const stage2Prompt = `بر اساس پروژه زیر و خلاصه معماری مرحله قبل، اکنون **مستند جامع و کامل فنی و مهندسی (Master Technical Specification & Deep Engineering Guide)** را با بالاترین عمق و کیفیت ممکن بنویسید.
-
-عنوان پروژه: ${job.title}
-شرح کارفرما: ${job.description}
-${extraNotes}
-راهنمای تخصصی این نوع پروژه:
-${modeSpec}
-
-خلاصه مرحله اول جهت هم‌راستایی کامل:
-${res1.text.slice(0, 1800)}
-
-الزامات سخت‌گیرانه کیفیت:
-- این مستند باید به قدری کامل، دقیق، پرجزئیات و ساختاریافته باشد که کارفرما با دیدن آن احساس کند با یک تیم مهندسی تراز اول طرف است.
-- حتماً شامل **دیاگرام معماری / جریان کار با کد Mermaid معتبر** (\`\`\`mermaid ... \`\`\`)، **جداول کامل Markdown**، **فرمول‌ها/قواعد منطقی یا اسکیمای دقیق داده‌ها**، **شرح گام‌به‌گام تمام بخش‌ها**، **موارد مرزی (Edge Cases) و مدیریت خطا**، و **چک‌لیست کنترل کیفیت (QA Acceptance Checklist)** باشد.
-- هیچ بخشی را خلاصه یا با عبارت «الی آخر / ...» رها نکنید. مستقیماً متن کامل Markdown را تولید کنید.`;
-
-  const res2 = await callBrowserLLM({
-    prompt: stage2Prompt,
-    maxTokens: 5500,
-    temperature: 0.3,
-  });
+  const res2 = await callPromptPack(deliverySpecPrompt(job, modeSpec, res1.text, extraNotes));
   activeModel = res2.model;
   files['01-Master-Technical-Specification.md'] = res2.text;
   options?.partialFilesCallback?.({ ...files });
@@ -258,60 +257,7 @@ ${res1.text.slice(0, 1800)}
     label: 'مرحله ۳ از ۳: تولید فایل‌های اجرایی کامل پروداکشن به سبک کلاود و «راهنمای رسمی تحویل»...',
   });
 
-  const stage3Prompt = `<role_and_authority>
-You are an Elite Staff Principal Systems Architect and Lead Production Engineer.
-Your code is indistinguishable from top 1% senior engineering staff at Google, Stripe, and Anthropic.
-You produce complete, resilient, enterprise-grade, battle-tested software packages ready for immediate deployment.
-</role_and_authority>
-
-<task_context>
-عنوان پروژه: ${job.title}
-پلتفرم: ${job.platform} | بودجه کارفرما: ${job.budgetFormatted}
-شرح کارفرما:
-${job.description}
-نوع بسته تحویلی: ${resolvedMode}
-${extraNotes}
-
-مستند معماری تصویب‌شده در مرحله قبل:
-${res2.text.slice(0, 3000)}
-</task_context>
-
-<anthropic_execution_mandates>
-۱. تفکر معماری قبل از کدنویسی (<thinking>):
-ابتدا درون بلوک <thinking> نیازمندی‌های دقیق، قراردادهای ورودی-خروجی، جریان خطا، و وابستگی‌ها را تحلیل کنید.
-
-۲. قانون سفت‌وسخت عدم استفاده از هرگونه Placeholder یا کد ناقص (ZERO-STUB MANDATE):
-- نوشتن هرگونه عبارتی نظیر \`// TODO\`, \`// implement here\`, \`pass\`, \`# add logic later\`, \`...\` یا \`// rest of code remains the same\` یک نقض بحرانی است.
-- تمام توابع، اعتبارسنجی‌ها، ریجکس‌ها، کلاس‌ها، روت‌ها و هندلرهای خطا باید ۱۰۰٪ به صورت کامل، عملیاتی و بدون نقص پیاده‌سازی شوند.
-- بسته‌های پایتون یا Node باید دارای فایل کامل \`requirements.txt\` (با ورژن‌های دقیق پین‌شده) یا \`package.json\` باشند.
-- فایل تنظیمات نمونه (\`.env.example\` یا \`config.py\`) باید تمام متغیرهای محیطی با توضیحات کامل را در بر داشته باشد.
-
-۳. فایل تست خودکار و اعتبارسنجی (Self-Verification Suite):
-حتماً یک فایل تست خودکار مستقل و قابل اجرا (مثلاً \`test_verification.py\` یا \`verify_pipeline.py\`) قرار دهید که کارفرما بتواند فوراً صحت کارکرد سیستم را بسنجد.
-
-۴. سند جامع و شکیل تحویل به کارفرما (\`99-Client-Handover-Guide.md\`):
-یک راهنمای گام‌به‌گام تحویل با بالاترین شأن مهندسی و احترام به کارفرما به زبان فارسی فصیح شامل:
-- خلاصه اجرایی و ویژگی‌های کلیدی تحویل‌شده
-- پیش‌نیازها و دستورات تک‌خطی راه‌اندازی (Setup & Quickstart)
-- سناریوهای تست و راستی‌آزمایی
-- راهنمای عیب‌یابی موارد مرزی (Troubleshooting & FAQ)
-- تعهد پشتیبانی و ارتقای آتی.
-
-۵. فرمت خروجی چندفایله (Claude Artifacts Format):
-برای حفظ بی‌نقص کاراکترها و فرمت فایل‌ها، هر فایل را دقیقاً با ساختار زیر صادر کنید:
-
-### FILE: path/to/filename.ext
-\`\`\`language
-[کد یا متن ۱۰۰٪ کامل، بدون خلاصه و آماده اجرا]
-\`\`\`
-</anthropic_execution_mandates>`;
-
-  const res3 = await callBrowserLLM({
-    prompt: stage3Prompt,
-    json: false,
-    maxTokens: 8192,
-    temperature: 0.2,
-  });
+  const res3 = await callPromptPack(deliveryArtifactsPrompt(job, { resolvedMode, modeSpec, stage2Text: res2.text, extraNotes }));
   activeModel = res3.model;
 
   const extractedFiles = extractArtifactOrJsonFiles(res3.text);
@@ -338,33 +284,7 @@ export async function refineSingleDeliverableFile(params: {
   currentContent: string;
   instruction: string;
 }): Promise<{ updatedContent: string; model: string }> {
-  const prompt = `<role>
-You are an Elite Staff Principal Engineer and Lead Code Reviewer.
-Your task is to refine, upgrade, or extend the specified file strictly adhering to the highest standards of code completeness, defensive programming, and architecture.
-</role>
-
-<context>
-پروژه: ${params.job.title}
-نام فایل هدف: ${params.fileName}
-دستور ارتقای کاربر:
-«${params.instruction}»
-
-محتوای فعلی فایل:
----
-${params.currentContent}
----
-</context>
-
-<rules>
-۱. قانون ممنوعیت خلاصه یا کوتاه‌سازی: تحت هیچ شرایطی از عباراتی نظیر "// کدهای قبلی بدون تغییر می‌مانند" یا "// TODO" استفاده نکنید. کل فایل باید از خط اول تا خط آخر به صورت ۱۰۰٪ کامل و اجرایی تولید شود.
-۲. فرمت خروجی: فقط و فقط خود محتوای نهایی فایل را در یک بلوک کد مناسب صادر کنید (یا متن کامل اگر فایل مارک‌داون است).
-</rules>`;
-
-  const res = await callBrowserLLM({
-    prompt,
-    maxTokens: 8192,
-    temperature: 0.2,
-  });
+  const res = await callPromptPack(refineFilePrompt(params));
   return { updatedContent: res.text, model: res.model };
 }
 

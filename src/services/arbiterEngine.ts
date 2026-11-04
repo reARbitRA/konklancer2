@@ -205,6 +205,7 @@ ${fileManifest}
 
   const res = await callBrowserLLM({
     prompt: arbiterPrompt,
+    task: 'qa',
     json: false,
     maxTokens: 8192,
     temperature: 0.15,
@@ -226,10 +227,16 @@ ${fileManifest}
   }
 
   const scoreMatch = auditDoc.match(/(?:نمره|Score|امتیاز)[:\s]*([0-9]{2,3})/i);
-  const overallScore = scoreMatch ? Math.min(100, parseInt(scoreMatch[1])) : 98;
+  // Honest fallback: no explicit score in the audit -> estimate only from preflight evidence,
+  // and never certify without an explicit score (no fabricated 98).
+  const blockers = updatedFindings.filter((f) => f.severity === 'CRITICAL').length;
+  const majors = updatedFindings.filter((f) => f.severity === 'MAJOR').length;
+  const overallScore = scoreMatch
+    ? Math.min(100, parseInt(scoreMatch[1]))
+    : Math.max(5, Math.min(79, 79 - blockers * 20 - majors * 8 - Math.max(0, updatedFindings.length - blockers - majors) * 2));
 
   return {
-    verdict: overallScore >= 80 ? 'CERTIFIED' : 'REMEDIATED',
+    verdict: scoreMatch && overallScore >= 80 ? 'CERTIFIED' : 'REMEDIATED',
     overallScore,
     findings: updatedFindings,
     remediatedFiles,
