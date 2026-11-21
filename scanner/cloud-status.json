@@ -1,13 +1,31 @@
 {
-  "phase": "started",
+  "phase": "finished",
+  "job_status": "success",
   "run_url": "https://github.com/reARbitRA/konklancer2/actions/runs/44856722575",
-  "started_at": "2026-11-21T02:35:44+00:00",
-  "request": {
-    "platforms": "parscoders,ponisha,karlancer",
-    "pages": 4,
-    "delay": 2,
-    "telegram": 1
+  "finished_at": "2026-11-21T02:39:22+00:00",
+  "projects_this_run": 209,
+  "by_category": {
+    "writing": 21,
+    "docs": 17,
+    "dev": 55,
+    "graphic": 20,
+    "other": 33,
+    "ai": 2,
+    "video": 14,
+    "data": 15,
+    "image": 2,
+    "automation": 11,
+    "uiux": 5,
+    "translation": 2,
+    "marketing": 9,
+    "audio": 3
   },
-  "projects_in_feed": 0,
-  "note": "اسکن واقعی روی رانر گیت‌هاب؛ این فایل خودش نشان می‌دهد اجرا شروع شده است."
+  "by_source": {
+    "parscoders": 89,
+    "ponisha": 80,
+    "telegram:ponisha_ir": 20,
+    "telegram:workarc": 20
+  },
+  "diagnostics": "=== parscoders.com ===\nrobots.txt -> 200\nصفحه اصلی -> 200 (445108 bytes)\nrobots (۳۰۰ کاراکتر اول):\nUser-agent: *\nDisallow: /admin/\nDisallow: /login/\nDisallow: /logout/\nDisallow: /register/\nDisallow: /reset-password/\nDisallow: /cellphone/register\nDisallow: /connect-*\nDisallow: /dashboard/\nDisallow: /conversation/\nDisallow: /api/\nDisallow: /anonymous-project/\n\nSitemap: https://parscoders.com/sitema\nسربرگ‌ها:\nHTTP/2 200 \nserver: nginx\ncontent-type: text/html; charset=UTF-8\nx-frame-options: SAMEORIGIN\nx-content-type-options: nosniff\nx-xss-protection: 1; mode=block\n\n=== ponisha.ir ===\nrobots.txt -> 404\nصفحه اصلی -> 200 (607883 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"minimum-scale=1, initial-scale=1, width=device-width, shrink-to-fit=no, user-scalable=no, viewport-fit=cover\" data-next-head=\"\"/><title data-next-head=\"\">صفحه مورد نظر ی\nسربرگ‌ها:\nHTTP/2 200 \nx-nextjs-cache: HIT\nx-powered-by: Next.js\ncontent-type: text/html; charset=utf-8\nx-envoy-upstream-service-time: 48\nserver: istio-envoy\n\n=== www.karlancer.com ===\nrobots.txt -> 504\nصفحه اصلی -> 504 (10950 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width\"><link href=\"/cdn-cgi/assets/css/static-pages-2.6.0.css\" rel=\"stylesheet\"><link rel=\"icon\" type=\"image/x-icon\" href=\"//www.karlancer.com/favicon.ico\"><title></title></head><body><section clas\nسربرگ‌ها:\nHTTP/2 504 \ncontent-type: text/html\nserver: ArvanCloud\nx-request-id: a688f45604a9112ebf546d47744a537d\nx-sid: 5340\n\n=== t.me ===\nrobots.txt -> 404\nصفحه اصلی -> 302 (0 bytes)\nrobots (۳۰۰ کاراکتر اول):\n<html>\n<head><title>404 Not Found</title></head>\n<body>\n<center><h1>404 Not Found</h1></center>\n<hr><center>nginx/1.30.7</center>\n</body>\n</html>\n\nسربرگ‌ها:\nHTTP/2 302 \nserver: nginx/1.30.7\ncontent-type: text/html; charset=UTF-8\n\n[karlancer] صفحه 1 خوانده نشد — robots.txt میزبان www.karlancer.com خوانده نشد (خطای شبکه یا بی‌دسترسی)؛ طبق RFC 9309 این میزبان محافظه‌کارانه کنار گذاشته شد: https://www.karlancer.com/projects\n[parscoders] صفحه 1: 19 پروژه\n[parscoders] صفحه 2: 23 پروژه\n[parscoders] صفحه 3: 23 پروژه\n[parscoders] صفحه 4: 24 پروژه\n[ponisha] صفحه 1: 20 پروژه\n[ponisha] صفحه 2: 20 پروژه\n[ponisha] صفحه 3: 20 پروژه\n[ponisha] صفحه 4: 20 پروژه\nدسته‌ها: توسعه وب، پلتفرم و نرم‌افزار: 45 · سایر: 27 · کپی‌رایتینگ، محتوا و مقاله‌نویسی: 18 · مستندات فنی، طرح توجیهی و اسناد: 15 · گرافیک، لوگو و بروشور: 15 · ویدیو و انیمیشن: 12 · داده، اکسل پیشرفته و تحلیل: 11 · مارکتینگ، سئو و شبکه‌های اجتماعی: 8 · اتوماسیون، ربات و اسکرپینگ: 7 · رابط کاربری و طراحی سایت: 4 · هوش مصنوعی، پرامپت و ورک‌فلو: 2 · ویرایش و روتوش تصویر: 2 · صدا و گویندگی: 2 · ترجمه تخصصی و زیرنویس: 1\n169 مورد خوانده شد؛ 169 پس از فیلتر؛ 169 مورد جدید در scanner/out/projects.jsonl\n=== جمع‌بندی صفحه‌ها ===\n169\nکانال‌های فعال برای اسکن: ['ponisha_ir', 'workarc']\n@ponisha_ir: 20 پیام\n@workarc: 20 پیام\n40 مورد خوانده شد؛ 40 پس از فیلتر؛ 40 مورد جدید در scanner/out/projects.jsonl\n[karlancer] ذخیره نشد — robots.txt میزبان www.karlancer.com خوانده نشد (خطای شبکه یا بی‌دسترسی)؛ طبق RFC 9309 این میزبان محافظه‌کارانه کنار گذاشته شد: https://www.karlancer.com/search\n[parscoders] ذخیره شد: parscoders.html.gz (615426 کاراکتر → 56270 بایت فشرده)\n[ponisha] ذخیره شد: ponisha.html.gz (196739 کاراکتر → 19378 بایت فشرده)\n[project-only-available] ذخیره شد: project-only-available.html.gz (615426 کاراکتر → 56282 بایت فشرده)\n[telegram-ponisha_ir] ذخیره شد: telegram-ponisha_ir.html.gz (119207 کاراکتر → 15801 بایت فشرده)\n[telegram-workarc] ذخیره شد: telegram-workarc.html.gz (129134 کاراکتر → 17775 بایت فشرده)\n[telegram-freelancer_projects] ذخیره شد: telegram-freelancer_projects.html.gz (102541 کاراکتر → 10528 بایت فشرده)\n6 نمونه ذخیره شد. فهرست: scanner/out/live-captures/manifest.json\n[tg:ponisha_ir p1] +20 rows (before=26539)\n[tg:ponisha_ir p2] +20 rows (before=26519)\n[tg:ponisha_ir p3] +20 rows (before=26499)\n[tg:ponisha_ir p4] +20 rows (before=26479)\n[tg:ponisha_ir p5] +20 rows (before=26459)\n[tg:ponisha_ir p6] +20 rows (before=26439)\n[tg:workarc p1] +19 rows (before=316)\n[tg:workarc p2] +12 rows (before=288)\n[parscoders] https://parscoders.com/project/only-available -> +1 rows\n[parscoders] https://parscoders.com/project/only-available?page=2 -> +6 rows\n[parscoders] https://parscoders.com/project/only-available?page=3 -> +10 rows\n[parscoders] https://parscoders.com/project/only-available?page=4 -> +9 rows\n[parscoders] https://parscoders.com/project/service/programming -> +1 rows\n[parscoders] https://parscoders.com/project/service/artificial-intelligence -> +1 rows\n[parscoders] https://parscoders.com/project/service/content-creation -> +1 rows\n[ponisha] https://ponisha.ir/search/projects -> +20 rows\nSaved 800 clean multi-page rows to scanner/cloud-feed.jsonl\nSupabase batch 1: HTTP 201 (100 rows)\nSupabase batch 2: HTTP 201 (100 rows)\nSupabase batch 3: HTTP 200 (100 rows)\nSupabase batch 4: HTTP 200 (100 rows)\n",
+  "note": "فید واقعی از اجرای اسکنر روی رانر گیت‌هاب؛ هیچ داده‌ی ساختگی در آن نیست."
 }
